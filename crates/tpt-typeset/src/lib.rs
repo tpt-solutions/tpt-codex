@@ -8,9 +8,10 @@
 //! Implemented so far:
 //! - [`Outline`]: section numbers, unique anchors, table of contents, anchor lookup.
 //! - [`DocumentClass`]: `article` and `report` as a typed schema.
+//! - [`parse_math`]: a LaTeX-style math subset with structured errors (no layout yet).
 //!
 //! Not yet implemented: footnotes, citations and bibliography, figure and table
-//! numbering, cross-references inside text, math, and `tpt-layout` box conversion.
+//! numbering, cross-references inside text, math layout, and `tpt-layout` box conversion.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -19,9 +20,11 @@
 extern crate alloc;
 
 mod class;
+mod math;
 mod outline;
 
 pub use class::{ClassSpec, DocumentClass, UnknownClass};
+pub use math::{MAX_DEPTH, MathError, MathNode, parse_math, symbol_glyph, to_plain_text};
 pub use outline::{Outline, OutlineEntry, TocLine, number_string, slugify};
 
 pub use tpt_codex_core as core;
