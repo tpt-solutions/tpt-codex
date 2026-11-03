@@ -90,6 +90,7 @@ dependencies = [
 name = "tpt-codex-app"
 version = "0.1.0-spec"
 dependencies = [
+ "serde_json",
  "tpt-codex-core",
 ]
 
