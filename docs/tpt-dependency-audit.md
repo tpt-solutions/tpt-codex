@@ -19,7 +19,7 @@ with `--sys-roots` set to the TPT crates. Nothing was added to this repository's
 | Crate | License | `no_std` attribute in source | Resolved closure (normal deps) | License problems in closure |
 | --- | --- | --- | --- | --- |
 | `tpt-model` (`tpt-model/crates/tpt-model`) | MIT OR Apache-2.0 | yes | 22 dependencies, includes `tpt-crypto-stub` | `blake3`, `constant_time_eq` (CC0 / MIT-0 alternatives) |
-| `tpt-text` (`tpt-text/crates/tpt-text`) | MIT OR Apache-2.0 | yes | 16 dependencies | `self_cell` (Apache-2.0 OR GPL-2.0-only) |
+| `tpt-text` (`tpt-text/crates/tpt-text`) | MIT OR Apache-2.0 | yes | 16 dependencies | none on branch `replace-self-cell` (local clone, commit `9a110a6`, not pushed); `self_cell` removed |
 | `tpt-layout` | MIT OR Apache-2.0 | yes | 0 dependencies | none |
 | `tpt-canvas` (`tpt-canvas/crates/tpt-canvas`) | MIT OR Apache-2.0 | yes | 1 dependency | none |
 | `tpt-canvas-pdf` | MIT OR Apache-2.0 | no | 3 dependencies | none |
@@ -37,20 +37,22 @@ crates other than the rows above.
 
 ## Blockers and decisions needed
 
-1. **`self_cell` (via `tpt-text`).** The only permissive option is Apache-2.0 alone, which the spec
-   forbids. Options: ask upstream to add an MIT option, vendor a copy under MIT, or replace the
-   dependency. Until resolved, `tpt-text` and Phase 1 flow shaping are blocked.
-2. **`tpt-crypto-stub` leaks into `tpt-model`.** The TODO asks that `*-stub` crates not reach our
-   tree. `tpt-model` depends on `tpt-crypto-stub` as a normal dependency, which brings in `blake3`.
-   This needs a fix in `tpt-model` (feature-gate the stub or drop it) before adoption.
-3. **CC0-1.0 and MIT-0 alternatives.** `blake3` is `CC0-1.0 OR Apache-2.0 OR …` and
-   `constant_time_eq` is `CC0-1.0 OR MIT-0 OR Apache-2.0`. Both can be satisfied by a permissive
-   alternative, but neither license is on the allow-list. Adding them is a policy decision.
-   `CC0-1.0` is a public-domain dedication. `MIT-0` is MIT without the attribution clause.
+1. **`self_cell` (via `tpt-text`): resolved on a branch.** `tpt-text` now owns its font bytes and parses
+   faces per call, so `self_cell` is gone. The full `tpt-text` closure passes the gate. This is a
+   performance regression that still needs work: the benchmark in `benches/layout` is 20 to 90 percent
+   slower. The fix is to build shapers once per layout. Tracked in `tpt-text`'s `TODO.md`.
+2. **`blake3` (via `tpt-crypto-stub` → `tpt-model`): blocked, needs a decision.** `blake3` is licensed
+   `CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception`. It has no MIT option, and CC0 is not allowed,
+   so it cannot be used anywhere in the graph, including tests and examples. Removing it means changing
+   `tpt-model`'s default digest. That changes envelope hashes. Options: `sha2` (MIT OR Apache-2.0), or
+   `blake2` (MIT OR Apache-2.0), which keeps the BLAKE family. Either needs a digest identifier in the
+   envelope so existing hashes can still be checked.
+3. **`constant_time_eq` (via `blake3`).** Goes away with item 2.
 
 ## Next steps
 
-- Decide items 1–3 above.
+- Decide item 2 (digest choice and envelope compatibility).
+- Review the `replace-self-cell` branch in the tpt-text clone, then push it if approved.
 - Once approved, run `cargo build --target thumbv7m-none-eabi` and `wasm32-unknown-unknown` on the
   candidate crates to verify the `no_std` attribute.
 - Re-run this audit on every dependency bump.
