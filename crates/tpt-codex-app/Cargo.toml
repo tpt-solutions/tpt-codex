@@ -10,6 +10,9 @@ publish.workspace = true
 
 [dependencies]
 tpt-codex-core.workspace = true
+tpt-codex-markdown.workspace = true
+tpt-codex-views.workspace = true
+tpt-typeset.workspace = true
 serde_json = { workspace = true, features = ["std"] }
 
 [lints]

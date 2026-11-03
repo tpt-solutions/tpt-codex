@@ -92,6 +92,9 @@ version = "0.1.0-spec"
 dependencies = [
  "serde_json",
  "tpt-codex-core",
+ "tpt-codex-markdown",
+ "tpt-codex-views",
+ "tpt-typeset",
 ]
 
 [[package]]
@@ -113,6 +116,7 @@ dependencies = [
 name = "tpt-codex-markdown"
 version = "0.1.0-spec"
 dependencies = [
+ "serde_json",
  "tpt-codex-core",
 ]
 
