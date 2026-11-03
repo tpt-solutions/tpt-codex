@@ -10,22 +10,22 @@ Legend: `[ ]` todo · `[x]` done
 ## Phase 0 — Foundation & Gates (Weeks 1-2)
 
 ### Repo & licensing
-- [ ] `git init`, create GitHub repo under `tpt-solutions`, add `.gitignore`, `rust-toolchain.toml`, `rustfmt.toml`
-- [ ] Add `LICENSE-MIT` and `LICENSE-APACHE` (copyright TPT Solutions 2026)
-- [ ] Set `license = "MIT OR Apache-2.0"`, `authors = ["TPT Solutions"]` in `[workspace.package]`
-- [ ] Add SPDX header (`MIT OR Apache-2.0`) convention + check script
-- [ ] README (mission, license section with standard dual-license + contribution clause), CONTRIBUTING, SECURITY, CHANGELOG
-- [ ] Write the ecosystem-wide "TPT dependency map" doc (see "Verified TPT dependencies" below)
+- [ ] `git init`, create GitHub repo under `tpt-solutions`, add `.gitignore`, `rust-toolchain.toml`, `rustfmt.toml` — _local parts done; GitHub repo not yet created_
+- [x] Add `LICENSE-MIT` and `LICENSE-APACHE` (copyright TPT Solutions 2026)
+- [x] Set `license = "MIT OR Apache-2.0"`, `authors = ["TPT Solutions"]` in `[workspace.package]`
+- [x] Add SPDX header (`MIT OR Apache-2.0`) convention + check script (`scripts/check_spdx.py`)
+- [x] README (mission, license section with standard dual-license + contribution clause), CONTRIBUTING, SECURITY, CHANGELOG
+- [x] Write the ecosystem-wide "TPT dependency map" doc (see "Verified TPT dependencies" below) — `docs/tpt-dependency-map.md` (entries still unverified)
 
 ### Workspace scaffold
-- [ ] Cargo workspace root (resolver 2, edition 2024, shared deps/lints)
-- [ ] `tpt-codex-core` (`no_std` + alloc)
-- [ ] `tpt-codex-views` (`no_std` + alloc)
-- [ ] `tpt-codex-markdown` (`no_std` + alloc)
-- [ ] `tpt-typeset` (`no_std` + alloc for parsing/AST) — NEW, does not exist in org
-- [ ] `tpt-codex-interop` (std)
-- [ ] `tpt-codex-app` (WASM-first, std)
-- [ ] Add `no_std` build check for core/views/markdown/typeset (thumbv7m or wasm32-unknown-unknown)
+- [x] Cargo workspace root (resolver 2, edition 2024, shared deps/lints)
+- [x] `tpt-codex-core` (`no_std` + alloc)
+- [x] `tpt-codex-views` (`no_std` + alloc) — scaffold only
+- [x] `tpt-codex-markdown` (`no_std` + alloc) — scaffold only
+- [x] `tpt-typeset` (`no_std` + alloc for parsing/AST) — NEW, does not exist in org — scaffold only
+- [x] `tpt-codex-interop` (std) — scaffold only
+- [x] `tpt-codex-app` (WASM-first, std) — scaffold only
+- [x] Add `no_std` build check for core/views/markdown/typeset (thumbv7m and wasm32-unknown-unknown, both pass locally)
 
 ### Verified TPT dependencies (github.com/tpt-solutions, all `MIT OR Apache-2.0`)
 - [ ] Add as git deps pinned by `rev` (crates.io publication unconfirmed — re-check, then switch to versions)
@@ -44,31 +44,31 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Audit transitive licenses (`cargo tree`, `cargo deny`)
 
 ### Strict licensing CI gate
-- [ ] `deny.toml`: allow MIT, Apache-2.0 (only when paired with MIT), 0BSD, BSD-2-Clause, BSD-3-Clause, Unicode-DFS-2016, Zlib
-- [ ] `deny.toml`: deny GPL-2.0, GPL-3.0, AGPL-3.0, SSPL, BSL, Apache-2.0-only
-- [ ] Ban `*-sys` crates in core + views crates
-- [ ] Script: parse `Cargo.lock` / `cargo metadata` and fail on any new Apache-2.0-only crate
-- [ ] Script tests (fixtures with an Apache-only crate must fail)
-- [ ] Decide handling of `Apache-2.0 WITH LLVM-exception` and `Unicode-3.0` (spec lists only `Unicode-DFS-2016`)
+- [x] `deny.toml`: allow MIT, 0BSD, BSD-2-Clause, BSD-3-Clause, Unicode-DFS-2016, Unicode-3.0, Zlib (Apache-2.0 omitted: `X OR Apache-2.0` passes via X)
+- [x] `deny.toml`: deny GPL-2.0, GPL-3.0, AGPL-3.0, SSPL, BSL, Apache-2.0-only — _`cargo deny` itself not run locally (not installed)_
+- [x] Ban `*-sys` crates in core + views crates (script checks the dependency closure)
+- [x] Script: parse `Cargo.lock` / `cargo metadata` and fail on any new Apache-2.0-only crate (`scripts/check_licenses.py`)
+- [x] Script tests (fixtures with an Apache-only crate must fail) — `scripts/test_check_licenses.py`
+- [x] Decide handling of `Apache-2.0 WITH LLVM-exception` and `Unicode-3.0` — Unicode-3.0 allowed (serde derive needs it); WITH-exceptions rejected. _Needs maintainer sign-off._
 
 ### CI (GitHub Actions)
-- [ ] `cargo deny check licenses` (required on all PRs)
-- [ ] Apache-only script gate
-- [ ] `cargo fmt --check`, `cargo clippy -D warnings`
-- [ ] `cargo test` (Linux, Windows, macOS)
-- [ ] `wasm32-unknown-unknown` build
-- [ ] `no_std` build check
+- [x] `cargo deny check licenses` (required on all PRs) — workflow written; not yet run on GitHub
+- [x] Apache-only script gate — workflow written; not yet run on GitHub
+- [x] `cargo fmt --check`, `cargo clippy -D warnings` — workflow written; passes locally
+- [x] `cargo test` (Linux, Windows, macOS) — workflow written; passes locally on Windows only
+- [x] `wasm32-unknown-unknown` build — workflow written; passes locally
+- [x] `no_std` build check — workflow written; passes locally
 - [ ] Branch protection requiring all above
 
 ### Data model foundation
-- [ ] Define IDs & primitives: `BlockId`, `SheetId`, `Rect`, `TextStyle`, `LayoutMode` (Flow/Grid/Absolute), `MediaSource`
-- [ ] Define `Block` enum: `Text`, `Grid`, `Media`, `Container`
-- [ ] Add `Block::Query` (mentioned in spec §4 note but missing from the enum) and define its shape
-- [ ] `Document` type: DAG of blocks, root, metadata (front matter)
+- [x] Define IDs & primitives: `BlockId`, `SheetId`, `Rect`, `TextStyle`, `LayoutMode` (Flow/Grid/Absolute), `MediaSource`
+- [x] Define `Block` enum: `Text`, `Grid`, `Media`, `Container` (+ `Query`)
+- [x] Add `Block::Query` (mentioned in spec §4 note but missing from the enum) and define its shape — `Query { source: String }`; language owned by `tpt-query`
+- [x] `Document` type: DAG of blocks, root, metadata (front matter)
 - [ ] `tpt-model` schema + versioning for the Block tree
-- [ ] Basic serialization / deserialization
-- [ ] DAG invariants (no cycles, dangling `BlockId`s) + validation
-- [ ] Unit + property tests for model
+- [x] Basic serialization / deserialization (serde JSON, deterministic `BTreeMap` order)
+- [x] DAG invariants (no cycles, dangling `BlockId`s) + validation (`Document::validate`)
+- [ ] Unit + property tests for model — _unit/integration tests done (`tests/model.rs`); property tests not yet written_
 
 **Milestone 0:** CI is green, license gate demonstrably blocks an Apache-only dep, `Block` tree round-trips through serialization.
 
@@ -212,8 +212,8 @@ Legend: `[ ]` todo · `[x]` done
 - No native video/audio editing or playback
 
 ## Open questions / spec inconsistencies to resolve
-- [ ] `Block::Query` is referenced but not defined in the enum
-- [ ] Spec crate names differ from the real repos (`tpt-lattice-import` → `tpt-lattice-import-xlsx`; `tpt-canvas-pdf` lives in `tpt-canvas`)
+- [x] `Block::Query` is referenced but not defined in the enum — now defined
+- [x] Spec crate names differ from the real repos (`tpt-lattice-import` → `tpt-lattice-import-xlsx`; `tpt-canvas-pdf` lives in `tpt-canvas`) — recorded in `docs/tpt-dependency-map.md`
 - [ ] `tpt-typeset` was marked "no_std: ✅" with deps on `tpt-layout`/`tpt-canvas` — confirm those are `no_std`
 - [ ] "Zero Apache-only" rule vs. TPT repos showing "Apache-2.0" on GitHub — all verified dual in Cargo.toml; re-verify on every dep bump
 - [ ] Phase 2 PDF milestone depends on Phase 3
