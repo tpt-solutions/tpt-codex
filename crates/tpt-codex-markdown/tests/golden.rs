@@ -12,7 +12,9 @@ use tpt_codex_markdown::{from_markdown, to_markdown};
 const FIXTURE: &str = include_str!("../../../fixtures/notes.md");
 
 fn repo_path(rel: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(rel)
 }
 
 #[test]
@@ -25,7 +27,10 @@ fn fixture_matches_golden_json() {
         fs::write(&golden, &json).unwrap();
     }
     let expected = fs::read_to_string(&golden).unwrap();
-    assert_eq!(json, expected, "golden JSON differs; run with UPDATE_GOLDEN=1 if intended");
+    assert_eq!(
+        json, expected,
+        "golden JSON differs; run with UPDATE_GOLDEN=1 if intended"
+    );
 
     let out_dir = repo_path("target/golden");
     fs::create_dir_all(&out_dir).unwrap();
