@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  license-gate:
+    name: Strict licensing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+      - name: Reject Apache-2.0-only crates and -sys crates in core/views
+        run: bash scripts/check-licenses.sh
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+        if: matrix.os == 'ubuntu-latest'
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  no-std:
+    name: no_std + wasm builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7m-none-eabi, wasm32-unknown-unknown
+      - run: cargo build -p tpt-codex-core -p tpt-codex-views -p tpt-codex-markdown -p tpt-typeset --target thumbv7m-none-eabi
+      - run: cargo build -p tpt-codex-core -p tpt-codex-views -p tpt-codex-markdown -p tpt-typeset --target wasm32-unknown-unknown
