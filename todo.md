@@ -68,7 +68,7 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] `tpt-model` schema + versioning for the Block tree
 - [x] Basic serialization / deserialization (serde JSON, deterministic `BTreeMap` order)
 - [x] DAG invariants (no cycles, dangling `BlockId`s) + validation (`Document::validate`)
-- [ ] Unit + property tests for model — _unit/integration tests done (`tests/model.rs`); property tests not yet written_
+- [x] Unit + property tests for model — `tests/model.rs` and randomized `tests/properties.rs`
 
 **Milestone 0:** CI is green, license gate demonstrably blocks an Apache-only dep, `Block` tree round-trips through serialization.
 
@@ -99,17 +99,17 @@ Legend: `[ ]` todo · `[x]` done
 ## Phase 2 — Markdown & Typesetting (Weeks 6-8)
 
 ### tpt-codex-markdown
-- [ ] `from_markdown(&str) -> Result<Document, ParseError>`
-- [ ] `to_markdown(&Document) -> String`
-- [ ] CommonMark mapping: headings, paragraphs, lists, code blocks, links, emphasis, images
+- [x] `from_markdown(&str) -> Result<Document, ParseError>` — front matter, headings, paragraphs; other syntax is a structured error
+- [x] `to_markdown(&Document) -> Result<String, SerializeError>` — refuses anything it cannot write back exactly
+- [ ] CommonMark mapping: headings, paragraphs _(done)_; lists, code blocks, links, emphasis, images _(not yet — needs model variants or inline support)_
 - [ ] Codex-Flavored Markdown: `::: grid { id="..." }` blocks (table body → lattice sheet)
 - [ ] `::: canvas { ratio="16:9" }` slide containers
 - [ ] `$$ ... $$` math blocks (+ inline math)
 - [ ] Citations `[@key]`, cross-refs `[#id]`, figure attrs `{#fig:id width=80%}`
-- [ ] `.cdx` ("Codex Script") format: YAML front matter (title, author, date, class)
+- [x] `.cdx` ("Codex Script") format: front matter (title, author, date, class) — simple `key: value` subset of YAML, not full YAML
 - [ ] Define & document the grammar formally (spec examples are not exhaustive)
-- [ ] Structured parse errors: line/column + fix suggestion
-- [ ] Round-trip + snapshot tests; fuzz the parser
+- [x] Structured parse errors: line/column + fix suggestion (for the supported subset; column is 1 for line-level errors)
+- [ ] Round-trip + snapshot tests; fuzz the parser — _round-trip tests done (including randomized); snapshots and fuzzing not yet_
 
 ### tpt-typeset
 - [ ] Semantic AST: chapters, sections, footnotes, citations, TOC, cross-refs
