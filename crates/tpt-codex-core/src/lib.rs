@@ -19,6 +19,7 @@ mod id;
 mod ops;
 mod platform;
 mod primitives;
+mod text;
 
 pub use block::{Block, Query};
 pub use document::{Document, Metadata, SCHEMA_VERSION};
@@ -28,3 +29,4 @@ pub use id::{BlockId, SheetId};
 pub use ops::{EditError, Op, apply};
 pub use platform::{Clock, FixedClock, MemoryStorage, Storage};
 pub use primitives::{LayoutMode, MediaSource, Rect, TextStyle};
+pub use text::{edit_text, replace_chars};

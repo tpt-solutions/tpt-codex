@@ -104,6 +104,15 @@ pub enum EditError {
     IsRoot(BlockId),
     /// A block names a child that does not exist.
     DanglingChild(BlockId),
+    /// A text edit was given to a block that is not a text block.
+    NotText(BlockId),
+    /// A character range is outside the text.
+    RangeOutOfBounds {
+        /// The block being edited.
+        id: BlockId,
+        /// Number of characters in the text.
+        len: usize,
+    },
 }
 
 impl fmt::Display for EditError {
@@ -129,6 +138,12 @@ impl fmt::Display for EditError {
             ),
             Self::IsRoot(id) => write!(f, "block {} is the root and cannot be removed", id.0),
             Self::DanglingChild(id) => write!(f, "child block {} does not exist", id.0),
+            Self::NotText(id) => write!(f, "block {} is not a text block", id.0),
+            Self::RangeOutOfBounds { id, len } => write!(
+                f,
+                "character range is outside block {} (text length {len})",
+                id.0
+            ),
         }
     }
 }
