@@ -19,3 +19,7 @@ Desktop.ini
 .env.*
 *.local
 *.log
+
+# Python bytecode
+__pycache__/
+*.pyc
