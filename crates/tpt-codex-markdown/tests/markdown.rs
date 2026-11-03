@@ -289,3 +289,48 @@ fn randomized_documents_round_trip_or_are_refused() {
         "too few documents were accepted: {accepted}"
     );
 }
+
+// Not a fuzzer: random inputs must never panic. Malformed input returns an error.
+#[test]
+fn reader_never_panics_on_random_input() {
+    const CHARS: &[char] = &[
+        'a',
+        ' ',
+        '\n',
+        '\r',
+        '\t',
+        '#',
+        '-',
+        '*',
+        '>',
+        '|',
+        '`',
+        '~',
+        '"',
+        '\\',
+        ':',
+        '$',
+        '[',
+        '!',
+        '1',
+        '.',
+        ')',
+        '=',
+        '_',
+        'é',
+        '\u{1F600}',
+        '\0',
+    ];
+    for seed in 0..2000u64 {
+        let mut rng = Rng(seed ^ 0xABCD);
+        let len = rng.below(120);
+        let src: String = (0..len).map(|_| CHARS[rng.below(CHARS.len())]).collect();
+        if let Ok(doc) = from_markdown(&src) {
+            assert_eq!(
+                doc.validate(),
+                Ok(()),
+                "seed {seed}: accepted an invalid document"
+            );
+        }
+    }
+}
