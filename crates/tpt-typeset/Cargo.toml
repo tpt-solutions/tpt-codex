@@ -1,0 +1,15 @@
+[package]
+name = "tpt-typeset"
+description = "Semantic typesetting engine for tpt-codex (no_std + alloc parsing/AST)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tpt-codex-core.workspace = true
+
+[lints]
+workspace = true

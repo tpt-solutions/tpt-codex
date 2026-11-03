@@ -1,0 +1,15 @@
+[package]
+name = "tpt-codex-markdown"
+description = "Markdown and Codex Script parser/serializer for tpt-codex (no_std + alloc)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tpt-codex-core.workspace = true
+
+[lints]
+workspace = true

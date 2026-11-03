@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0-spec"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+publish = false
+
+[workspace.dependencies]
+tpt-codex-core = { path = "crates/tpt-codex-core" }
+tpt-codex-views = { path = "crates/tpt-codex-views" }
+tpt-codex-markdown = { path = "crates/tpt-codex-markdown" }
+tpt-typeset = { path = "crates/tpt-typeset" }
+tpt-codex-interop = { path = "crates/tpt-codex-interop" }
+tpt-codex-app = { path = "crates/tpt-codex-app" }
+
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
