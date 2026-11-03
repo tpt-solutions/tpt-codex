@@ -36,6 +36,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Upload golden output for the determinism check
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.os }}
+          path: target/golden/
+          if-no-files-found: error
 
   no-std:
     name: no_std + wasm builds
@@ -47,3 +53,27 @@ jobs:
           targets: thumbv7m-none-eabi, wasm32-unknown-unknown
       - run: cargo build -p tpt-codex-core -p tpt-codex-views -p tpt-codex-markdown -p tpt-typeset --target thumbv7m-none-eabi
       - run: cargo build -p tpt-codex-core -p tpt-codex-views -p tpt-codex-markdown -p tpt-typeset --target wasm32-unknown-unknown
+
+  determinism:
+    name: Byte-identical output across OSes
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: golden-*
+          path: golden
+      - name: Compare golden JSON byte-for-byte
+        run: |
+          cd golden
+          cmp golden-ubuntu-latest/notes.json golden-windows-latest/notes.json
+          cmp golden-ubuntu-latest/notes.json golden-macos-latest/notes.json
+          echo "golden output identical on all platforms"
+
+  scripts:
+    name: Gate scripts (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest scripts/test_check_licenses.py
+      - run: python3 scripts/check_spdx.py
