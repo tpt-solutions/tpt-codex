@@ -1,0 +1,42 @@
+# cargo-deny configuration. Enforced by `cargo deny check licenses` on every PR.
+#
+# Apache-2.0 is deliberately NOT in `allow`. A crate licensed "MIT OR Apache-2.0"
+# is satisfied by its MIT option; a crate licensed "Apache-2.0" alone is rejected.
+# Open question (see todo.md): "Apache-2.0 WITH LLVM-exception" is still rejected.
+
+[graph]
+all-features = true
+
+[licenses]
+allow = [
+    "MIT",
+    "0BSD",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+]
+deny = [
+    "GPL-2.0",
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "AGPL-3.0",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "SSPL-1.0",
+    "BUSL-1.1",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+# No C-FFI in core or view crates. Enforced for those crates by
+# scripts/check_licenses.py; `-sys` crates are also flagged here globally.
+deny = [
+    { name = "libz-sys" },
+    { name = "openssl-sys" },
+]
