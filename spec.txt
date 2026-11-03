@@ -1,0 +1,228 @@
+tpt-codex Design Specification
+Version: 0.1.0-spec
+License: MIT OR Apache-2.0 (Copyright © 2026 TPT Solutions)
+Status: Draft / Review
+Author: Phillip @ TPT Solutions
+1. Mission
+tpt-codex is a unified, deterministic, and strictly-licensed document and data workspace. It replaces fragmented office suites with a single, headless data model that can be projected as a flowing document, a live spreadsheet, a presentation canvas, or a byte-exact PDF, universally accessible via WebAssembly.
+2. Core Philosophy
+Single Source of Truth: Data is strictly decoupled from presentation. A "document" is a tree of structured blocks. The UI is merely a reactive projection of that tree.
+Deterministic Rendering: Leveraging tpt-layout and tpt-text, the same data model yields byte-identical visual output across native desktop, browser (WASM), and PDF, eliminating platform-specific rendering quirks.
+Strict Licensing: Zero Apache-2.0-only dependencies. All dependencies must be MIT, 0BSD, BSD-2/3-Clause, Unicode-DFS-2016, or explicitly dual-licensed (MIT OR Apache-2.0). This is non-negotiable and enforced at the CI level.
+Headless & no_std Core: The core data model and evaluation logic are pure Rust (no_std + alloc). Platform-specific UI, I/O, and rendering are isolated behind trait boundaries.
+3. Crate Layout
+The project is structured as a Cargo workspace to maintain strict modularity:
+Crate
+Purpose
+no_std
+tpt-codex-core
+The unified Block-based data model, CRDT operations, and schema definitions (backed by tpt-model).
+✅
+tpt-codex-views
+Projection engines: Flow (document), Grid (lattice embed), Canvas (slides), and Paginated (PDF).
+✅
+tpt-codex-interop
+Import/Export adapters. Best-effort ingestion of .docx, .xlsx, .pdf into the core model via tpt-doc and tpt-lattice-import.
+❌
+tpt-codex-app
+The WASM-first application shell, wiring the core to tpt-appfront for reactive UI rendering.
+❌
+4. The Unified Data Model (tpt-codex-core)
+The document is represented as a directed acyclic graph (DAG) of Block nodes, managed by tpt-replicate for offline-first, conflict-free synchronization.
+
+pub enum Block {
+    /// A paragraph or text run, shaped by tpt-text.
+    Text { content: String, style: TextStyle },
+    
+    /// A live, evaluatable grid. Can be inline or a full-sheet reference.
+    /// Backed by tpt-lattice-core and tpt-lattice-evaluator.
+    Grid { sheet_id: SheetId, view_bounds: Option<Rect> },
+    
+    /// Media: Images, SVGs, or embedded tpt-canvas drawing commands.
+    Media { source: MediaSource, alt_text: Option<String> },
+    
+    /// A container for grouping blocks (e.g., a Slide, a Column, a Section).
+    Container { 
+        layout_mode: LayoutMode, // Flow, Grid, or Absolute
+        children: Vec<BlockId>, 
+    },
+}
+
+Note: Formulas and database queries are not hardcoded into the text; they are first-class Block::Grid or Block::Query entities that evaluate dynamically.
+5. View Projections (tpt-codex-views)
+The same tpt-codex-core tree is rendered differently based on the active "View Mode":
+Flow View (Document): Uses tpt-layout for standard block/inline flow, margin collapsing, and typographic hierarchy.
+Grid View (Spreadsheet): When a Block::Grid is focused, the view swaps to the tpt-lattice Canvas/WebGL renderer, allowing cell editing, formula entry (LES syntax), and real-time evaluation.
+Canvas View (Slideshows): A Block::Container with LayoutMode::Absolute and a fixed aspect ratio (e.g., 16:9). Children are positioned via explicit X/Y coordinates, rendered via tpt-canvas.
+Paginated View (PDF/Print): Uses tpt-layout's pagination engine (handling orphans, widows, and repeated table headers), outputting drawing commands to the tpt-canvas-pdf backend for byte-exact generation.
+6. Dependency Policy (Strict Enforcement)
+To protect the project from license contamination and legal friction, the following rules are enforced via cargo-deny in CI:
+Allowed Licenses: MIT, Apache-2.0 (only if MIT is also an option), 0BSD, BSD-2-Clause, BSD-3-Clause, Unicode-DFS-2016, Zlib.
+Forbidden Licenses: GPL-2.0, GPL-3.0, AGPL-3.0, SSPL, BSL, and Apache-2.0 (if it is the only license offered).
+No C-FFI: No -sys crates are permitted in the core or view crates. All text shaping, layout, and rendering must be pure Rust (leveraging existing TPT crates).
+CI Gate: cargo deny check licenses must pass on all PRs. A custom script will also parse Cargo.lock to flag any new Apache-2.0-only additions before they are merged.
+7. Phased Implementation Plan (Solo Maintainer Focus)
+To avoid the "boiling the ocean" trap of traditional office suites, development is strictly phased.
+Phase 0: Foundation & Gates (Weeks 1-2)
+Workspace scaffolding (tpt-codex-core, views, interop, app).
+Implement cargo-deny strict licensing CI gate.
+Define the Block enum and tpt-model schema with basic serialization.
+Phase 1: The Hybrid Document MVP (Weeks 3-6)
+Build the tpt-codex-app shell using tpt-appfront.
+Implement Flow View: Render text blocks via tpt-text and tpt-layout.
+Implement Grid View: Allow embedding a live, editable tpt-lattice sheet inline within the text flow.
+Milestone: A user can type a paragraph, insert a live calculation table, and see it update reactively in the browser via WASM.
+Phase 2: The PDF Pipeline (Weeks 7-10)
+Wire tpt-layout pagination rules to the hybrid document.
+Connect the output to tpt-canvas-pdf.
+Milestone: One-click export of the Phase 1 hybrid document to a byte-exact, paginated PDF.
+Phase 3: Canvas & Collaboration (Weeks 11-14)
+Implement Canvas View: Absolute positioning projection for slideshows.
+Integrate tpt-replicate for real-time, offline-first CRDT synchronization of the Block tree.
+Milestone: Multi-user collaborative editing of a document containing live grids.
+8. Explicit Non-Goals (V1 Scope Guards)
+No VBA/Macro Compatibility: We do not parse or execute legacy macro languages. Computation is handled strictly by tpt-lattice (LES formulas) or sandboxed WASM UDFs.
+No Pixel-Perfect Legacy Animation Import: Importing .pptx or .docx is data extraction only (via tpt-doc). We do not attempt to replicate proprietary transition animations or complex legacy layout hacks.
+No Native Video/Audio Editing: Media blocks are for static images, SVGs, and vector drawings. Rich media playback is out of scope for the core engine.
+
+1. Markdown as a First-Class Citizen
+Markdown shouldn't just be an import/export format—it should be a native serialization format for tpt-codex-core. Here's why:
+Natural Mapping: Markdown's structure (headings, paragraphs, lists, code blocks, links) maps 1:1 to the Block enum.
+Human-Readable Persistence: Unlike .docx (a ZIP of XML), a .md file is plain text, diffable in Git, and editable in any editor.
+Ecosystem Compatibility: Every developer, writer, and note-taker already knows Markdown.
+Implementation Plan:
+Add tpt-codex-markdown crate (or fold into tpt-codex-interop) that provides:
+from_markdown(md: &str) -> Result<Document, ParseError> - parses Markdown into the Block tree
+to_markdown(doc: &Document) -> String - serializes the Block tree back to Markdown
+Extended Markdown: We can define a superset (e.g., "Codex Flavored Markdown") that adds:
+::: grid { id="sheet1" } for inline tpt-lattice sheets
+::: canvas { ratio="16:9" } for slide containers
+$$ ... $$ for math blocks (rendered via the new typesetting crate)
+@citation and [#ref] for cross-references
+This means a user can write a document in plain Markdown, open it in tpt-codex, and instantly have access to live grids, presentations, and PDF export—without ever leaving their preferred editor.
+2. A Modern Typesetting Engine: tpt-typeset
+You're absolutely right that LaTeX's macro language is archaic, error-prone, and hostile to dynamic data. Let's design a modern replacement.
+Proposed Crate: tpt-typeset
+Mission: A deterministic, semantic typesetting engine that takes structured content and produces beautiful, paginated output—without the pain of LaTeX.
+Key Principles:
+Declarative, Not Imperative: No Turing-complete macro language. Use a typed, structured schema.
+First-Class Data Binding: Embed tpt-lattice grids, tpt-query results, and dynamic variables directly in the document.
+Beautiful Math: Keep the good parts of LaTeX math syntax but with better error messages and real-time preview.
+Structured Errors: "Line 42: unclosed environment" with a clear fix suggestion, not a 50-line stack trace.
+Incremental Compilation: Watch mode that updates only changed sections (leveraging tpt-layout's incremental relayout).
+WASM-Native: Compiles in the browser for instant preview.
+Proposed Source Format: "Codex Script" (.cdx)
+A human-readable, Markdown-superset format designed for typesetting:
+
+---
+title: "A Modern Approach to Typesetting"
+author: "Phillip @ TPT Solutions"
+date: 2026-11-04
+class: article
+---
+
+# Introduction
+
+This document demonstrates **Codex Script**, a modern typesetting format
+that combines the simplicity of Markdown with the power of LaTeX.
+
+## Live Data
+
+Here is a table that updates in real-time:
+
+::: grid { id="calculations" }
+| Item   | Cost  | Qty | Total      |
+|--------|-------|-----|------------|
+| Widget | 10.00 | 5   | =B2*C2     |
+| Gadget | 25.00 | 3   | =B3*C3     |
+| **Sum**|       |     | =SUM(D2:D3)|
+:::
+
+## Mathematics
+
+The quadratic formula is rendered with beautiful typography:
+
+$$
+x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+$$
+
+## Cross-References
+
+See [#introduction] for context, and cite [@knuth1984] for background.
+
+## Figures
+
+![A diagram](./figures/diagram.svg){#fig:diagram width=80%}
+
+As shown in [#fig:diagram], the architecture is modular.
+
+---
+
+# Conclusion
+
+This format is diffable, deterministic, and delightful to write.
+
+How It Works
+Parsing: tpt-typeset parses .cdx (or extended Markdown) into a semantic AST (Abstract Syntax Tree).
+Semantic Layer: The AST knows about "chapters", "sections", "footnotes", "citations", "TOC", "cross-references"—things tpt-layout doesn't understand.
+Layout Generation: tpt-typeset converts the semantic AST into a tpt-layout BoxTree, applying typographic rules (kerning, ligatures, hyphenation, footnote placement).
+Rendering: The BoxTree is rendered via tpt-canvas to screen or tpt-canvas-pdf to PDF.
+Why This Beats LaTeX
+Feature
+LaTeX
+Codex Script + tpt-typeset
+Macro Language
+Turing-complete, opaque
+Declarative, typed schema
+Error Messages
+Cryptic, 50-line stack traces
+Structured, actionable, line-specific
+Data Binding
+Requires external tools (knitr)
+First-class (tpt-lattice, tpt-query)
+Real-Time Preview
+Requires external tooling
+WASM-native, instant in-browser
+Diff/Merge
+Line-based, fragile
+Semantic, structured (via tpt-version)
+Font Handling
+Archaic
+Modern (via tpt-text)
+Determinism
+Platform-dependent
+Byte-identical across platforms
+Updated Design Spec Additions
+Here's how this integrates into the tpt-codex architecture:
+New Crate: tpt-typeset
+Purpose: Semantic typesetting engine for structured documents.
+no_std: ✅ (core parsing and AST)
+Dependencies: tpt-text, tpt-layout, tpt-canvas
+Updated Crate Layout
+Crate
+Purpose
+no_std
+tpt-codex-core
+Unified Block-based data model, CRDT ops, schema.
+✅
+tpt-codex-views
+Projection engines: Flow, Grid, Canvas, Paginated.
+✅
+tpt-codex-markdown
+Markdown/Codex Script parser and serializer.
+✅
+tpt-typeset
+Semantic typesetting engine (chapters, TOC, citations, math).
+✅
+tpt-codex-interop
+Import/Export adapters for legacy formats (.docx, .xlsx, .pdf).
+❌
+tpt-codex-app
+WASM-first application shell via tpt-appfront.
+❌
+Updated Phase Plan
+Phase 1.5: Markdown & Typesetting MVP (Weeks 6-8)
+Implement tpt-codex-markdown parser for standard Markdown + extended syntax.
+Implement tpt-typeset core: chapter/section structure, TOC generation, cross-references.
+Integrate LaTeX-style math rendering (via tpt-text and custom math layout).
+Milestone: A user can write a .cdx file with Markdown, math, and cross-references, and export it to a beautifully typeset PDF.

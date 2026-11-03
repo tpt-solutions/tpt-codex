@@ -1,0 +1,21 @@
+# Rust build output (planned workspace)
+/target/
+**/target/
+Cargo.lock.bak
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local scratch / secrets
+.env
+.env.*
+*.local
+*.log
