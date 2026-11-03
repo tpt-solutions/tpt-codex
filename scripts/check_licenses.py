@@ -98,8 +98,9 @@ def is_normal_edge(dep: dict) -> bool:
     return any(k.get("kind") != "dev" for k in kinds)
 
 
-def check(metadata: dict) -> list[str]:
+def check(metadata: dict, sys_roots: set[str] | None = None) -> list[str]:
     errors: list[str] = []
+    roots_names = NO_SYS_CRATES if sys_roots is None else sys_roots
     packages = {p["id"]: p for p in metadata["packages"]}
 
     for pkg in metadata["packages"]:
@@ -112,7 +113,7 @@ def check(metadata: dict) -> list[str]:
             )
 
     nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
-    roots = [p["id"] for p in metadata["packages"] if p["name"] in NO_SYS_CRATES]
+    roots = [p["id"] for p in metadata["packages"] if p["name"] in roots_names]
     for root in roots:
         seen, stack = set(), [root]
         while stack:
@@ -137,13 +138,18 @@ def check(metadata: dict) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--metadata", help="Path to cargo metadata JSON (default: stdin)")
+    parser.add_argument(
+        "--sys-roots",
+        nargs="*",
+        help="Crates whose closure must not contain -sys crates (default: tpt-codex core/view crates)",
+    )
     args = parser.parse_args(argv)
     if args.metadata:
         with open(args.metadata, encoding="utf-8") as fh:
             metadata = json.load(fh)
     else:
         metadata = json.load(sys.stdin)
-    errors = check(metadata)
+    errors = check(metadata, set(args.sys_roots) if args.sys_roots else None)
     for err in errors:
         print(f"license-gate: {err}", file=sys.stderr)
     if errors:
