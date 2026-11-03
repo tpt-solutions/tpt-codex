@@ -14,11 +14,17 @@ extern crate alloc;
 mod block;
 mod document;
 mod error;
+mod history;
 mod id;
+mod ops;
+mod platform;
 mod primitives;
 
 pub use block::{Block, Query};
 pub use document::{Document, Metadata, SCHEMA_VERSION};
 pub use error::ValidationError;
+pub use history::History;
 pub use id::{BlockId, SheetId};
+pub use ops::{EditError, Op, apply};
+pub use platform::{Clock, FixedClock, MemoryStorage, Storage};
 pub use primitives::{LayoutMode, MediaSource, Rect, TextStyle};
