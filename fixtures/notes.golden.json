@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "title": "Field Notes",
+    "author": "Phillip @ TPT Solutions",
+    "date": "2026-11-04",
+    "class": "article"
+  },
+  "root": 0,
+  "blocks": {
+    "0": {
+      "type": "container",
+      "layout_mode": "flow",
+      "children": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "1": {
+      "type": "text",
+      "content": "Introduction",
+      "style": {
+        "bold": false,
+        "italic": false,
+        "heading_level": 1
+      }
+    },
+    "2": {
+      "type": "text",
+      "content": "This is the first paragraph.\nIt has two lines, with \"quotes\" and \\backslash.",
+      "style": {
+        "bold": false,
+        "italic": false,
+        "heading_level": null
+      }
+    },
+    "3": {
+      "type": "text",
+      "content": "Details",
+      "style": {
+        "bold": false,
+        "italic": false,
+        "heading_level": 2
+      }
+    },
+    "4": {
+      "type": "text",
+      "content": "#hashtag is still a paragraph.\nA final paragraph.",
+      "style": {
+        "bold": false,
+        "italic": false,
+        "heading_level": null
+      }
+    }
+  }
+}
