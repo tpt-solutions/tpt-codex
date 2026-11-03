@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use tpt_codex_core::{Block, BlockId, Document, LayoutMode, TextStyle};
-use tpt_codex_views::{layout_flow, paginate, FlowOptions, MonospaceMeasure, PageGeometry};
+use tpt_codex_views::{FlowOptions, MonospaceMeasure, PageGeometry, layout_flow, paginate};
 
 fn main() {
     let paragraphs: usize = std::env::args()
