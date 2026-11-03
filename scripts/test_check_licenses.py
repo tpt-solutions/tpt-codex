@@ -47,6 +47,11 @@ class LicenseExpressionTests(unittest.TestCase):
         for lic in ["GPL-3.0", "AGPL-3.0", "MPL-2.0", "GPL-2.0 OR Apache-2.0"]:
             self.assertFalse(cl.license_ok(lic), lic)
 
+    def test_slash_notation_means_or(self):
+        self.assertTrue(cl.license_ok("MIT/Apache-2.0"))
+        self.assertTrue(cl.license_ok("Apache-2.0 / MIT"))
+        self.assertFalse(cl.license_ok("Apache-2.0/GPL-3.0"))
+
     def test_exception_is_rejected_until_decided(self):
         self.assertFalse(cl.license_ok("Apache-2.0 WITH LLVM-exception"))
 
@@ -72,6 +77,13 @@ class GateTests(unittest.TestCase):
         m = meta([pkg("tpt-codex-core", "MIT", "core"), pkg("libz-sys", "MIT", "z")],
                  edges={"core": ["z"]})
         self.assertTrue(any("libz-sys" in e for e in cl.check(m)))
+
+    def test_sys_crate_reached_only_by_dev_dependency_is_ignored(self):
+        core = pkg("tpt-codex-core", "MIT", "core")
+        z = pkg("libz-sys", "MIT", "z")
+        m = meta([core, z], edges={"core": ["z"]})
+        m["resolve"]["nodes"][0]["deps"] = [{"pkg": "z", "dep_kinds": [{"kind": "dev", "target": None}]}]
+        self.assertEqual(cl.check(m), [])
 
     def test_sys_crate_outside_core_closure_is_ignored(self):
         m = meta([pkg("tpt-codex-core", "MIT", "core"), pkg("tpt-codex-app", "MIT", "app"),

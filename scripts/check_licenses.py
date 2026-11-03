@@ -43,7 +43,8 @@ def license_ok(expr: str) -> bool:
     Supports AND (all clauses must pass) and OR (any alternative passes),
     with optional parentheses around sub-expressions.
     """
-    expr = expr.strip()
+    # Older crates write "MIT/Apache-2.0" or "Apache-2.0 / MIT"; "/" means OR.
+    expr = expr.replace("/", " OR ").strip()
     while expr.startswith("(") and expr.endswith(")") and _balanced(expr[1:-1]):
         expr = expr[1:-1].strip()
     and_parts = _split_top(expr, " AND ")
@@ -89,6 +90,14 @@ def _split_top(expr: str, sep: str) -> list[str]:
     return parts
 
 
+def is_normal_edge(dep: dict) -> bool:
+    """True unless the edge is dev-only. Missing dep_kinds counts as normal."""
+    kinds = dep.get("dep_kinds")
+    if not kinds:
+        return True
+    return any(k.get("kind") != "dev" for k in kinds)
+
+
 def check(metadata: dict) -> list[str]:
     errors: list[str] = []
     packages = {p["id"]: p for p in metadata["packages"]}
@@ -112,7 +121,9 @@ def check(metadata: dict) -> list[str]:
                 continue
             seen.add(node_id)
             for dep in nodes.get(node_id, {}).get("deps", []):
-                stack.append(dep["pkg"])
+                # Dev-only edges don't ship, so they don't count toward the C-FFI rule.
+                if is_normal_edge(dep):
+                    stack.append(dep["pkg"])
         for node_id in seen:
             name = packages[node_id]["name"]
             if name.endswith("-sys"):
