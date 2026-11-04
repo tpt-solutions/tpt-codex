@@ -101,7 +101,6 @@ fn each_unsupported_construct_is_an_error() {
         "> quote\n",
         "| a | b |\n",
         "    indented\n",
-        "$$\nx\n$$\n",
         ":::  grid\n",
         "<div>\n",
         "[^1]: note\n",
@@ -772,4 +771,117 @@ fn reader_never_panics_on_random_input() {
             );
         }
     }
+}
+
+fn flow_of(children: Vec<Block>) -> Document {
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: (1..=children.len() as u64).map(BlockId).collect(),
+        },
+    );
+    for (i, block) in children.into_iter().enumerate() {
+        doc.insert(BlockId(i as u64 + 1), block);
+    }
+    doc
+}
+
+fn math(source: &str) -> Block {
+    Block::Math {
+        source: source.into(),
+    }
+}
+
+fn math_sources(src: &str) -> Vec<String> {
+    let doc = from_markdown(src).unwrap();
+    let Some(Block::Container { children, .. }) = doc.get(doc.root) else {
+        panic!("root is not a container");
+    };
+    children
+        .iter()
+        .map(|id| match doc.get(*id) {
+            Some(Block::Math { source }) => source.clone(),
+            other => panic!("expected math, got {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn reads_display_math_in_both_forms() {
+    assert_eq!(
+        math_sources("$$\nx^2 + y\n$$\n\n$$ a = b $$\n"),
+        vec!["x^2 + y".to_string(), "a = b".to_string()]
+    );
+}
+
+#[test]
+fn math_source_is_kept_exactly_including_blank_and_indented_lines() {
+    assert_eq!(
+        math_sources("$$\n  \\sum_i a_i\n\n$$\n"),
+        vec!["  \\sum_i a_i\n".to_string()]
+    );
+}
+
+#[test]
+fn math_interrupts_paragraphs_without_joining_them() {
+    let doc = from_markdown("text\n$$\nx\n$$\nmore\n").unwrap();
+    let Some(Block::Container { children, .. }) = doc.get(doc.root) else {
+        panic!();
+    };
+    assert_eq!(children.len(), 3);
+    assert_eq!(doc.get(children[0]), Some(&para("text")));
+    assert_eq!(doc.get(children[1]), Some(&math("x")));
+    assert_eq!(doc.get(children[2]), Some(&para("more")));
+}
+
+#[test]
+fn rejects_malformed_math() {
+    for src in [
+        "$$\nx\n",      // not closed
+        "$$\n$$\n",     // empty
+        "$$ $$\n",      // empty single line
+        "$$x\n",        // no closing delimiter
+        "$$ a $$ b\n",  // text after the closing delimiter
+        "$$ a $$ $$\n", // two delimiters on one line
+    ] {
+        assert!(from_markdown(src).is_err(), "should reject: {src:?}");
+    }
+}
+
+#[test]
+fn math_writes_and_reads_back_identically() {
+    let doc = flow_of(vec![
+        math("x^2"),
+        para("between"),
+        math("a\n\n    \\frac{1}{2}\n  "),
+    ]);
+    let md = to_markdown(&doc).unwrap();
+    assert_eq!(
+        md,
+        "$$\nx^2\n$$\n\nbetween\n\n$$\na\n\n    \\frac{1}{2}\n  \n$$\n"
+    );
+    let back = from_markdown(&md).unwrap();
+    assert_eq!(back.get(BlockId(1)), Some(&math("x^2")));
+    assert_eq!(
+        back.get(BlockId(3)),
+        Some(&math("a\n\n    \\frac{1}{2}\n  "))
+    );
+}
+
+#[test]
+fn writer_refuses_math_that_would_not_read_back() {
+    for source in ["", "a\r\nb", "a\n$$\nb", "a\n   $$  \nb"] {
+        let doc = flow_of(vec![math(source)]);
+        assert!(to_markdown(&doc).is_err(), "should refuse: {source:?}");
+    }
+    // Four leading spaces do not close a block, so this one is fine.
+    let doc = flow_of(vec![math("a\n    $$")]);
+    assert!(to_markdown(&doc).is_ok());
+}
+
+#[test]
+fn writer_refuses_paragraph_text_that_starts_math() {
+    let doc = flow_of(vec![para("$$ not math")]);
+    assert!(to_markdown(&doc).is_err());
 }

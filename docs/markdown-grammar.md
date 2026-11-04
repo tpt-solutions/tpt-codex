@@ -29,7 +29,7 @@ fm-char      = any char except '"' and '\' | '\"' | '\\' ;
 
 body         = { blank | block } ;
 blank        = SP* NL ;
-block        = heading | fence | rule | image | list | paragraph ;
+block        = heading | fence | rule | image | math | list | paragraph ;
 
 heading      = hashes ( SP text )? NL ;   (* text is trimmed; empty text is an error *)
 hashes       = "#" | "##" | "###" | "####" | "#####" | "######" ;
@@ -43,6 +43,9 @@ info         = text without backticks (backtick fences), no backslash or '&' ;
 rule         = indent{0,3} ( "***" | "---" | "___" with SP between marks ) SP* NL ;
               (* "---" directly under a paragraph line is a setext heading, which is an error *)
 
+math         = indent{0,3} "$$" SP* NL { math-line } indent{0,3} "$$" SP* NL
+              | indent{0,3} "$$" SP+ source SP+ "$$" SP* NL ;   (* one-line form; source has no "$$" *)
+math-line    = any line that is not a closing "$$" line ;
 image        = indent{0,3} "![" alt "](" uri ")" SP* NL ;
 alt          = text without brackets, backslashes or '&' ;
 uri          = text without spaces, parentheses, angle brackets, backslashes or '&' ;
@@ -70,6 +73,18 @@ It is not parsed.
 - Only the number of the first item is kept. Later numbers are written from it, so `1. 1. 1.`
   reads as items 1, 2, 3. This matches how CommonMark renders the list.
 
+### Math blocks
+
+- The source is the lines between two `$$` lines, kept exactly, including blank and indented lines.
+  Math source is TeX-style text. The reader does not parse it. `tpt-typeset::check_math_blocks` does.
+- A closing line is `$$` alone, with up to three leading spaces. A line with more indentation is
+  source.
+- `$$ source $$` on one line is also a math block. The source is trimmed. The writer always writes
+  the multi-line form, so the one-line form reads back as the same block.
+- A math block can follow text or a list directly, as a fence can. Text after the closing `$$` line
+  starts a new paragraph.
+- An empty source is an error, and so is a block that is still open at the end of the document.
+
 ### Code blocks
 
 - The content is stored exactly, with no trimming, and is not escaped.
@@ -94,7 +109,6 @@ A line that starts with any of these is an error. The error names the construct 
 | Block quote | `> ` or `>` |
 | Table | a line starting with `|` |
 | Container block | `:::` |
-| Math block | `$$` |
 | Raw HTML | a line starting with `<` |
 | Footnote definition | a line starting with `[^` |
 | Setext heading | a line of `=`, or `---` under a paragraph line |
@@ -126,6 +140,9 @@ quoted value with a bad escape, or a missing closing `---`.
 - an image that is not a URI source, has an empty URI, a URI with spaces, parentheses, angle brackets,
   backslashes or entities, an empty alt text (write `None` instead), or alt text with brackets,
   backslashes, entities or line breaks,
+- math source that is empty, contains a carriage return, or has a line that would close the block
+  (`$$` alone, with up to three leading spaces),
+- paragraph text that starts with `$$`, which would read back as a math block,
 - front matter values with line breaks.
 
 The writer writes a thematic break as `***`, not `---`. A `---` line as the first line of a
@@ -141,5 +158,5 @@ document already used that numbering.
 ## Not yet in the grammar
 
 Links, emphasis runs, block quotes, nested lists, loose lists, setext headings, tables,
-`::: grid`, `::: canvas`, math, citations, `[#ref]` cross-references, `{#fig:id}` attributes and
+`::: grid`, `::: canvas`, inline math, citations, `[#ref]` cross-references, `{#fig:id}` attributes and
 footnotes. Emphasis and links need inline run support in the model first (see `todo.md`, Phase 2).

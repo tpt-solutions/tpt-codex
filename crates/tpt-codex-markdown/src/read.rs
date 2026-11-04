@@ -6,8 +6,8 @@ use tpt_codex_core::{Block, BlockId, Document, LayoutMode, Metadata, TextStyle};
 
 use crate::error::ParseError;
 use crate::syntax::{
-    ListMarker, fence_closes, fence_open, heading, image_line, list_item, thematic_break,
-    unsupported,
+    ListMarker, MathOpen, fence_closes, fence_open, heading, image_line, list_item, math_closes,
+    math_open, thematic_break, unsupported,
 };
 
 /// Reads the supported Markdown subset into a [`Document`].
@@ -24,6 +24,28 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
 
     for (offset, line) in lines[body_start..].iter().enumerate() {
         let lineno = body_start + offset + 1;
+
+        if let Some(source_lines) = open.math.as_mut() {
+            if math_closes(line) {
+                let source = source_lines.join(
+                    "
+",
+                );
+                open.math = None;
+                if source.is_empty() {
+                    return Err(error(
+                        lineno,
+                        "math block is empty",
+                        "put the math source between the two $$ lines",
+                    ));
+                }
+                b.push_root(Block::Math { source });
+            } else {
+                // Math source is kept exactly, including leading spaces.
+                source_lines.push(String::from(*line));
+            }
+            continue;
+        }
 
         if let Some(code) = open.code.as_mut() {
             if fence_closes(line, code.ch, code.len) {
@@ -107,6 +129,25 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                 language: (!fence.info.is_empty()).then(|| String::from(fence.info)),
                 lines: Vec::new(),
             });
+            continue;
+        }
+
+        if let Some(opener) = math_open(line) {
+            let opener = opener.map_err(|reason| {
+                error(
+                    lineno,
+                    reason,
+                    "write the math as $$, then the source lines, then $$",
+                )
+            })?;
+            open.close_paragraph(&mut b);
+            open.close_list(&mut b);
+            match opener {
+                MathOpen::Single(source) => b.push_root(Block::Math {
+                    source: String::from(source),
+                }),
+                MathOpen::Block => open.math = Some(Vec::new()),
+            }
             continue;
         }
 
@@ -207,6 +248,13 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
             "close the block with a fence of the same character and at least the same length",
         ));
     }
+    if open.math.is_some() {
+        return Err(error(
+            lines.len(),
+            "math block is not closed",
+            "close the block with a line containing only $$",
+        ));
+    }
     open.close_paragraph(&mut b);
     open.close_list(&mut b);
 
@@ -267,6 +315,8 @@ struct Open {
     /// A blank line has been seen since the list's last item.
     list_blank: bool,
     code: Option<OpenCode>,
+    /// Source lines of a multi-line math block that is still open.
+    math: Option<Vec<String>>,
     /// The previous line was an image. Text on the next line would join it in CommonMark.
     after_image: bool,
 }

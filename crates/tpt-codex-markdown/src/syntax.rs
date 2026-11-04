@@ -156,6 +156,41 @@ pub(crate) fn list_item(line: &str) -> Option<ListMarker<'_>> {
     })
 }
 
+/// How a line that starts with `$$` opens a math block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MathOpen<'a> {
+    /// `$$` alone: the source follows on the next lines, up to a closing `$$` line.
+    Block,
+    /// `$$ source $$` on one line. The source is trimmed.
+    Single(&'a str),
+}
+
+/// Returns how a `$$` line opens a math block.
+///
+/// `Some(Err(reason))` is a line that starts with `$$` but is not a form this crate reads.
+/// `None` is any other line.
+pub(crate) fn math_open(line: &str) -> Option<Result<MathOpen<'_>, &'static str>> {
+    let body = strip_block_indent(line)?.trim_end();
+    let rest = body.strip_prefix("$$")?;
+    if rest.trim().is_empty() {
+        return Some(Ok(MathOpen::Block));
+    }
+    if let Some(inner) = rest.strip_suffix("$$") {
+        if !inner.contains("$$") && !inner.trim().is_empty() {
+            return Some(Ok(MathOpen::Single(inner.trim())));
+        }
+    }
+    Some(Err(
+        "math must be written as $$ on its own line, or as $$ source $$ on one line",
+    ))
+}
+
+/// Returns `true` when `line` closes a multi-line math block: `$$` alone, with up to three
+/// leading spaces. Other lines inside the block are source, kept exactly.
+pub(crate) fn math_closes(line: &str) -> bool {
+    strip_block_indent(line).is_some_and(|body| body.trim_end() == "$$")
+}
+
 /// A standalone image line: `![alt](uri)`.
 ///
 /// Returns `Some(Ok((alt, uri)))` for a supported image, `Some(Err(reason))`
@@ -193,7 +228,7 @@ fn parse_image(body: &str) -> Result<(&str, &str), &'static str> {
 ///
 /// Unsupported syntax is an error rather than being read as plain text, so
 /// nothing is silently dropped or reinterpreted. Fences, lists, thematic
-/// breaks, headings and images are handled by the reader before this check.
+/// breaks, headings, images and math are handled by the reader before this check.
 pub(crate) fn unsupported(line: &str) -> Option<&'static str> {
     if line.starts_with('\t') || line.starts_with("    ") {
         return Some("indented code block");
@@ -210,9 +245,6 @@ pub(crate) fn unsupported(line: &str) -> Option<&'static str> {
     }
     if t.starts_with(":::") {
         return Some("container block");
-    }
-    if t.starts_with("$$") {
-        return Some("math block");
     }
     if t.starts_with('<') {
         return Some("raw HTML");
@@ -234,6 +266,7 @@ pub(crate) fn starts_block(line: &str) -> bool {
         || fence_open(line).is_some()
         || thematic_break(line).is_some()
         || image_line(line).is_some()
+        || math_open(line).is_some()
         || list_item(line).is_some()
         || unsupported(line).is_some()
 }

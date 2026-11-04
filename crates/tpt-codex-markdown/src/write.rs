@@ -6,12 +6,12 @@ use alloc::vec::Vec;
 use tpt_codex_core::{Block, BlockId, Document, LayoutMode, MediaSource, Metadata, TextStyle};
 
 use crate::error::SerializeError;
-use crate::syntax::{MAX_LIST_NUMBER, image_line, list_item, starts_block};
+use crate::syntax::{MAX_LIST_NUMBER, image_line, list_item, math_closes, starts_block};
 
 /// Writes a [`Document`] as Markdown in the supported subset.
 ///
 /// The root must be a flow container. Its children may be headings, paragraphs,
-/// lists, fenced code blocks, thematic breaks and images with a URI. Anything
+/// lists, fenced code blocks, thematic breaks, images with a URI and display math. Anything
 /// else returns a [`SerializeError`]. Block ids are not written, so ids in the
 /// document are not preserved.
 pub fn to_markdown(doc: &Document) -> Result<String, SerializeError> {
@@ -100,6 +100,7 @@ fn write_block(
             items,
         } => write_list(doc, index, *ordered, *start, items, prev),
         Block::Code { language, code } => write_code(index, language.as_deref(), code),
+        Block::Math { source } => write_math(index, source),
         Block::ThematicBreak => Ok(String::from("***")),
         Block::Media { source, alt_text } => write_image(index, source, alt_text.as_deref()),
         Block::Grid { .. } => Err(fail("live grids are not in the Markdown subset yet")),
@@ -262,6 +263,26 @@ fn write_code(index: usize, language: Option<&str>, code: &str) -> Result<String
     out.push('\n');
     out.push_str(&fence);
     Ok(out)
+}
+
+fn write_math(index: usize, source: &str) -> Result<String, SerializeError> {
+    let fail = |reason: &str| SerializeError {
+        index: Some(index),
+        reason: String::from(reason),
+    };
+    if source.is_empty() {
+        return Err(fail("math block is empty"));
+    }
+    if source.contains('\r') {
+        return Err(fail("math source cannot contain carriage returns"));
+    }
+    // A source line that reads as the closing delimiter would end the block early.
+    if source.split('\n').any(math_closes) {
+        return Err(fail(
+            "math source cannot contain a line with only $$, which would close the block",
+        ));
+    }
+    Ok(format!("$$\n{source}\n$$"))
 }
 
 fn write_image(
