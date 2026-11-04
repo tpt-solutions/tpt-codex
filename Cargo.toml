@@ -21,6 +21,10 @@ tpt-codex-grid = { path = "crates/tpt-codex-grid" }
 
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
+# Office-format support, written in-house on these pure-Rust, permissively licensed crates.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+crc32fast = "1"
+quick-xml = "0.37"
 
 # TPT ecosystem crates, pinned by rev (crates.io publication is not available yet).
 # Revs are the default-branch heads checked on 2026-11-04. Only crates that a member uses are

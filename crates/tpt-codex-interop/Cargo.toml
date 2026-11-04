@@ -10,6 +10,10 @@ publish.workspace = true
 
 [dependencies]
 tpt-codex-core.workspace = true
+tpt-codex-grid.workspace = true
+flate2.workspace = true
+crc32fast.workspace = true
+quick-xml.workspace = true
 
 [lints]
 workspace = true
