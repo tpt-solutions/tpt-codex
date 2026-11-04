@@ -48,6 +48,52 @@ crates other than the rows above.
 3. **tpt-model development tooling: resolved by policy.** `criterion` and `proptest` (development-only) pull in
    Apache-2.0-only crates. Development dependencies are outside the gate, so the shipped closure is what counts.
 
+## Update 2026-11-04: status of the blockers
+
+The TPT repositories are on GitHub and the audit's local commits are on their `master` branches.
+
+- **`self_cell` (tpt-text)**: resolved on GitHub master (`83bc13c`).
+- **`blake3` (tpt-model)**: resolved on GitHub master (`0c999f3`).
+- **tpt-model development tooling**: unchanged; development-only dependencies are outside the gate.
+- **New blocker: `*-stub` crates in tpt-model.** `tpt-crypto-stub`, `tpt-primitives-stub`, `tpt-uir-stub`
+  and `tpt-validex-stub` are unconditional normal dependencies of `tpt-model`. The rule is that stubs must
+  not reach the shipped closure. Fix in the `tpt-model` repository, then re-run the gate. Until then
+  `tpt-model` is not adopted.
+- **New finding: `tpt-canvas-pdf` glyph runs are placeholders.** PDF output would have no text. Not adopted
+  until upstream draws glyph runs.
+- **Adopted, pinned by rev:** `tpt-query` (typeset), `tpt-lattice-core` and `tpt-lattice-evaluator` (grid).
+  The license gate passes on the resolved closure of 31 packages, and no `-sys` crate is in it. The
+  `no_std` WASM and thumbv7m builds of core, views, markdown and typeset pass.
+- **Cargo noise:** cargo prints `invalid character` errors for the template manifests in the TPT git
+  checkouts (`templates/*/Cargo.toml`). The build still succeeds (exit 0). Nothing in this repository
+  can fix it.
+
+## Update 2026-11-04 (second pass): doc, appfront and xlsx
+
+Each crate was probed alone through the gate, on its resolved closure.
+
+| Crate | Gate | Reason |
+| --- | --- | --- |
+| `tpt-doc-core`, `-pdf`, `-convert` | OK | adopted-ready |
+| `tpt-doc-word` | fails | `zopfli` (Apache-2.0 only) via `zip`'s `deflate` feature |
+| `tpt-doc-spreadsheet` | fails | `zopfli`, and `ryu` (`Apache-2.0 OR BSL-1.0`; BSL not allowed) |
+| `tpt-appfront-core`, `-dom`, `-html` | OK | adopted (app shell, WASM-first) |
+| `tpt-appfront-canvas`, `-webview` | fails | Apache-only GUI stacks (`winit`, `glutin`, `tao`) |
+| `tpt-lattice-import-xlsx` / `-export-xlsx` | fails | `calamine` uses `zip` with `deflate`, which pulls `zopfli`; `zip`'s default features add `bzip2`, `lzma`, `ppmd` and `aes` |
+
+The `zip` problem needs upstream fixes: `zip` with `default-features = false` and `deflate-flate2`, in
+`tpt-doc` and `tpt-lattice`. `calamine` needs the same change in its own manifest, or a different reader.
+These are not fixable from this repository, because cargo unifies features across the graph.
+
+## Update 2026-11-05: the zip problem, solved in-house
+
+The Office stack no longer uses the `zip` crate, `calamine`, or the lattice xlsx crates. `tpt-codex-interop`
+has its own ZIP container code (`archive`) and an xlsx reader and writer (`xlsx`). The new dependencies are
+`flate2` with the `rust_backend` feature (MIT OR Apache-2.0, with `miniz_oxide` under MIT OR Zlib OR Apache-2.0),
+`crc32fast` (MIT OR Apache-2.0) and `quick-xml` (MIT). Each passes the license gate on its own and in the
+resolved closure (`zip` and `zopfli` are not in `Cargo.lock`). The `tpt-doc-word` and `-spreadsheet` crates are
+still blocked by their own `zip` features. The same `archive` module could read `.docx` parts.
+
 ## Next steps
 
 - No licensing decisions are open.

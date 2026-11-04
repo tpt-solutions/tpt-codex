@@ -8,17 +8,20 @@ unverified against the audit items in [todo.md](../todo.md).
 
 | Crate(s) | Role in tpt-codex | Used by | Verified? |
 | --- | --- | --- | --- |
-| `tpt-model` | Schema and model primitives (`*-stub` crates must not leak into the tree) | core | no |
-| `tpt-text` | Text shaping | views, typeset | no |
-| `tpt-layout` | Flow layout, pagination, box trees | views, typeset | no |
-| `tpt-canvas`, `tpt-canvas-pdf` | Drawing commands; the PDF backend lives inside the `tpt-canvas` repo | views, typeset, app | no |
-| `tpt-lattice-core`, `-evaluator`, `-parser`, `-crdt`, `-wasm` | Live grids and LES formulas | core, views | no |
-| `tpt-lattice-import-xlsx`, `tpt-lattice-export-xlsx` | `.xlsx` import/export (spec's "tpt-lattice-import") | interop | no |
-| `tpt-replicate` | Offline-first CRDT sync | core (phase 4) | no |
-| `tpt-appfront-core`, `-dom`, `-canvas`, `-html`, `-webview` | UI shell (pick the subset needed) | app | no |
-| `tpt-doc-core`, `-word`, `-spreadsheet`, `-pdf`, `-convert` | Office format import | interop | no |
-| `tpt-query` | `Block::Query` evaluation | core, views | no |
-| `tpt-version` | Semantic diff and merge | core (phase 4) | no |
+| `tpt-model` | Schema and model primitives. **Blocked:** four `*-stub` crates are unconditional normal dependencies (see audit) | core | no |
+| `tpt-text` | Text shaping (self_cell fix on GitHub master, `83bc13c`). Not wired in: needs a font decision | views, typeset | no |
+| `tpt-layout` | Flow layout, pagination, box trees. Not wired in yet | views, typeset | no |
+| `tpt-canvas`, `tpt-canvas-pdf` | Drawing commands; the PDF backend lives inside the `tpt-canvas` repo. Not wired in: PDF glyph runs are placeholders upstream | views, typeset, app | no |
+| `tpt-lattice-core`, `-evaluator` | Live grids and LES formulas. **Wired in** (`tpt-codex-grid`, pinned `d723321`). The evaluator is std-only | grid | yes (gate) |
+| `tpt-lattice-import-xlsx`, `-export-xlsx` | Replaced by in-house `archive` and `xlsx` in `tpt-codex-interop`; not used | — | no |
+| `tpt-lattice-parser`, `-crdt`, `-wasm` | Pulled in by the evaluator (parser); the others are not used yet | — | parser: gate only |
+| `tpt-replicate` | Offline-first CRDT sync. Gate clean, but its CRDT types come from its own `stubs` module, so not adopted. Text CRDT written in `tpt-codex-core` instead | core (phase 4) | no |
+| `tpt-appfront-core`, `-html`, `-dom` | UI tree, HTML rendering, and WASM DOM mount. **Wired in** (`tpt-codex-app`, pinned `6146526`) | app | yes (gate) |
+| `tpt-appfront-canvas`, `-webview` | Native desktop backends. Fail the gate (GUI stacks) | — | no |
+| `tpt-doc-word`, `-spreadsheet` | Office import. Fail the gate (`zopfli`, and `ryu` for spreadsheet) | — | no |
+| `tpt-doc-core`, `-pdf`, `-convert` | Office document crates. Gate OK, not yet wired in | — | gate only |
+| `tpt-query` | `Block::Query` evaluation (json feature). **Wired in** (`tpt-typeset`, pinned `6b06d02`) | typeset | yes (gate, no_std) |
+| `tpt-version` | Semantic diff and merge. Gate clean; depends on `tpt-crypto` | core (phase 4) | gate only |
 
 ## Checks required before adoption
 

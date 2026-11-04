@@ -41,3 +41,12 @@ deny = [
     { name = "libz-sys" },
     { name = "openssl-sys" },
 ]
+
+[sources]
+# TPT crates are git dependencies, pinned by rev, until they are published to crates.io.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+    "https://github.com/tpt-solutions/tpt-lattice",
+    "https://github.com/tpt-solutions/tpt-query",
+]

@@ -15,7 +15,11 @@ The workspace is at `0.1.0-spec`, the design-spec stage. The first public releas
 ## Document schema
 
 Every serialized `Document` carries `schema_version`. The current value is `SCHEMA_VERSION` in
-`tpt-codex-core` (`1`).
+`tpt-codex-core` (`2`).
+
+Version 2 adds the `List`, `Code`, `ThematicBreak` and `Math` block variants. Version 1 was never
+released, so there is no version 1 document to migrate. The first migration will be needed only
+after a release.
 
 Rules:
 

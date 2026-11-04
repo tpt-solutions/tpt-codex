@@ -28,20 +28,20 @@ Legend: `[ ]` todo · `[x]` done
 - [x] Add `no_std` build check for core/views/markdown/typeset (thumbv7m and wasm32-unknown-unknown, both pass locally)
 
 ### Verified TPT dependencies (github.com/tpt-solutions, all `MIT OR Apache-2.0`)
-- [ ] Add as git deps pinned by `rev` (crates.io publication unconfirmed — re-check, then switch to versions) — _not added: audit found blockers (see docs/tpt-dependency-audit.md)_
-- [ ] `tpt-model` (check `*-stub` crates don't leak into our dep tree) — _audited: `tpt-crypto-stub` leaks `blake3` (CC0/MIT-0 alternatives) into the closure; blocked_
-- [ ] `tpt-text` — _audited: `self_cell` is Apache-2.0 OR GPL-2.0-only; blocked_
-- [ ] `tpt-layout` — _audited: 0 dependencies, license clean; not yet added (no_std build unverified)_
-- [ ] `tpt-canvas` + `tpt-canvas-pdf` (PDF backend is a crate inside the `tpt-canvas` repo, not a separate repo) — _audited: license clean, no `-sys`; not yet added_
-- [ ] `tpt-lattice` workspace crates: `-core`, `-evaluator`, `-parser`, `-crdt`, `-wasm` — _audited `-core` and `-evaluator`: clean; `-parser`, `-crdt`, `-wasm` not audited_
-- [ ] `tpt-lattice-import-xlsx` / `-export-xlsx` (spec's "tpt-lattice-import" = these)
-- [ ] `tpt-replicate` — _audited: 0 dependencies, license clean; not yet added_
-- [ ] `tpt-appfront` crates: `-core`, `-dom`, `-canvas`, `-html`, `-webview` (pick which are needed) — _not audited_
-- [ ] `tpt-doc` crates: `-core`, `-word`, `-spreadsheet`, `-pdf`, `-convert` — _not audited_
-- [ ] `tpt-query` — _audited: 0 dependencies, license clean; not yet added_
-- [ ] `tpt-version` (for semantic diff/merge) — _audited: license clean, no `-sys`; not yet added_
+- [ ] Add as git deps pinned by `rev` (crates.io publication unconfirmed — re-check, then switch to versions) — _added for the crates in use: `tpt-query`, `tpt-lattice-core`, `tpt-lattice-evaluator` (pinned in `Cargo.toml`). The rest are pinned in `docs/tpt-dependency-map.md`, not yet wired in._
+- [ ] `tpt-model` (check `*-stub` crates don't leak into our dep tree) — _blocked upstream: `tpt-crypto-stub`, `tpt-primitives-stub`, `tpt-uir-stub` and `tpt-validex-stub` are unconditional normal dependencies of `tpt-model`. Fix in the `tpt-model` repo (feature-gate or drop them). Its `blake3` leak is already gone on GitHub master_
+- [ ] `tpt-text` — _self_cell fix is on GitHub master (`83bc13c`). Not wired in: needs the font decision (see open questions)_
+- [ ] `tpt-layout` — _gate clean (0 dependencies). Not wired in: flow text needs `tpt-text` and a font decision_
+- [ ] `tpt-canvas` + `tpt-canvas-pdf` (PDF backend is a crate inside the `tpt-canvas` repo, not a separate repo) — _not wired in: `tpt-canvas-pdf` writes glyph runs as placeholder comments, so PDF output would have no text until upstream draws them_
+- [ ] `tpt-lattice` workspace crates: `-core`, `-evaluator`, `-parser`, `-crdt`, `-wasm` — _`-core` and `-evaluator` added (grid evaluation in `tpt-codex-grid`; the evaluator is std-only, so it is not in `no_std` crates). `-parser` comes in transitively. `-crdt` and `-wasm` not audited_
+- [x] `tpt-lattice-import-xlsx` / `-export-xlsx` (spec's "tpt-lattice-import" = these) — _replaced by our own stack in `tpt-codex-interop`: `archive` (ZIP reader and writer, stored and DEFLATE, CRC and size limits) and `xlsx` (reader and writer, on `quick-xml`). `zip`, `calamine` and the lattice xlsx crates are no longer used. Tested against openpyxl and Python `zipfile` fixtures, both directions_
+- [ ] `tpt-replicate` — _gate clean, but its CRDT types (`UirNode`, `ActorId`, `CrdtCompatible`) come from its own `stubs` module. Not adopted: a stub type would enter the sync format. Text CRDT written in `tpt-codex-core` instead (see Phase 4)_
+- [ ] `tpt-appfront` crates: `-core`, `-dom`, `-canvas`, `-html`, `-webview` (pick which are needed) — _audited per crate: `-core`, `-dom`, `-html` gate OK and in use. `-canvas` and `-webview` fail the gate (Apache-only GUI stacks: winit, glutin, tao). They are native-desktop crates, outside the WASM-first decision_
+- [ ] `tpt-doc` crates: `-core`, `-word`, `-spreadsheet`, `-pdf`, `-convert` — _audited per crate: `-core`, `-pdf`, `-convert` gate OK. `-word` and `-spreadsheet` fail on `zopfli` (Apache-only, via `zip`'s `deflate` feature); `-spreadsheet` also on `ryu` (`Apache-2.0 OR BSL-1.0`, BSL not allowed). Fix upstream in tpt-doc_
+- [x] `tpt-query` — _added: `tpt-typeset::run_query` runs `Block::Query` JSON with the `json` feature. Gate clean, `no_std` build verified_
+- [ ] `tpt-version` (for semantic diff/merge) — _gate clean; depends on `tpt-crypto-hash`/`-sig` (git). Not wired in: Phase 4_
 - [ ] Audit each for `no_std` support, wasm32 support, and `-sys`/C-FFI transitive deps — _`-sys` closure checked for TPT crates; `no_std`/wasm builds not verified (needs approval to compile external code)_
-- [ ] Audit transitive licenses (`cargo tree`, `cargo deny`) — _gate run on the resolved TPT closures; `cargo deny` not run (not installed)_
+- [ ] Audit transitive licenses (`cargo tree`, `cargo deny`) — _license gate run on the resolved closure (31 packages): OK. `cargo deny` not run (not installed). `deny.toml` now allows the two pinned TPT git sources._
 
 ### Strict licensing CI gate
 - [x] `deny.toml`: allow MIT, 0BSD, BSD-2-Clause, BSD-3-Clause, Unicode-DFS-2016, Unicode-3.0, Zlib (Apache-2.0 omitted: `X OR Apache-2.0` passes via X)
@@ -49,7 +49,7 @@ Legend: `[ ]` todo · `[x]` done
 - [x] Ban `*-sys` crates in core + views crates (script checks the dependency closure)
 - [x] Script: parse `Cargo.lock` / `cargo metadata` and fail on any new Apache-2.0-only crate (`scripts/check_licenses.py`)
 - [x] Script tests (fixtures with an Apache-only crate must fail) — `scripts/test_check_licenses.py`
-- [x] Decide handling of `Apache-2.0 WITH LLVM-exception` and `Unicode-3.0` — Unicode-3.0 allowed (serde derive needs it); WITH-exceptions rejected. _Needs maintainer sign-off._
+- [x] Decide handling of `Apache-2.0 WITH LLVM-exception` and `Unicode-3.0` — Unicode-3.0 allowed (serde derive needs it); WITH-exceptions rejected. _Signed off: recommendation applied (2026-11-04)._
 
 ### CI (GitHub Actions)
 - [x] `cargo deny check licenses` (required on all PRs) — workflow written; not yet run on GitHub
@@ -65,6 +65,8 @@ Legend: `[ ]` todo · `[x]` done
 - [x] Define `Block` enum: `Text`, `Grid`, `Media`, `Container` (+ `Query`)
 - [x] Add `Block::Query` (mentioned in spec §4 note but missing from the enum) and define its shape — `Query { source: String }`; language owned by `tpt-query`
 - [x] `Document` type: DAG of blocks, root, metadata (front matter)
+- [x] `Block::Math` for display math; schema version bumped to 2 (covers `List`, `Code`, `ThematicBreak`, `Math`) — _no v1 document was released, so no migration_
+- [x] Sheet cell storage: `Sheet`, `CellInput`, `Op::SetCell` (undoable), validation of addresses, formulas and `Block::Grid` sheet references. `sheets` is omitted from JSON when empty, so the schema version is unchanged
 - [ ] `tpt-model` schema + versioning for the Block tree — _partial: own `schema_version` in core; tpt-model not used_
 - [x] Basic serialization / deserialization (serde JSON, deterministic `BTreeMap` order)
 - [x] DAG invariants (no cycles, dangling `BlockId`s) + validation (`Document::validate`)
@@ -76,21 +78,21 @@ Legend: `[ ]` todo · `[x]` done
 
 ## Phase 1 — Hybrid Document MVP (Weeks 3-6)
 
-- [ ] `tpt-codex-app` shell on `tpt-appfront`, builds to WASM — _blocked on tpt-appfront audit_
-- [ ] Core ⇄ UI reactive wiring (tree change → projection update) — _partial: `Op`, `History` and change inputs exist; no UI or subscription layer_
+- [x] `tpt-codex-app` shell on `tpt-appfront`, builds to WASM — _editor state and UI tree (`Editor`, `Msg`) render to semantic HTML and are tested natively. `web::mount` mounts the editor with `tpt-appfront-dom`; the app builds for `wasm32-unknown-unknown` and CI checks it. Not yet run in a browser_
+- [ ] Core ⇄ UI reactive wiring (tree change → projection update) — _partial: `History::last_changed` names the blocks each step changed. The editor re-renders from a signal after each message (`web::mount`). No per-block projection cache yet_
 - [ ] **Flow View** in `tpt-codex-views`: shape text via `tpt-text`, lay out via `tpt-layout` (block/inline flow, margin collapsing, typographic hierarchy) — _partial: flow layout with injected `TextMeasure` and greedy wrap; not `tpt-text`/`tpt-layout`, no margin collapsing_
-- [ ] Text editing: caret, selection, input, undo/redo — _partial: undo/redo and character-range edits in core; no caret, selection or input UI_
-- [ ] `TextStyle` editing (bold/italic/headings/lists etc.) — _partial: bold/italic/heading via `SetBlock`; lists not in the model_
-- [ ] **Grid View**: swap to `tpt-lattice` canvas/WebGL renderer when `Block::Grid` is focused
-- [ ] Cell editing + LES formula entry + real-time evaluation (`tpt-lattice-evaluator`)
+- [ ] Text editing: caret, selection, input, undo/redo — _partial: `Selection` (caret movement, insert, backspace, delete, each undoable) in core; `Editor` maps messages to these. Keyboard, IME and key bindings in the browser are not wired yet_
+- [ ] `TextStyle` editing (bold/italic/headings/lists etc.) — _partial: bold/italic/heading via `SetBlock`; lists are in the model (`Block::List`) but there are no list-editing commands_
+- [ ] **Grid View**: swap to `tpt-lattice` canvas/WebGL renderer when `Block::Grid` is focused — _partial: the editor shows an editable table (`data_grid` plus one input per cell). No canvas or WebGL renderer_
+- [ ] Cell editing + LES formula entry + real-time evaluation (`tpt-lattice-evaluator`) — _partial: `Op::SetCell` (undoable); `GridSession` recomputes affected cells; the editor's `EditCell` message parses typed text (number, boolean, `=formula`, text) and shows the grid as a table. Cell focus and arrow-key navigation not yet_
 - [ ] Inline embed of a live grid in text flow (`view_bounds`), plus full-sheet reference
 - [ ] Insert-table command in the UI
-- [ ] `Block::Query` evaluation via `tpt-query`
+- [ ] `Block::Query` evaluation via `tpt-query` — _partial: `tpt-typeset::run_query` runs JSON queries. `document_entities` maps each block to an entity (type ids in `entity_type`), so queries run over the document. No query UI or query-result rendering yet_
 - [ ] `Block::Media` rendering (images, SVG, `tpt-canvas` drawing commands) with alt text
 - [ ] `Block::Container` rendering for Flow/Grid layout modes — _partial: Flow done; Grid and Absolute render as placeholder boxes_
 - [x] Trait boundaries for platform I/O, rendering, clock, storage (keep core headless) — _`Clock`, `Storage`, `TextMeasure` traits; rendering via `TextMeasure` only_
 - [x] Local persistence (save/load document) — _JSON via `DocumentStore` over `FileStorage`; validated on save and load_
-- [ ] Native desktop shell smoke test (via appfront webview/tui, if used)
+- [ ] Native desktop shell smoke test (via appfront webview/tui, if used) — _not started: `tpt-appfront-webview` fails the gate. WASM-first is the decision, so the browser run comes first_
 
 **Milestone 1:** A user types a paragraph, inserts a live calculation table, and it updates reactively in the browser via WASM.
 
@@ -104,12 +106,12 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] CommonMark mapping: headings, paragraphs, lists, code blocks, thematic breaks, images _(done)_; links, emphasis _(not yet — needs inline runs in the model)_
 - [ ] Codex-Flavored Markdown: `::: grid { id="..." }` blocks (table body → lattice sheet)
 - [ ] `::: canvas { ratio="16:9" }` slide containers
-- [ ] `$$ ... $$` math blocks (+ inline math)
+- [ ] `$$ ... $$` math blocks (+ inline math) — _block math done: reader, writer and `Block::Math`; inline math not yet_
 - [ ] Citations `[@key]`, cross-refs `[#id]`, figure attrs `{#fig:id width=80%}`
 - [x] `.cdx` ("Codex Script") format: front matter (title, author, date, class) — simple `key: value` subset of YAML, not full YAML
 - [x] Define & document the grammar formally (spec examples are not exhaustive) — _`docs/markdown-grammar.md`_
 - [x] Structured parse errors: line/column + fix suggestion (for the supported subset; column is 1 for line-level errors)
-- [ ] Round-trip + snapshot tests; fuzz the parser — _round-trip (incl. lists, code, images), randomized and golden snapshot tests done; fuzzing not yet (smoke test only)_
+- [ ] Round-trip + snapshot tests; fuzz the parser — _round-trip (incl. lists, code, images, math), randomized and golden snapshot tests done; a seeded mutation test runs 4,000 inputs by default (300,000 ran clean); no cargo-fuzz harness yet_
 
 ### tpt-typeset
 - [ ] Semantic AST: chapters, sections, footnotes, citations, TOC, cross-refs — _partial: heading outline and numbering; no footnotes, citations or chapter objects_
@@ -120,7 +122,7 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Citations + bibliography (decide source format, e.g. BibTeX/CSL-JSON)
 - [x] Document classes (`article` etc.) as a typed, declarative schema (no macro language) — _`DocumentClass` (article, report) typed schema; not yet used by layout_
 - [ ] Typography: kerning, ligatures, hyphenation (via `tpt-text`)
-- [ ] **Math layout engine** (spec references a "new typesetting crate" — not in the crate list): parse LaTeX-style math, box/glue layout, fonts with MATH table — _partial: parser only (`parse_math`); layout needs `tpt-text`_
+- [ ] **Math layout engine** (spec references a "new typesetting crate" — not in the crate list): parse LaTeX-style math, box/glue layout, fonts with MATH table — _partial: parser and a document-level check of math blocks (`check_math_blocks`); layout needs `tpt-text`_
 - [x] Better math error messages — _line, column, message and hint on each error_
 - [ ] Data binding: embed `tpt-lattice` grids, `tpt-query` results, variables
 - [ ] Structured, actionable errors ("Line 42: unclosed environment") — _partial: Markdown and math errors carry line, column and hint_
@@ -140,7 +142,7 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Repeated table headers across pages
 - [x] Page size, margins, headers/footers, page numbers — _`PageGeometry`, `PaperSize` (A4, Letter), `render_chrome` with `{page}`/`{pages}`_
 - [ ] Render grids into pages (page breaking for large grids) — _grids are fixed-height placeholder boxes; no page breaking inside grids_
-- [ ] Output drawing commands to `tpt-canvas-pdf`
+- [ ] Output drawing commands to `tpt-canvas-pdf` — _blocked upstream: glyph runs are placeholders in `tpt-canvas-pdf`_
 - [ ] Font embedding / subsetting for PDF
 - [ ] One-click PDF export in the app
 - [ ] Byte-exact determinism: fixed timestamps/IDs, stable object ordering — _partial: ordered maps, fixed clock and deterministic layout; no PDF output yet_
@@ -162,8 +164,8 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Slides → PDF export
 
 ### Collaboration (`tpt-replicate`)
-- [ ] CRDT operations on the Block tree (insert/delete/move/update) — _partial: `Op` insert, delete, move and update with inverses; not a CRDT_
-- [ ] Concurrent text editing semantics for `Block::Text`
+- [ ] CRDT operations on the Block tree (insert/delete/move/update) — _partial: `Op` insert, delete, move and update with inverses; not a CRDT. Text inside a block is (see next item)_
+- [x] Concurrent text editing semantics for `Block::Text` — _replicated growable array (RGA) of characters in `tpt-codex-core` (`text_crdt.rs`), with stamps, tombstones and causal delivery. `materialize` writes the converged text into the block as one undoable step. Not yet connected to a transport_
 - [ ] Merge live grids (`tpt-lattice-crdt`) with the document CRDT
 - [ ] Move-operation conflict handling (DAG must stay acyclic) — _partial: local moves reject cycles; concurrent conflict handling not designed_
 - [ ] Offline-first sync + reconnect
@@ -177,12 +179,12 @@ Legend: `[ ]` todo · `[x]` done
 
 ## Phase 5 — Interop (after v1; spec lists crate but no schedule)
 
-- [ ] `.docx` import via `tpt-doc-word` → Block tree (best-effort data extraction)
-- [ ] `.xlsx` import via `tpt-lattice-import-xlsx` → `Block::Grid`
+- [ ] `.docx` import via `tpt-doc-word` → Block tree (best-effort data extraction) — _unblocked in principle: the same in-house `archive` module reads `.docx` parts. Not started_
+- [ ] `.xlsx` import via `tpt-lattice-import-xlsx` → `Block::Grid` — _first worksheet imported into a `Sheet` with a `FidelityReport` (merges, other sheets, error values, shared formulas, named ranges). Dates and formats come in as plain numbers (styles are not read). Placing the sheet as a `Block::Grid` is left to the caller_
 - [ ] `.pdf` text/structure extraction via `tpt-doc-pdf`
 - [ ] `.pptx` import (data only, no animations)
-- [ ] Export adapters: `.docx`, `.xlsx`
-- [ ] Import fidelity report (what was dropped/approximated)
+- [ ] Export adapters: `.docx`, `.xlsx` — _`.xlsx` export of the first sheet is done (formulas with cached values, deterministic bytes), checked by openpyxl. `.docx` not started_
+- [ ] Import fidelity report (what was dropped/approximated) — _report type and text form done (`tpt-codex-interop`); no importer uses it yet_
 - [ ] Corpus-based tests with sample real-world files
 - [ ] Verify no new Apache-only transitive deps arrive via interop
 
@@ -194,11 +196,11 @@ Legend: `[ ]` todo · `[x]` done
 
 - [ ] Golden/byte-identical render tests: native vs WASM vs PDF — _partial: golden JSON compared across OSes in CI; no WASM or PDF comparison_
 - [x] Determinism CI job (run on Linux/Windows/macOS and compare hashes) — _in `.github/workflows/ci.yml`; not yet run on GitHub_
-- [ ] Property tests for CRDT convergence
-- [ ] Fuzzing: Markdown/.cdx parser, math parser, deserializer — _smoke tests only (random input, no panics); no fuzz harness_
+- [x] Property tests for CRDT convergence — _text RGA: three replicas, random edits and reordered delivery, 200 rounds in the test suite (20,000 ran clean). The block tree is not a CRDT yet, so it is not covered_
+- [ ] Fuzzing: Markdown/.cdx parser, math parser, deserializer — _seeded mutation tests for all three: Markdown (`tpt-codex-markdown/tests/mutation.rs`), math (`tpt-typeset/tests/mutation.rs`) and document JSON (`tpt-codex-core/tests/json_mutation.rs`). Default runs are 4k, 20k and 5k inputs; 300k, 300k and 200k ran clean. No cargo-fuzz harness yet_
 - [ ] Benchmarks: layout, eval, large documents — _partial: layout and pagination benchmark (`examples/bench_layout.rs`); no eval benchmark_
 - [x] Test fixtures / sample documents repo dir — _`fixtures/` with a sample and its golden JSON_
-- [ ] Per-phase milestone acceptance tests — _partial: Milestone 0 covered; end-to-end headless test added; Milestones 1 to 5 blocked_
+- [ ] Per-phase milestone acceptance tests — _partial: Milestone 0 covered; Milestone 1's headless path (typing with a caret, undo, equation block, save and reload) covered; its UI and Milestones 2 to 5 blocked_
 
 ## Release (minimal)
 - [x] Versioning policy (`0.1.0-spec` → `0.1.0`) — _`docs/versioning.md`_
@@ -214,8 +216,8 @@ Legend: `[ ]` todo · `[x]` done
 ## Open questions / spec inconsistencies to resolve
 - [x] `Block::Query` is referenced but not defined in the enum — now defined
 - [x] Spec crate names differ from the real repos (`tpt-lattice-import` → `tpt-lattice-import-xlsx`; `tpt-canvas-pdf` lives in `tpt-canvas`) — recorded in `docs/tpt-dependency-map.md`
-- [ ] `tpt-typeset` was marked "no_std: ✅" with deps on `tpt-layout`/`tpt-canvas` — confirm those are `no_std` — _still open: the TPT crates it names are not built here_
-- [ ] "Zero Apache-only" rule vs. TPT repos showing "Apache-2.0" on GitHub — all verified dual in Cargo.toml; re-verify on every dep bump — _partial: audit done; three blockers listed in docs/tpt-dependency-audit.md_
-- [ ] Phase 2 PDF milestone depends on Phase 3
-- [ ] WASM UDF sandbox: mentioned in non-goals but not scheduled
-- [ ] Spec marks `tpt-codex-app` as "WASM-first" — decide native desktop story
+- [x] `tpt-typeset` was marked "no_std: ✅" with deps on `tpt-layout`/`tpt-canvas` — _resolved: `tpt-typeset` now depends on `tpt-query` (json) instead, and builds for `wasm32-unknown-unknown` and `thumbv7m-none-eabi`. `tpt-layout`/`tpt-canvas` are not used yet_
+- [x] "Zero Apache-only" rule vs. TPT repos showing "Apache-2.0" on GitHub — _verified: every TPT crate in the resolved closure is `MIT OR Apache-2.0` in its manifest, and the gate passes. Re-verify on every dep bump._
+- [x] Phase 2 PDF milestone depends on Phase 3 — _decided (recommendation): Milestone 2 is accepted as Markdown, math and outline; PDF export stays in Phase 3. Blocked further by upstream glyph output in `tpt-canvas-pdf`._
+- [x] WASM UDF sandbox: mentioned in non-goals but not scheduled — _decided (recommendation): out of v1, as the non-goals list says. Revisit after v1._
+- [x] Spec marks `tpt-codex-app` as "WASM-first" — decide native desktop story — _decided (recommendation): WASM-first, as the spec says. A native shell comes later, through `tpt-appfront` webview._
