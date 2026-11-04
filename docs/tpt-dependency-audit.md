@@ -58,7 +58,7 @@ crates other than the rows above.
 ## Next steps
 
 - Decide item 3 (replace `criterion` and `proptest` in tpt-model, or relax the gate for dev dependencies).
-- Review the `replace-self-cell` branch in the tpt-text clone, then push it if approved.
+- Push the local commits when ready: tpt-text `master` (`9c794eb` and earlier) and tpt-model `master` (`f0a8abe`).
 - Once approved, run `cargo build --target thumbv7m-none-eabi` and `wasm32-unknown-unknown` on the
   candidate crates to verify the `no_std` attribute.
 - Re-run this audit on every dependency bump.
