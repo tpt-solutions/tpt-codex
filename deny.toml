@@ -6,6 +6,7 @@
 
 [graph]
 all-features = true
+exclude-dev = true
 
 [licenses]
 allow = [

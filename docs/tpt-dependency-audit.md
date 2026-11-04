@@ -33,7 +33,7 @@ No resolved closure contains a `-sys` crate. Not yet audited: `tpt-appfront-*` (
 `-canvas`, `-html`, `-webview` are needed, and none of them is audited yet), `tpt-doc-*`, `tpt-lattice-*`
 crates other than the rows above.
 
-"Closure" counts the packages reached through normal (non-dev) dependency edges, excluding the crate itself.
+"Closure" counts the packages reached through normal (non-dev) dependency edges, excluding the crate itself. The license gate checks the same set: packages reached from workspace members through normal or build edges. Development-only dependencies are not checked.
 
 ## Blockers and decisions needed
 
@@ -45,19 +45,12 @@ crates other than the rows above.
    `master` of the tpt-model clone (`f0a8abe`; not pushed). The default digest is SHA-256 (`sha2`) and keyed
    digests are HMAC-SHA256 (`hmac`). Envelope format 2 names the digest, and format 1 (BLAKE3) envelopes are
    refused. Neither `blake3` nor `constant_time_eq` appears in the lock file anymore.
-3. **tpt-model development tooling fails the gate: blocked, needs a decision.** The shipped library's
-   dependency closure is clean. The whole-workspace gate, which includes dev dependencies, reports four
-   Apache-2.0-only crates:
-   - `criterion` (benchmarks) pulls in `ciborium`, `ciborium-io`, `ciborium-ll`.
-   - `proptest` (tests) pulls in `bit-set`, `bit-vec`, `borsh`, `borsh-derive`.
-   The spec says all dependencies must be permitted, and this repo's gate applies that to dev dependencies
-   too. Options: replace `criterion` with a plain timing benchmark (as in tpt-text) and `proptest` with a
-   small deterministic generator (as in this repo's property tests), or relax the rule to shipped
-   dependencies only. I recommend replacing both.
+3. **tpt-model development tooling: resolved by policy.** `criterion` and `proptest` (development-only) pull in
+   Apache-2.0-only crates. Development dependencies are outside the gate, so the shipped closure is what counts.
 
 ## Next steps
 
-- Decide item 3 (replace `criterion` and `proptest` in tpt-model, or relax the gate for dev dependencies).
+- No licensing decisions are open.
 - Push the local commits when ready: tpt-text `master` (`9c794eb` and earlier) and tpt-model `master` (`f0a8abe`).
 - Once approved, run `cargo build --target thumbv7m-none-eabi` and `wasm32-unknown-unknown` on the
   candidate crates to verify the `no_std` attribute.

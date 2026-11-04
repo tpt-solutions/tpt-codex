@@ -15,7 +15,7 @@ WebAssembly.
 
 - **Single source of truth.** Data is decoupled from presentation. The UI is a reactive projection of the block tree.
 - **Deterministic rendering.** The same model yields the same output on native, WASM, and PDF.
-- **Strict licensing.** Dependencies must be MIT, 0BSD, BSD-2/3-Clause, Unicode-DFS-2016, Unicode-3.0, Zlib, or dual-licensed with an MIT option. Apache-2.0-only, GPL, AGPL, SSPL and BSL are rejected by CI.
+- **Strict licensing.** Shipped dependencies must be MIT, 0BSD, BSD-2/3-Clause, Unicode-DFS-2016, Unicode-3.0, Zlib, or dual-licensed with an MIT option. Apache-2.0-only, GPL, AGPL, SSPL and BSL are rejected by CI. Development-only dependencies (tests, benchmarks, examples) are not checked.
 - **Headless, `no_std` core.** Core model, views, Markdown and typesetting are `no_std` + `alloc`. Platform I/O sits behind trait boundaries.
 
 ## Workspace layout

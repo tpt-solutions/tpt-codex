@@ -98,12 +98,41 @@ def is_normal_edge(dep: dict) -> bool:
     return any(k.get("kind") != "dev" for k in kinds)
 
 
-def check(metadata: dict, sys_roots: set[str] | None = None) -> list[str]:
+def shipped_ids(metadata: dict) -> set[str]:
+    """Package ids reached from workspace members through normal or build edges.
+
+    Development-only dependencies (tests, benchmarks, examples) are excluded, as the
+    spec allows. A package reached both ways counts as shipped.
+    """
+    nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
+    seen: set[str] = set()
+    stack = list(metadata.get("workspace_members", []))
+    while stack:
+        node_id = stack.pop()
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        for dep in nodes.get(node_id, {}).get("deps", []):
+            if is_normal_edge(dep):
+                stack.append(dep["pkg"])
+    return seen
+
+
+def check(
+    metadata: dict,
+    sys_roots: set[str] | None = None,
+    include_dev: bool = False,
+) -> list[str]:
     errors: list[str] = []
     roots_names = NO_SYS_CRATES if sys_roots is None else sys_roots
     packages = {p["id"]: p for p in metadata["packages"]}
+    scope = (
+        set(packages) if include_dev or "workspace_members" not in metadata else shipped_ids(metadata)
+    )
 
     for pkg in metadata["packages"]:
+        if pkg["id"] not in scope:
+            continue
         lic = pkg.get("license")
         if not lic:
             errors.append(f"{pkg['name']} {pkg['version']}: no license declared")
@@ -139,6 +168,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--metadata", help="Path to cargo metadata JSON (default: stdin)")
     parser.add_argument(
+        "--include-dev",
+        action="store_true",
+        help="Also check licenses of development-only dependencies",
+    )
+    parser.add_argument(
         "--sys-roots",
         nargs="*",
         help="Crates whose closure must not contain -sys crates (default: tpt-codex core/view crates)",
@@ -149,7 +183,11 @@ def main(argv: list[str] | None = None) -> int:
             metadata = json.load(fh)
     else:
         metadata = json.load(sys.stdin)
-    errors = check(metadata, set(args.sys_roots) if args.sys_roots else None)
+    errors = check(
+        metadata,
+        set(args.sys_roots) if args.sys_roots else None,
+        include_dev=args.include_dev,
+    )
     for err in errors:
         print(f"license-gate: {err}", file=sys.stderr)
     if errors:

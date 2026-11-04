@@ -57,6 +57,23 @@ class LicenseExpressionTests(unittest.TestCase):
 
 
 class GateTests(unittest.TestCase):
+    def test_dev_only_apache_package_is_ignored(self):
+        core = pkg("tpt-codex-core", "MIT", "core")
+        bench = pkg("criterion", "Apache-2.0", "crit")
+        m = meta([core, bench], edges={"core": []})
+        m["workspace_members"] = ["core"]
+        m["resolve"]["nodes"][0]["deps"] = [{"pkg": "crit", "dep_kinds": [{"kind": "dev", "target": None}]}]
+        self.assertEqual(cl.check(m), [])
+        self.assertTrue(any("criterion" in e for e in cl.check(m, include_dev=True)))
+
+    def test_shipped_apache_package_fails_even_when_dev_is_excluded(self):
+        core = pkg("tpt-codex-core", "MIT", "core")
+        dep = pkg("apache-only", "Apache-2.0", "ao")
+        m = meta([core, dep], edges={"core": ["ao"]})
+        m["workspace_members"] = ["core"]
+        self.assertTrue(any("apache-only" in e for e in cl.check(m)))
+
+
     def test_clean_graph_passes(self):
         m = meta([pkg("tpt-codex-core", "MIT OR Apache-2.0", "core"), pkg("serde", "MIT OR Apache-2.0", "serde")],
                  edges={"core": ["serde"]})
