@@ -101,7 +101,7 @@ Legend: `[ ]` todo · `[x]` done
 ### tpt-codex-markdown
 - [x] `from_markdown(&str) -> Result<Document, ParseError>` — front matter, headings, paragraphs; other syntax is a structured error
 - [x] `to_markdown(&Document) -> Result<String, SerializeError>` — refuses anything it cannot write back exactly
-- [ ] CommonMark mapping: headings, paragraphs _(done)_; lists, code blocks, links, emphasis, images _(not yet — needs model variants or inline support)_
+- [ ] CommonMark mapping: headings, paragraphs, lists, code blocks, thematic breaks, images _(done)_; links, emphasis _(not yet — needs inline runs in the model)_
 - [ ] Codex-Flavored Markdown: `::: grid { id="..." }` blocks (table body → lattice sheet)
 - [ ] `::: canvas { ratio="16:9" }` slide containers
 - [ ] `$$ ... $$` math blocks (+ inline math)
@@ -109,7 +109,7 @@ Legend: `[ ]` todo · `[x]` done
 - [x] `.cdx` ("Codex Script") format: front matter (title, author, date, class) — simple `key: value` subset of YAML, not full YAML
 - [x] Define & document the grammar formally (spec examples are not exhaustive) — _`docs/markdown-grammar.md`_
 - [x] Structured parse errors: line/column + fix suggestion (for the supported subset; column is 1 for line-level errors)
-- [ ] Round-trip + snapshot tests; fuzz the parser — _round-trip, randomized and golden snapshot tests done; fuzzing not yet (smoke test only)_
+- [ ] Round-trip + snapshot tests; fuzz the parser — _round-trip (incl. lists, code, images), randomized and golden snapshot tests done; fuzzing not yet (smoke test only)_
 
 ### tpt-typeset
 - [ ] Semantic AST: chapters, sections, footnotes, citations, TOC, cross-refs — _partial: heading outline and numbering; no footnotes, citations or chapter objects_

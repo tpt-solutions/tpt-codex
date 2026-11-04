@@ -5,7 +5,10 @@ use alloc::vec::Vec;
 use tpt_codex_core::{Block, BlockId, Document, LayoutMode, Metadata, TextStyle};
 
 use crate::error::ParseError;
-use crate::syntax::{heading, unsupported};
+use crate::syntax::{
+    ListMarker, fence_closes, fence_open, heading, image_line, list_item, thematic_break,
+    unsupported,
+};
 
 /// Reads the supported Markdown subset into a [`Document`].
 ///
@@ -16,24 +19,122 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
     let mut metadata = Metadata::default();
     let body_start = read_front_matter(&lines, &mut metadata)?;
 
-    let mut children: Vec<Block> = Vec::new();
-    let mut paragraph: Option<String> = None;
+    let mut b = Builder::default();
+    let mut open = Open::default();
 
     for (offset, line) in lines[body_start..].iter().enumerate() {
         let lineno = body_start + offset + 1;
-        if line.trim().is_empty() {
-            flush_paragraph(&mut paragraph, &mut children);
-        } else if let Some((level, text)) = heading(line) {
-            flush_paragraph(&mut paragraph, &mut children);
-            if text.is_empty() {
-                return Err(ParseError {
-                    line: lineno,
-                    column: 1,
-                    message: String::from("heading has no text"),
-                    suggestion: Some("add text after the hashes, or write a paragraph instead"),
-                });
+
+        if let Some(code) = open.code.as_mut() {
+            if fence_closes(line, code.ch, code.len) {
+                if let Some(code) = open.code.take() {
+                    b.push_root(Block::Code {
+                        language: code.language,
+                        code: code.lines.join("\n"),
+                    });
+                }
+            } else {
+                // Content loses up to as many leading spaces as the opening fence had.
+                let n = line
+                    .bytes()
+                    .take(code.indent)
+                    .take_while(|&c| c == b' ')
+                    .count();
+                code.lines.push(String::from(&line[n..]));
             }
-            children.push(Block::Text {
+            continue;
+        }
+
+        if line.trim().is_empty() {
+            open.close_paragraph(&mut b);
+            open.after_image = false;
+            if open.list.is_some() {
+                open.list_blank = true;
+            }
+            continue;
+        }
+        let after_image = core::mem::take(&mut open.after_image);
+
+        if let Some(item) = list_item(line) {
+            if item.text.is_empty() {
+                return Err(error(
+                    lineno,
+                    "list item is empty",
+                    "write the item's text after the marker",
+                ));
+            }
+            if let Some(list) = open.list.as_mut() {
+                if list.key == item.key() {
+                    if open.list_blank {
+                        return Err(error(
+                            lineno,
+                            "loose lists (blank lines between items) are not supported yet",
+                            "remove the blank lines between the items",
+                        ));
+                    }
+                    list.items.push(b.alloc(text_block(item.text)));
+                    continue;
+                }
+            }
+            if open.para.is_some() && item.ordered && item.number != 1 {
+                return Err(error(
+                    lineno,
+                    "a numbered list that does not start at 1 cannot follow a paragraph",
+                    "start the list at 1, or put a blank line before it",
+                ));
+            }
+            open.close_paragraph(&mut b);
+            open.close_list(&mut b);
+            open.list = Some(OpenList::start(&mut b, item));
+            open.list_blank = false;
+            continue;
+        }
+
+        if let Some(fence) = fence_open(line) {
+            if fence.info.contains(['\\', '&']) {
+                return Err(error(
+                    lineno,
+                    "code block info string cannot contain backslashes or entities",
+                    "use a plain language name such as rust",
+                ));
+            }
+            open.close_paragraph(&mut b);
+            open.close_list(&mut b);
+            open.code = Some(OpenCode {
+                ch: fence.ch,
+                len: fence.len,
+                indent: fence.indent,
+                language: (!fence.info.is_empty()).then(|| String::from(fence.info)),
+                lines: Vec::new(),
+            });
+            continue;
+        }
+
+        if let Some(ch) = thematic_break(line) {
+            if ch == b'-' && open.para.is_some() {
+                return Err(error(
+                    lineno,
+                    "a line of dashes under text is a setext heading, which is not supported yet",
+                    "put a blank line between the text and the dashes, or use *** for a rule",
+                ));
+            }
+            open.close_paragraph(&mut b);
+            open.close_list(&mut b);
+            b.push_root(Block::ThematicBreak);
+            continue;
+        }
+
+        if let Some((level, text)) = heading(line) {
+            open.close_paragraph(&mut b);
+            open.close_list(&mut b);
+            if text.is_empty() {
+                return Err(error(
+                    lineno,
+                    "heading has no text",
+                    "add text after the hashes, or write a paragraph instead",
+                ));
+            }
+            b.push_root(Block::Text {
                 content: String::from(text),
                 style: TextStyle {
                     bold: false,
@@ -41,46 +142,178 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     heading_level: Some(level),
                 },
             });
-        } else if let Some(reason) = unsupported(line) {
-            return Err(ParseError {
-                line: lineno,
-                column: 1,
-                message: alloc::format!("{reason} is not supported yet"),
-                suggestion: Some("rewrite as plain paragraphs and headings"),
-            });
-        } else {
-            match &mut paragraph {
-                Some(text) => {
-                    text.push('\n');
-                    text.push_str(line);
-                }
-                None => paragraph = Some(String::from(*line)),
+            continue;
+        }
+
+        if let Some(image) = image_line(line) {
+            if open.para.is_some() || (open.list.is_some() && !open.list_blank) {
+                return Err(error(
+                    lineno,
+                    "an image directly after text is not supported yet",
+                    "put a blank line before the image",
+                ));
             }
+            open.close_list(&mut b);
+            let (alt, uri) = image
+                .map_err(|reason| error(lineno, reason, "use ![alt text](path) with no title"))?;
+            b.push_root(Block::Media {
+                source: tpt_codex_core::MediaSource::Uri {
+                    uri: String::from(uri),
+                },
+                alt_text: (!alt.is_empty()).then(|| String::from(alt)),
+            });
+            open.after_image = true;
+            continue;
+        }
+
+        if let Some(reason) = unsupported(line) {
+            return Err(error(
+                lineno,
+                &alloc::format!("{reason} is not supported yet"),
+                "rewrite as plain paragraphs, headings, lists and code blocks",
+            ));
+        }
+
+        if after_image {
+            return Err(error(
+                lineno,
+                "text directly after an image is not supported yet",
+                "put a blank line between the image and the text",
+            ));
+        }
+        if open.list.is_some() {
+            if !open.list_blank {
+                return Err(error(
+                    lineno,
+                    "continuation lines inside a list item are not supported yet",
+                    "put each list item on one line",
+                ));
+            }
+            open.close_list(&mut b);
+        }
+        match &mut open.para {
+            Some(text) => {
+                text.push('\n');
+                text.push_str(line);
+            }
+            None => open.para = Some(String::from(*line)),
         }
     }
-    flush_paragraph(&mut paragraph, &mut children);
+
+    if open.code.is_some() {
+        return Err(error(
+            lines.len(),
+            "code block is not closed",
+            "close the block with a fence of the same character and at least the same length",
+        ));
+    }
+    open.close_paragraph(&mut b);
+    open.close_list(&mut b);
 
     let mut doc = Document::new(
         BlockId(0),
         Block::Container {
             layout_mode: LayoutMode::Flow,
-            children: (1..=children.len() as u64).map(BlockId).collect(),
+            children: b.root,
         },
     );
     doc.metadata = metadata;
-    for (i, block) in children.into_iter().enumerate() {
+    for (i, block) in b.blocks.into_iter().enumerate() {
         doc.insert(BlockId(i as u64 + 1), block);
     }
     Ok(doc)
 }
 
-fn flush_paragraph(paragraph: &mut Option<String>, children: &mut Vec<Block>) {
-    if let Some(content) = paragraph.take() {
-        children.push(Block::Text {
-            content,
-            style: TextStyle::default(),
-        });
+fn error(line: usize, message: &str, suggestion: &'static str) -> ParseError {
+    ParseError {
+        line,
+        column: 1,
+        message: String::from(message),
+        suggestion: Some(suggestion),
     }
+}
+
+fn text_block(content: &str) -> Block {
+    Block::Text {
+        content: String::from(content),
+        style: TextStyle::default(),
+    }
+}
+
+/// Block ids are allocated in the order blocks are created. The root is `BlockId(0)`.
+#[derive(Default)]
+struct Builder {
+    blocks: Vec<Block>,
+    root: Vec<BlockId>,
+}
+
+impl Builder {
+    fn alloc(&mut self, block: Block) -> BlockId {
+        self.blocks.push(block);
+        BlockId(self.blocks.len() as u64)
+    }
+
+    fn push_root(&mut self, block: Block) {
+        let id = self.alloc(block);
+        self.root.push(id);
+    }
+}
+
+/// The block that is still open while reading lines.
+#[derive(Default)]
+struct Open {
+    para: Option<String>,
+    list: Option<OpenList>,
+    /// A blank line has been seen since the list's last item.
+    list_blank: bool,
+    code: Option<OpenCode>,
+    /// The previous line was an image. Text on the next line would join it in CommonMark.
+    after_image: bool,
+}
+
+impl Open {
+    fn close_paragraph(&mut self, b: &mut Builder) {
+        if let Some(content) = self.para.take() {
+            b.push_root(text_block(&content));
+        }
+    }
+
+    fn close_list(&mut self, b: &mut Builder) {
+        if let Some(list) = self.list.take() {
+            b.push_root(Block::List {
+                ordered: list.key.0,
+                start: list.start,
+                items: list.items,
+            });
+        }
+        self.list_blank = false;
+    }
+}
+
+struct OpenList {
+    key: (bool, u8),
+    start: u32,
+    items: Vec<BlockId>,
+}
+
+impl OpenList {
+    fn start(b: &mut Builder, item: ListMarker<'_>) -> Self {
+        let first = b.alloc(text_block(item.text));
+        OpenList {
+            key: item.key(),
+            start: item.number,
+            items: alloc::vec![first],
+        }
+    }
+}
+
+/// A fenced code block whose closing fence has not been read yet.
+struct OpenCode {
+    ch: u8,
+    len: usize,
+    indent: usize,
+    language: Option<String>,
+    lines: Vec<String>,
 }
 
 /// Reads an optional front-matter block. Returns the index of the first body line.

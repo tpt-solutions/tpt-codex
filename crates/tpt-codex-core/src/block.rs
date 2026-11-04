@@ -40,6 +40,24 @@ pub enum Block {
     },
     /// A dynamically evaluated database or data query, evaluated by `tpt-query`.
     Query(Query),
+    /// An ordered or bulleted list. Each item is a `Block::Text` with default style.
+    List {
+        /// `true` for a numbered list, `false` for a bulleted list.
+        ordered: bool,
+        /// Number of the first item. Always `1` for bulleted lists.
+        start: u32,
+        /// The item blocks, in order.
+        items: Vec<BlockId>,
+    },
+    /// A fenced code block. The content is stored exactly as written.
+    Code {
+        /// The info string's language, if any.
+        language: Option<String>,
+        /// The code, lines joined with `\n`, with no trailing line break.
+        code: String,
+    },
+    /// A horizontal rule.
+    ThematicBreak,
 }
 
 /// A query whose result is projected into the document.

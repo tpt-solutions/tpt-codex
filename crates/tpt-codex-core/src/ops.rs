@@ -290,6 +290,7 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
 fn children_of(block: &Block) -> &[BlockId] {
     match block {
         Block::Container { children, .. } => children,
+        Block::List { items, .. } => items,
         _ => &[],
     }
 }

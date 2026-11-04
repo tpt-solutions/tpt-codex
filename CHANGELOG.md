@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Markdown reader and writer now cover bulleted and numbered lists, fenced code blocks, thematic
+  breaks and standalone images. `Block` gains `List`, `Code` and `ThematicBreak` variants. Constructs
+  that would read back differently are errors on read and refusals on write. See `docs/markdown-grammar.md`.
 - Cargo workspace (resolver 2, edition 2024) with crates `tpt-codex-core`, `tpt-codex-views`,
   `tpt-codex-markdown`, `tpt-typeset`, `tpt-codex-interop` and `tpt-codex-app`.
 - `tpt-codex-core` data model: `BlockId`, `SheetId`, `Rect`, `TextStyle`, `LayoutMode`,
