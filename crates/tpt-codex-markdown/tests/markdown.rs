@@ -87,29 +87,353 @@ fn seven_hashes_is_a_paragraph() {
 }
 
 #[test]
-fn unsupported_list_reports_line_and_hint() {
-    let err = from_markdown("# Title\n\n- item one\n").unwrap_err();
-    assert_eq!(err.line, 3);
+fn loose_list_reports_line_and_hint() {
+    let err = from_markdown("# Title\n\n- item one\n\n- item two\n").unwrap_err();
+    assert_eq!(err.line, 5);
     assert_eq!(err.column, 1);
-    assert!(err.message.contains("bullet list"), "{}", err.message);
+    assert!(err.message.contains("loose"), "{}", err.message);
     assert!(err.suggestion.is_some());
 }
 
 #[test]
 fn each_unsupported_construct_is_an_error() {
     for src in [
-        "```\ncode\n```\n",
         "> quote\n",
-        "1. first\n",
         "| a | b |\n",
         "    indented\n",
-        "para\n\n---\n",
-        "***\n",
         "$$\nx\n$$\n",
         ":::  grid\n",
+        "<div>\n",
+        "[^1]: note\n",
+        "para\n---\n",
+        "para\n![a](b.png)\n",
+        "- item\n  continued\n",
+        "- item\n    nested\n",
+        "```\ncode\n",
+        "1. one\n\n2. two\n",
+        "text\n3. not one\n",
+        "- \n",
+        "![a](b c)\n",
+        "![a](b)\nmore text\n",
     ] {
         assert!(from_markdown(src).is_err(), "should reject: {src:?}");
     }
+}
+
+#[test]
+fn reads_bulleted_and_numbered_lists() {
+    let doc = from_markdown("- one\n- two\n\n3) three\n4) four\n").unwrap();
+    assert_eq!(doc, {
+        let mut d = Document::new(
+            BlockId(0),
+            Block::Container {
+                layout_mode: LayoutMode::Flow,
+                children: alloc_ids(&[3, 6]),
+            },
+        );
+        d.insert(BlockId(1), para("one"));
+        d.insert(BlockId(2), para("two"));
+        d.insert(
+            BlockId(3),
+            Block::List {
+                ordered: false,
+                start: 1,
+                items: alloc_ids(&[1, 2]),
+            },
+        );
+        d.insert(BlockId(4), para("three"));
+        d.insert(BlockId(5), para("four"));
+        d.insert(
+            BlockId(6),
+            Block::List {
+                ordered: true,
+                start: 3,
+                items: alloc_ids(&[4, 5]),
+            },
+        );
+        d
+    });
+}
+
+fn alloc_ids(raw: &[u64]) -> Vec<BlockId> {
+    raw.iter().copied().map(BlockId).collect()
+}
+
+#[test]
+fn reads_code_rules_and_images() {
+    let src = "```rust\nfn main() {}\n\n    indented\n```\n\n***\n\n![Logo](images/logo.png)\n";
+    let doc = from_markdown(src).unwrap();
+    let kids: Vec<&Block> = match doc.get(doc.root) {
+        Some(Block::Container { children, .. }) => {
+            children.iter().filter_map(|c| doc.get(*c)).collect()
+        }
+        _ => panic!("root is not a container"),
+    };
+    assert_eq!(kids.len(), 3);
+    assert_eq!(
+        kids[0],
+        &Block::Code {
+            language: Some("rust".into()),
+            code: "fn main() {}\n\n    indented".into(),
+        }
+    );
+    assert_eq!(kids[1], &Block::ThematicBreak);
+    assert_eq!(
+        kids[2],
+        &Block::Media {
+            source: tpt_codex_core::MediaSource::Uri {
+                uri: "images/logo.png".into()
+            },
+            alt_text: Some("Logo".into()),
+        }
+    );
+}
+
+#[test]
+fn fence_closes_only_with_the_same_character_and_length() {
+    let doc = from_markdown("````\n```\n~~~\n````\n").unwrap();
+    let kids = match doc.get(doc.root) {
+        Some(Block::Container { children, .. }) => children.clone(),
+        _ => panic!(),
+    };
+    assert_eq!(kids.len(), 1);
+    assert_eq!(
+        doc.get(kids[0]),
+        Some(&Block::Code {
+            language: None,
+            code: "```\n~~~".into(),
+        })
+    );
+}
+
+#[test]
+fn reads_a_paragraph_that_a_bullet_interrupts() {
+    let doc = from_markdown("Intro\n- point\n").unwrap();
+    assert_eq!(doc.blocks.len(), 4, "root plus three blocks");
+    assert_eq!(doc.get(BlockId(1)), Some(&para("Intro")));
+    assert!(matches!(
+        doc.get(BlockId(3)),
+        Some(Block::List { ordered: false, .. })
+    ));
+}
+
+#[test]
+fn writes_lists_code_rules_and_images_and_reads_them_back() {
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: alloc_ids(&[1, 2, 3, 4, 5]),
+        },
+    );
+    doc.insert(BlockId(1), heading(2, "Steps"));
+    doc.insert(BlockId(2), para("first"));
+    doc.insert(
+        BlockId(3),
+        Block::Code {
+            language: None,
+            code: "a ``` b\n".into(),
+        },
+    );
+    doc.insert(BlockId(4), Block::ThematicBreak);
+    doc.insert(
+        BlockId(5),
+        Block::Media {
+            source: tpt_codex_core::MediaSource::Uri {
+                uri: "a.png".into(),
+            },
+            alt_text: None,
+        },
+    );
+    let md = to_markdown(&doc).unwrap();
+    assert_eq!(
+        md,
+        "## Steps\n\nfirst\n\n````\na ``` b\n\n````\n\n***\n\n![](a.png)\n"
+    );
+    assert_eq!(from_markdown(&md).unwrap(), doc);
+}
+
+#[test]
+fn list_numbers_are_written_from_the_start_value() {
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: alloc_ids(&[3]),
+        },
+    );
+    doc.insert(BlockId(1), para("a"));
+    doc.insert(BlockId(2), para("b"));
+    doc.insert(
+        BlockId(3),
+        Block::List {
+            ordered: true,
+            start: 7,
+            items: alloc_ids(&[1, 2]),
+        },
+    );
+    let md = to_markdown(&doc).unwrap();
+    assert_eq!(md, "7. a\n8. b\n");
+    assert_eq!(from_markdown(&md).unwrap(), doc);
+}
+
+#[test]
+fn writer_refuses_lists_it_cannot_write_back_exactly() {
+    let list = |ordered: bool, start: u32, items: &[&str]| {
+        let n = items.len() as u64;
+        let mut doc = Document::new(
+            BlockId(0),
+            Block::Container {
+                layout_mode: LayoutMode::Flow,
+                children: alloc_ids(&[n + 1]),
+            },
+        );
+        for (i, t) in items.iter().enumerate() {
+            doc.insert(BlockId(i as u64 + 1), para(t));
+        }
+        doc.insert(
+            BlockId(n + 1),
+            Block::List {
+                ordered,
+                start,
+                items: (1..=n).map(BlockId).collect(),
+            },
+        );
+        doc
+    };
+    assert!(to_markdown(&list(false, 1, &["a", "b"])).is_ok());
+    assert!(
+        to_markdown(&list(false, 2, &["a"])).is_err(),
+        "bullet start"
+    );
+    assert!(
+        to_markdown(&list(true, 1, &["a---"])).is_ok(),
+        "ordered dashes are fine"
+    );
+    assert!(
+        to_markdown(&list(false, 1, &["---"])).is_err(),
+        "rule-like item"
+    );
+    assert!(
+        to_markdown(&list(false, 1, &["a\nb"])).is_err(),
+        "multi-line item"
+    );
+    assert!(
+        to_markdown(&list(false, 1, &[" a"])).is_err(),
+        "padded item"
+    );
+    assert!(to_markdown(&list(false, 1, &[""])).is_err(), "empty item");
+    assert!(to_markdown(&list(true, 1, &[])).is_err(), "empty list");
+    assert!(
+        to_markdown(&list(true, 999_999_999, &["a", "b"])).is_err(),
+        "number overflow"
+    );
+}
+
+#[test]
+fn writer_refuses_adjacent_lists_and_numbering_after_a_paragraph() {
+    // Two bulleted lists in a row would read back as one list.
+    let mut adjacent = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: alloc_ids(&[3, 4]),
+        },
+    );
+    adjacent.insert(BlockId(1), para("a"));
+    adjacent.insert(BlockId(2), para("b"));
+    adjacent.insert(
+        BlockId(3),
+        Block::List {
+            ordered: false,
+            start: 1,
+            items: alloc_ids(&[1]),
+        },
+    );
+    adjacent.insert(
+        BlockId(4),
+        Block::List {
+            ordered: false,
+            start: 1,
+            items: alloc_ids(&[2]),
+        },
+    );
+    assert!(to_markdown(&adjacent).is_err());
+
+    let mut after_para = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: alloc_ids(&[1, 3]),
+        },
+    );
+    after_para.insert(BlockId(1), para("intro"));
+    after_para.insert(BlockId(2), para("x"));
+    after_para.insert(
+        BlockId(3),
+        Block::List {
+            ordered: true,
+            start: 3,
+            items: alloc_ids(&[2]),
+        },
+    );
+    assert!(to_markdown(&after_para).is_err());
+}
+
+#[test]
+fn writer_refuses_code_and_image_it_cannot_write_back_exactly() {
+    let code = |language: Option<&str>, code: &str| {
+        let doc = doc_of(vec![Block::Code {
+            language: language.map(String::from),
+            code: code.into(),
+        }]);
+        to_markdown(&doc)
+    };
+    assert!(code(Some("rust"), "x").is_ok());
+    assert!(code(Some("a`b"), "x").is_err());
+    assert!(code(Some(" rust"), "x").is_err());
+    assert!(code(Some("rust\\n"), "x").is_err());
+    assert!(code(None, "a\rb").is_err());
+
+    let image = |alt: Option<&str>, uri: &str| {
+        to_markdown(&doc_of(vec![Block::Media {
+            source: tpt_codex_core::MediaSource::Uri { uri: uri.into() },
+            alt_text: alt.map(String::from),
+        }]))
+    };
+    assert!(image(Some("Logo"), "logo.png").is_ok());
+    assert!(
+        image(Some(""), "logo.png").is_err(),
+        "empty alt is not the same as none"
+    );
+    assert!(image(Some("a [b]"), "logo.png").is_err());
+    assert!(image(None, "my logo.png").is_err());
+    assert!(image(None, "").is_err());
+    assert!(
+        to_markdown(&doc_of(vec![Block::Media {
+            source: tpt_codex_core::MediaSource::Svg {
+                markup: "<svg/>".into()
+            },
+            alt_text: None,
+        }]))
+        .is_err()
+    );
+}
+
+#[test]
+fn list_item_text_in_a_paragraph_line_is_refused() {
+    assert!(to_markdown(&doc_of(vec![para("intro\n1. x")])).is_err());
+    assert!(to_markdown(&doc_of(vec![para("intro\n***")])).is_err());
+    assert!(to_markdown(&doc_of(vec![para("intro\n![a](b)")])).is_err());
+}
+
+#[test]
+fn unclosed_code_and_image_after_text_have_hints() {
+    let err = from_markdown("text\n![a](b)\n").unwrap_err();
+    assert_eq!(err.line, 2);
+    assert!(err.suggestion.is_some());
+    let err = from_markdown("```\nnever closed\n").unwrap_err();
+    assert!(err.message.contains("not closed"), "{}", err.message);
 }
 
 #[test]
@@ -140,9 +464,9 @@ fn empty_heading_is_an_error() {
 
 #[test]
 fn error_display_includes_position() {
-    let err = from_markdown("- x\n").unwrap_err();
+    let err = from_markdown("para\n---\n").unwrap_err();
     let text = err.to_string();
-    assert!(text.starts_with("line 1, column 1:"), "{text}");
+    assert!(text.starts_with("line 2, column 1:"), "{text}");
 }
 
 #[test]
@@ -254,23 +578,138 @@ fn random_text(rng: &mut Rng) -> String {
         .collect()
 }
 
+/// A top-level block in the random generator. Lists expand to items plus the list block.
+enum Node {
+    Heading(u8, String),
+    Para(String),
+    List {
+        ordered: bool,
+        start: u32,
+        items: Vec<String>,
+    },
+    Code {
+        language: Option<String>,
+        code: String,
+    },
+    Break,
+    Image {
+        alt: Option<String>,
+        uri: String,
+    },
+}
+
+/// Builds the document the reader should produce: items are allocated before their list.
+fn build(nodes: Vec<Node>) -> Document {
+    let mut next = 1u64;
+    let mut blocks: Vec<(BlockId, Block)> = Vec::new();
+    let mut root = Vec::new();
+    let alloc = |next: &mut u64| {
+        let id = BlockId(*next);
+        *next += 1;
+        id
+    };
+    for node in nodes {
+        match node {
+            Node::Heading(level, text) => {
+                let id = alloc(&mut next);
+                blocks.push((id, heading(level, &text)));
+                root.push(id);
+            }
+            Node::Para(text) => {
+                let id = alloc(&mut next);
+                blocks.push((id, para(&text)));
+                root.push(id);
+            }
+            Node::List {
+                ordered,
+                start,
+                items,
+            } => {
+                let mut ids = Vec::new();
+                for text in items {
+                    let id = alloc(&mut next);
+                    blocks.push((id, para(&text)));
+                    ids.push(id);
+                }
+                let id = alloc(&mut next);
+                blocks.push((
+                    id,
+                    Block::List {
+                        ordered,
+                        start,
+                        items: ids,
+                    },
+                ));
+                root.push(id);
+            }
+            Node::Code { language, code } => {
+                let id = alloc(&mut next);
+                blocks.push((id, Block::Code { language, code }));
+                root.push(id);
+            }
+            Node::Break => {
+                let id = alloc(&mut next);
+                blocks.push((id, Block::ThematicBreak));
+                root.push(id);
+            }
+            Node::Image { alt, uri } => {
+                let id = alloc(&mut next);
+                blocks.push((
+                    id,
+                    Block::Media {
+                        source: tpt_codex_core::MediaSource::Uri { uri },
+                        alt_text: alt,
+                    },
+                ));
+                root.push(id);
+            }
+        }
+    }
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: root,
+        },
+    );
+    for (id, block) in blocks {
+        doc.insert(id, block);
+    }
+    doc
+}
+
+fn random_node(rng: &mut Rng) -> Node {
+    match rng.below(10) {
+        0..=2 => Node::Heading(1 + rng.below(6) as u8, random_text(rng)),
+        3..=4 => Node::Para(random_text(rng)),
+        5 => Node::List {
+            ordered: rng.below(2) == 0,
+            start: 1 + rng.below(3) as u32,
+            items: (0..1 + rng.below(3)).map(|_| random_text(rng)).collect(),
+        },
+        6 => Node::Code {
+            language: (rng.below(2) == 0).then(|| random_text(rng)),
+            code: (0..rng.below(4))
+                .map(|_| random_text(rng))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        },
+        7 => Node::Break,
+        _ => Node::Image {
+            alt: (rng.below(2) == 0).then(|| random_text(rng)),
+            uri: random_text(rng),
+        },
+    }
+}
+
 #[test]
 fn randomized_documents_round_trip_or_are_refused() {
     let mut accepted = 0;
     for seed in 0..500u64 {
         let mut rng = Rng(seed);
         let n = rng.below(8);
-        let children: Vec<Block> = (0..n)
-            .map(|_| {
-                let text = random_text(&mut rng);
-                if rng.below(3) == 0 {
-                    heading(1 + rng.below(6) as u8, &text)
-                } else {
-                    para(&text)
-                }
-            })
-            .collect();
-        let mut doc = doc_of(children);
+        let nodes: Vec<Node> = (0..n).map(|_| random_node(&mut rng)).collect();
+        let mut doc = build(nodes);
         if rng.below(2) == 0 {
             doc.metadata.title = Some(random_text(&mut rng));
         }

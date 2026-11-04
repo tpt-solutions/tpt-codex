@@ -176,3 +176,51 @@ fn error_messages_are_readable() {
     .to_string();
     assert_eq!(msg, "block 1 references missing child block 2");
 }
+
+#[test]
+fn list_items_are_checked_like_container_children() {
+    use tpt_codex_core::{Block, BlockId, Document, LayoutMode, ValidationError};
+
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: vec![BlockId(1)],
+        },
+    );
+    doc.insert(
+        BlockId(1),
+        Block::List {
+            ordered: false,
+            start: 1,
+            items: vec![BlockId(2)],
+        },
+    );
+    assert_eq!(
+        doc.validate(),
+        Err(ValidationError::DanglingChild {
+            parent: BlockId(1),
+            child: BlockId(2),
+        })
+    );
+
+    doc.insert(
+        BlockId(2),
+        Block::Text {
+            content: "item".into(),
+            style: Default::default(),
+        },
+    );
+    assert_eq!(doc.validate(), Ok(()));
+
+    // An item that points back at its list is a cycle.
+    doc.insert(
+        BlockId(2),
+        Block::List {
+            ordered: false,
+            start: 1,
+            items: vec![BlockId(1)],
+        },
+    );
+    assert!(matches!(doc.validate(), Err(ValidationError::Cycle(_))));
+}
