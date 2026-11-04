@@ -3,16 +3,86 @@
 version = 4
 
 [[package]]
+name = "equivalent"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
+
+[[package]]
+name = "fixedbitset"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+
+[[package]]
+name = "foldhash"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+
+[[package]]
+name = "hashbrown"
+version = "0.15.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
+dependencies = [
+ "foldhash",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "indexmap"
+version = "2.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
+dependencies = [
+ "equivalent",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "nom"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "petgraph"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
+dependencies = [
+ "fixedbitset",
+ "hashbrown 0.15.5",
+ "indexmap",
+ "serde",
+]
 
 [[package]]
 name = "proc-macro2"
@@ -106,6 +176,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-codex-grid"
+version = "0.1.0-spec"
+dependencies = [
+ "tpt-codex-core",
+ "tpt-lattice-core",
+ "tpt-lattice-evaluator",
+]
+
+[[package]]
 name = "tpt-codex-interop"
 version = "0.1.0-spec"
 dependencies = [
@@ -128,10 +207,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-lattice-core"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-lattice?rev=d72332117c1c5f2074513ce9cd7ce1cf7e423d1f#d72332117c1c5f2074513ce9cd7ce1cf7e423d1f"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "tpt-lattice-evaluator"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-lattice?rev=d72332117c1c5f2074513ce9cd7ce1cf7e423d1f#d72332117c1c5f2074513ce9cd7ce1cf7e423d1f"
+dependencies = [
+ "petgraph",
+ "tpt-lattice-core",
+ "tpt-lattice-parser",
+]
+
+[[package]]
+name = "tpt-lattice-parser"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-lattice?rev=d72332117c1c5f2074513ce9cd7ce1cf7e423d1f#d72332117c1c5f2074513ce9cd7ce1cf7e423d1f"
+dependencies = [
+ "nom",
+ "tpt-lattice-core",
+]
+
+[[package]]
+name = "tpt-query"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-query?rev=6b06d02c70f273a658e9aefee26473988160bb74#6b06d02c70f273a658e9aefee26473988160bb74"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tpt-typeset"
 version = "0.1.0-spec"
 dependencies = [
  "tpt-codex-core",
+ "tpt-query",
 ]
 
 [[package]]

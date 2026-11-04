@@ -17,9 +17,17 @@ tpt-codex-markdown = { path = "crates/tpt-codex-markdown" }
 tpt-typeset = { path = "crates/tpt-typeset" }
 tpt-codex-interop = { path = "crates/tpt-codex-interop" }
 tpt-codex-app = { path = "crates/tpt-codex-app" }
+tpt-codex-grid = { path = "crates/tpt-codex-grid" }
 
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+# TPT ecosystem crates, pinned by rev (crates.io publication is not available yet).
+# Revs are the default-branch heads checked on 2026-11-04. Only crates that a member uses are
+# listed here; the others are pinned in docs/tpt-dependency-map.md until they are wired in.
+tpt-query = { git = "https://github.com/tpt-solutions/tpt-query", rev = "6b06d02c70f273a658e9aefee26473988160bb74" }
+tpt-lattice-core = { git = "https://github.com/tpt-solutions/tpt-lattice", rev = "d72332117c1c5f2074513ce9cd7ce1cf7e423d1f" }
+tpt-lattice-evaluator = { git = "https://github.com/tpt-solutions/tpt-lattice", rev = "d72332117c1c5f2074513ce9cd7ce1cf7e423d1f" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -27,3 +35,4 @@ missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+

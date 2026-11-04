@@ -1,0 +1,17 @@
+[package]
+name = "tpt-codex-grid"
+description = "Live-grid evaluation for tpt-codex: sheet cells and LES formulas via tpt-lattice (std)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tpt-codex-core.workspace = true
+tpt-lattice-core.workspace = true
+tpt-lattice-evaluator.workspace = true
+
+[lints]
+workspace = true
