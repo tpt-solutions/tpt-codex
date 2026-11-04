@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use crate::document::Document;
-use crate::ops::{EditError, Op, apply};
+use crate::id::BlockId;
+use crate::ops::{EditError, Op, apply, changed_blocks};
 
 /// A group of operations that succeed or fail together.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +24,7 @@ struct Transaction {
 pub struct History {
     undo: Vec<Transaction>,
     redo: Vec<Transaction>,
+    last_changed: BTreeSet<BlockId>,
 }
 
 impl History {
@@ -36,6 +39,7 @@ impl History {
     /// the document is left unchanged.
     pub fn commit(&mut self, doc: &mut Document, ops: Vec<Op>) -> Result<(), EditError> {
         let inverses = apply_all(doc, &ops)?;
+        self.last_changed = changed_blocks(&ops);
         self.undo.push(Transaction { ops, inverses });
         self.redo.clear();
         Ok(())
@@ -50,6 +54,7 @@ impl History {
             apply(doc, inverse)
                 .expect("undo: stored inverse must apply to the state it was made for");
         }
+        self.last_changed = changed_blocks(&tx.ops);
         self.redo.push(tx);
         Ok(true)
     }
@@ -61,6 +66,7 @@ impl History {
         };
         match apply_all(doc, &tx.ops) {
             Ok(_) => {
+                self.last_changed = changed_blocks(&tx.ops);
                 self.undo.push(tx);
                 Ok(true)
             }
@@ -69,6 +75,14 @@ impl History {
                 Err(e)
             }
         }
+    }
+
+    /// The blocks changed by the most recent commit, undo or redo.
+    ///
+    /// A view uses this to rebuild only the projections that changed. It is empty
+    /// before the first step, and after a step that changed nothing.
+    pub fn last_changed(&self) -> &BTreeSet<BlockId> {
+        &self.last_changed
     }
 
     /// Number of steps that can be undone.

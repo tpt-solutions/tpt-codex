@@ -6,10 +6,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
 use crate::error::ValidationError;
-use crate::id::BlockId;
+use crate::id::{BlockId, SheetId};
+use crate::sheet::{CellInput, Sheet, is_formula_source, is_valid_address};
 
 /// The schema version written by this build.
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// Version 2 adds the `List`, `Code`, `ThematicBreak` and `Math` block variants.
+/// No version 1 document was ever released, so no migration exists.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Front-matter style metadata for a document.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +47,9 @@ pub struct Document {
     pub root: BlockId,
     /// All blocks, keyed by id.
     pub blocks: BTreeMap<BlockId, Block>,
+    /// Live grids referenced by `Block::Grid`. Absent from the JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sheets: BTreeMap<SheetId, Sheet>,
 }
 
 impl Document {
@@ -55,12 +62,20 @@ impl Document {
             metadata: Metadata::default(),
             root: root_id,
             blocks,
+            sheets: BTreeMap::new(),
         }
     }
 
     /// Returns the block with the given id, if present.
     pub fn get(&self, id: BlockId) -> Option<&Block> {
         self.blocks.get(&id)
+    }
+
+    /// Inserts or replaces a sheet, returning the previous sheet with that id.
+    ///
+    /// Sheet creation and removal are not undoable steps. Cell edits are (see `Op::SetCell`).
+    pub fn insert_sheet(&mut self, id: SheetId, sheet: Sheet) -> Option<Sheet> {
+        self.sheets.insert(id, sheet)
     }
 
     /// Inserts or replaces a block, returning the previous block at that id.
@@ -88,6 +103,34 @@ impl Document {
             for &child in children_of(block) {
                 if !self.blocks.contains_key(&child) {
                     return Err(ValidationError::DanglingChild { parent, child });
+                }
+            }
+        }
+        for (&sheet, data) in &self.sheets {
+            for (address, input) in &data.cells {
+                if !is_valid_address(address) {
+                    return Err(ValidationError::InvalidAddress {
+                        sheet,
+                        address: address.clone(),
+                    });
+                }
+                if let CellInput::Formula { source } = input {
+                    if !is_formula_source(source) {
+                        return Err(ValidationError::InvalidFormula {
+                            sheet,
+                            address: address.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        for (&block, data) in &self.blocks {
+            if let Block::Grid { sheet_id, .. } = data {
+                if !self.sheets.contains_key(sheet_id) {
+                    return Err(ValidationError::MissingSheet {
+                        block,
+                        sheet: *sheet_id,
+                    });
                 }
             }
         }

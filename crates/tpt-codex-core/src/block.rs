@@ -58,6 +58,12 @@ pub enum Block {
     },
     /// A horizontal rule.
     ThematicBreak,
+    /// Display math. The source is TeX-style math text, stored verbatim. `tpt-typeset`
+    /// parses and lays it out; the core does not interpret it.
+    Math {
+        /// The math source, with no surrounding `$$` delimiters.
+        source: String,
+    },
 }
 
 /// A query whose result is projected into the document.

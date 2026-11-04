@@ -13,9 +13,12 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use core::fmt;
 
+use alloc::string::String;
+
 use crate::block::Block;
 use crate::document::Document;
-use crate::id::BlockId;
+use crate::id::{BlockId, SheetId};
+use crate::sheet::{CellInput, is_formula_source, is_valid_address};
 
 /// One change to a document. Child positions are indices into a container's `children`.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +57,15 @@ pub enum Op {
         parent: BlockId,
         /// Position to remove. `0..len`.
         index: usize,
+    },
+    /// Set or clear one cell of a sheet. `None` clears the cell. The sheet must exist.
+    SetCell {
+        /// The sheet to change.
+        sheet: SheetId,
+        /// Canonical A1 address, for example `B4`.
+        address: String,
+        /// The new input, or `None` to clear the cell.
+        input: Option<CellInput>,
     },
     /// Move a reference from one position to another, possibly in another container.
     MoveChild {
@@ -106,6 +118,12 @@ pub enum EditError {
     DanglingChild(BlockId),
     /// A text edit was given to a block that is not a text block.
     NotText(BlockId),
+    /// A cell operation names a sheet that does not exist.
+    NoSuchSheet(SheetId),
+    /// A cell address is not canonical A1 notation.
+    InvalidAddress(String),
+    /// A formula does not start with `=`.
+    InvalidFormula(String),
     /// A character range is outside the text.
     RangeOutOfBounds {
         /// The block being edited.
@@ -139,6 +157,9 @@ impl fmt::Display for EditError {
             Self::IsRoot(id) => write!(f, "block {} is the root and cannot be removed", id.0),
             Self::DanglingChild(id) => write!(f, "child block {} does not exist", id.0),
             Self::NotText(id) => write!(f, "block {} is not a text block", id.0),
+            Self::NoSuchSheet(id) => write!(f, "sheet {} does not exist", id.0),
+            Self::InvalidAddress(a) => write!(f, "'{a}' is not a valid cell address"),
+            Self::InvalidFormula(a) => write!(f, "formula '{a}' must start with '='"),
             Self::RangeOutOfBounds { id, len } => write!(
                 f,
                 "character range is outside block {} (text length {len})",
@@ -149,6 +170,35 @@ impl fmt::Display for EditError {
 }
 
 impl core::error::Error for EditError {}
+
+impl Op {
+    /// The blocks whose own record this operation changes.
+    ///
+    /// For child-list operations this is the container, because its children changed
+    /// and any projection of it must be rebuilt. The blocks a moved child refers to are
+    /// not included, since their contents did not change.
+    pub fn changed_blocks(&self) -> alloc::vec::Vec<BlockId> {
+        match self {
+            Op::AddBlock { id, .. } | Op::RemoveBlock { id } | Op::SetBlock { id, .. } => {
+                alloc::vec![*id]
+            }
+            Op::InsertChild { parent, .. } | Op::RemoveChild { parent, .. } => {
+                alloc::vec![*parent]
+            }
+            Op::SetCell { .. } => Vec::new(),
+            Op::MoveChild {
+                from_parent,
+                to_parent,
+                ..
+            } => alloc::vec![*from_parent, *to_parent],
+        }
+    }
+}
+
+/// The blocks changed by a group of operations, without duplicates, in id order.
+pub fn changed_blocks(ops: &[Op]) -> BTreeSet<BlockId> {
+    ops.iter().flat_map(Op::changed_blocks).collect()
+}
 
 /// Applies `op` to `doc` and returns the inverse operation.
 ///
@@ -238,6 +288,33 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
                 parent: *parent,
                 index: *index,
                 child,
+            })
+        }
+        Op::SetCell {
+            sheet,
+            address,
+            input,
+        } => {
+            if !is_valid_address(address) {
+                return Err(EditError::InvalidAddress(address.clone()));
+            }
+            if let Some(CellInput::Formula { source }) = input {
+                if !is_formula_source(source) {
+                    return Err(EditError::InvalidFormula(address.clone()));
+                }
+            }
+            let data = doc
+                .sheets
+                .get_mut(sheet)
+                .ok_or(EditError::NoSuchSheet(*sheet))?;
+            let previous = match input {
+                Some(new) => data.cells.insert(address.clone(), new.clone()),
+                None => data.cells.remove(address),
+            };
+            Ok(Op::SetCell {
+                sheet: *sheet,
+                address: address.clone(),
+                input: previous,
             })
         }
         Op::MoveChild {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use core::fmt;
 
-use crate::id::BlockId;
+use crate::id::{BlockId, SheetId};
 
 /// A structural problem found by [`Document::validate`](crate::Document::validate).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +24,27 @@ pub enum ValidationError {
     },
     /// The block graph contains a cycle through this block.
     Cycle(BlockId),
+    /// A `Block::Grid` refers to a sheet that does not exist.
+    MissingSheet {
+        /// The grid block.
+        block: BlockId,
+        /// The missing sheet.
+        sheet: SheetId,
+    },
+    /// A sheet has a cell address that is not canonical A1 notation.
+    InvalidAddress {
+        /// The sheet holding the cell.
+        sheet: SheetId,
+        /// The bad address.
+        address: alloc::string::String,
+    },
+    /// A formula cell has a source that does not start with `=`.
+    InvalidFormula {
+        /// The sheet holding the cell.
+        sheet: SheetId,
+        /// The cell's address.
+        address: alloc::string::String,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -40,6 +61,23 @@ impl fmt::Display for ValidationError {
                 parent.0, child.0
             ),
             Self::Cycle(id) => write!(f, "block {} is part of a cycle", id.0),
+            Self::MissingSheet { block, sheet } => write!(
+                f,
+                "grid block {} refers to missing sheet {}",
+                block.0, sheet.0
+            ),
+            Self::InvalidAddress { sheet, address } => {
+                write!(
+                    f,
+                    "sheet {} has an invalid cell address '{address}'",
+                    sheet.0
+                )
+            }
+            Self::InvalidFormula { sheet, address } => write!(
+                f,
+                "sheet {} cell '{address}' is a formula that does not start with '='",
+                sheet.0
+            ),
         }
     }
 }

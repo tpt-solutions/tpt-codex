@@ -53,6 +53,7 @@ fn sample() -> Document {
             }),
         },
     );
+    doc.insert_sheet(SheetId(7), tpt_codex_core::Sheet::default());
     doc.insert(
         BlockId(3),
         Block::Media {
@@ -106,7 +107,7 @@ fn unsupported_schema_version_is_rejected() {
         doc.validate(),
         Err(ValidationError::UnsupportedSchemaVersion {
             found: 99,
-            supported: 1
+            supported: 2
         })
     );
 }
