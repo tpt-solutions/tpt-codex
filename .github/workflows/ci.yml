@@ -52,7 +52,7 @@ jobs:
         with:
           targets: thumbv7m-none-eabi, wasm32-unknown-unknown
       - run: cargo build -p tpt-codex-core -p tpt-codex-views -p tpt-codex-markdown -p tpt-typeset --target thumbv7m-none-eabi
-      - run: cargo build -p tpt-codex-core -p tpt-codex-views -p tpt-codex-markdown -p tpt-typeset --target wasm32-unknown-unknown
+      - run: cargo build -p tpt-codex-core -p tpt-codex-views -p tpt-codex-markdown -p tpt-typeset -p tpt-codex-app --target wasm32-unknown-unknown
 
   determinism:
     name: Byte-identical output across OSes
