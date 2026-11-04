@@ -37,24 +37,27 @@ crates other than the rows above.
 
 ## Blockers and decisions needed
 
-1. **`self_cell` (via `tpt-text`): resolved, committed to local `master`, not pushed.** `tpt-text` owns its
-   font bytes and builds shapers once per paragraph. The full `tpt-text` closure passes the gate. Remaining
-   cost: about one face parse (about 1.2 ms for Noto Sans) per font per paragraph, so latin layout is about
-   25 to 30 percent slower than the old cache. Removing that needs a caller-owned layout session. Tracked in
-   `tpt-text`'s `TODO.md`.
-2. **`blake3` (via `tpt-crypto-stub` → `tpt-model`): blocked, needs a decision.** `blake3` is licensed
-   `CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception`. It has no MIT option, and CC0 is not allowed,
-   so it cannot be used anywhere in the graph, including tests and examples. Removing it means changing
-   `tpt-model`'s default digest. That changes envelope hashes. Options: `sha2` (MIT OR Apache-2.0), or
-   `blake2` (MIT OR Apache-2.0), which keeps the BLAKE family. Either needs a digest identifier in the
-   envelope so existing hashes can still be checked. **Recommendation:** `sha2` with HMAC-SHA256 from
-   `hmac` for keyed mode. Both pass the gate, both are standard, users can check hashes with ordinary tools,
-   and most CPUs accelerate SHA-256. `blake2` is the alternative if the BLAKE design matters more.
-3. **`constant_time_eq` (via `blake3`).** Goes away with item 2.
+1. **`self_cell` (via `tpt-text`): resolved.** Committed to local `master` of the tpt-text clone
+   (`9a110a6`, `f0ebd33`, `9c794eb`; not pushed). Font bytes are owned, character maps are read once,
+   and `LayoutSession` keeps shaping faces across paragraphs. Latin, Arabic and short-paragraph layout are
+   at or below the old `self_cell` cache speed on this machine.
+2. **`blake3` and `constant_time_eq` (via `tpt-crypto-stub` → `tpt-model`): resolved.** Committed to local
+   `master` of the tpt-model clone (`f0a8abe`; not pushed). The default digest is SHA-256 (`sha2`) and keyed
+   digests are HMAC-SHA256 (`hmac`). Envelope format 2 names the digest, and format 1 (BLAKE3) envelopes are
+   refused. Neither `blake3` nor `constant_time_eq` appears in the lock file anymore.
+3. **tpt-model development tooling fails the gate: blocked, needs a decision.** The shipped library's
+   dependency closure is clean. The whole-workspace gate, which includes dev dependencies, reports four
+   Apache-2.0-only crates:
+   - `criterion` (benchmarks) pulls in `ciborium`, `ciborium-io`, `ciborium-ll`.
+   - `proptest` (tests) pulls in `bit-set`, `bit-vec`, `borsh`, `borsh-derive`.
+   The spec says all dependencies must be permitted, and this repo's gate applies that to dev dependencies
+   too. Options: replace `criterion` with a plain timing benchmark (as in tpt-text) and `proptest` with a
+   small deterministic generator (as in this repo's property tests), or relax the rule to shipped
+   dependencies only. I recommend replacing both.
 
 ## Next steps
 
-- Decide item 2 (digest choice and envelope compatibility).
+- Decide item 3 (replace `criterion` and `proptest` in tpt-model, or relax the gate for dev dependencies).
 - Review the `replace-self-cell` branch in the tpt-text clone, then push it if approved.
 - Once approved, run `cargo build --target thumbv7m-none-eabi` and `wasm32-unknown-unknown` on the
   candidate crates to verify the `no_std` attribute.
