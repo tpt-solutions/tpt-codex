@@ -249,9 +249,6 @@ pub(crate) fn unsupported(line: &str) -> Option<&'static str> {
     if t.starts_with('<') {
         return Some("raw HTML");
     }
-    if t.starts_with("[^") {
-        return Some("footnote");
-    }
     if t.bytes().all(|b| b == b'=') {
         return Some("setext heading underline");
     }

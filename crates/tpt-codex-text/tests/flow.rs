@@ -13,7 +13,6 @@ fn options() -> FlowOptions {
         block_spacing: 8.0,
         box_height: 40.0,
         row_height: 20.0,
-        header_rows: 0,
     }
 }
 

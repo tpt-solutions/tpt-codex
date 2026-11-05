@@ -19,12 +19,14 @@ mod id;
 mod ops;
 mod platform;
 mod primitives;
+mod relay;
 mod selection;
 mod sheet;
 mod sync;
 mod text;
 mod text_crdt;
 mod tree_crdt;
+mod versions;
 
 pub use block::{Block, Query};
 pub use document::{Document, Metadata, SCHEMA_VERSION};
@@ -34,6 +36,7 @@ pub use id::{BlockId, SheetId};
 pub use ops::{EditError, Op, apply, changed_blocks};
 pub use platform::{Clock, FixedClock, MemoryStorage, Storage};
 pub use primitives::{Canvas, InlineRun, LayoutMode, MediaSource, Rect, TextStyle};
+pub use relay::{Publish, Relay};
 pub use selection::{Movement, Selection, delete_backward, delete_forward, insert_text};
 pub use sheet::{
     CellInput, Sheet, address_of, address_position, is_formula_source, is_valid_address,
@@ -46,3 +49,4 @@ pub use text_crdt::{Stamp, TextCrdt, TextCrdtError, TextOp, materialize};
 pub use tree_crdt::{
     NodeId, ROOT, TRASH, TreeCrdt, TreeError, TreeOp, key_between, project_document,
 };
+pub use versions::{BlockChange, ChangeKind, Version, VersionLog, diff_documents};

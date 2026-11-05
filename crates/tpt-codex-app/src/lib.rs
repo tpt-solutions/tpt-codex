@@ -16,7 +16,7 @@ pub mod editor;
 mod file_storage;
 mod persistence;
 
-pub use editor::{Arrow, CellFocus, Editor, Msg};
+pub use editor::{Arrow, CellFocus, Editor, Msg, RemoteCursor};
 pub use file_storage::FileStorage;
 pub use persistence::{DocumentStore, PersistError};
 

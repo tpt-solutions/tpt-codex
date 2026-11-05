@@ -13,7 +13,7 @@ const MEASURE: MonospaceMeasure = MonospaceMeasure {
 };
 
 /// A document with one grid of `rows` rows, sheet 1.
-fn grid_doc(rows: u32) -> Document {
+fn grid_doc(rows: u32, header_rows: u32) -> Document {
     let mut d = Document::new(
         BlockId(0),
         Block::Container {
@@ -30,6 +30,7 @@ fn grid_doc(rows: u32) -> Document {
     );
     let mut sheet = Sheet {
         rows,
+        header_rows,
         ..Sheet::default()
     };
     sheet
@@ -39,13 +40,12 @@ fn grid_doc(rows: u32) -> Document {
     d
 }
 
-fn options(header_rows: u32) -> FlowOptions {
+fn options() -> FlowOptions {
     FlowOptions {
         width: 300.0,
         block_spacing: 0.0,
         box_height: 40.0,
         row_height: 20.0,
-        header_rows,
     }
 }
 
@@ -71,8 +71,8 @@ fn rows_on(page: &Page) -> Vec<u32> {
 
 #[test]
 fn every_grid_row_is_a_flow_item() {
-    let doc = grid_doc(7);
-    let flow = layout_flow(&doc, &MEASURE, options(1)).unwrap();
+    let doc = grid_doc(7, 0);
+    let flow = layout_flow(&doc, &MEASURE, options()).unwrap();
     let rows: Vec<u32> = flow
         .items
         .iter()
@@ -87,8 +87,8 @@ fn every_grid_row_is_a_flow_item() {
 
 #[test]
 fn a_grid_breaks_between_rows_and_repeats_its_header() {
-    let doc = grid_doc(10);
-    let flow = layout_flow(&doc, &MEASURE, options(1)).unwrap();
+    let doc = grid_doc(10, 1);
+    let flow = layout_flow(&doc, &MEASURE, options()).unwrap();
     // Each page fits five rows: 110 / 20 = 5.
     let pages = paginate(&flow, geometry()).unwrap();
     assert!(pages.len() > 1, "{pages:?}");
@@ -108,8 +108,8 @@ fn a_grid_breaks_between_rows_and_repeats_its_header() {
 
 #[test]
 fn a_grid_without_header_rows_repeats_nothing() {
-    let doc = grid_doc(10);
-    let flow = layout_flow(&doc, &MEASURE, options(0)).unwrap();
+    let doc = grid_doc(10, 0);
+    let flow = layout_flow(&doc, &MEASURE, options()).unwrap();
     let pages = paginate(&flow, geometry()).unwrap();
     let all: Vec<u32> = pages.iter().flat_map(rows_on).collect();
     assert_eq!(all, (1..=10).collect::<Vec<u32>>());
@@ -117,7 +117,7 @@ fn a_grid_without_header_rows_repeats_nothing() {
 
 #[test]
 fn text_after_a_grid_still_paginates() {
-    let mut doc = grid_doc(3);
+    let mut doc = grid_doc(3, 1);
     doc.insert(
         BlockId(2),
         Block::Text {
@@ -128,7 +128,7 @@ fn text_after_a_grid_still_paginates() {
     if let Some(Block::Container { children, .. }) = doc.blocks.get_mut(&BlockId(0)) {
         children.push(BlockId(2));
     }
-    let flow = layout_flow(&doc, &MEASURE, options(1)).unwrap();
+    let flow = layout_flow(&doc, &MEASURE, options()).unwrap();
     let pages = paginate(&flow, geometry()).unwrap();
     let lines: usize = pages
         .iter()
@@ -140,9 +140,55 @@ fn text_after_a_grid_still_paginates() {
 
 #[test]
 fn a_grid_with_a_missing_sheet_is_a_placeholder_box() {
-    let mut doc = grid_doc(3);
+    let mut doc = grid_doc(3, 0);
     doc.sheets.clear();
-    let flow = layout_flow(&doc, &MEASURE, options(1)).unwrap();
+    let flow = layout_flow(&doc, &MEASURE, options()).unwrap();
     assert_eq!(flow.items.len(), 1);
     assert!(matches!(flow.items[0].kind, FlowKind::Box));
+}
+
+#[test]
+fn each_grid_repeats_its_own_headers() {
+    // Two grids, the first with one header row and the second with none.
+    let mut doc = grid_doc(10, 1);
+    doc.insert(
+        BlockId(5),
+        Block::Grid {
+            sheet_id: SheetId(2),
+            view_bounds: None,
+        },
+    );
+    let mut plain = Sheet {
+        rows: 4,
+        ..Sheet::default()
+    };
+    plain
+        .cells
+        .insert("A1".into(), CellInput::Number { value: 1.0 });
+    doc.insert_sheet(SheetId(2), plain);
+    if let Some(Block::Container { children, .. }) = doc.blocks.get_mut(&BlockId(0)) {
+        children.push(BlockId(5));
+    }
+    let flow = layout_flow(&doc, &MEASURE, options()).unwrap();
+    let pages = paginate(&flow, geometry()).unwrap();
+    // Page 2 starts with the header of grid 1, and grid 2 never repeats anything.
+    let second_grid_rows: Vec<u32> = pages
+        .iter()
+        .flat_map(|p| p.items.iter())
+        .filter_map(|it| match it.kind {
+            FlowKind::GridRow {
+                sheet: SheetId(2),
+                row,
+                ..
+            } => Some(row),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(second_grid_rows, vec![1, 2, 3, 4]);
+    let headers_on_continuations = pages
+        .iter()
+        .skip(1)
+        .filter(|p| matches!(p.items.first().map(|i| &i.kind), Some(FlowKind::GridRow { sheet, row: 1, .. }) if *sheet == SheetId(1)))
+        .count();
+    assert!(headers_on_continuations > 0);
 }

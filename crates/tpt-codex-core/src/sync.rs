@@ -20,8 +20,10 @@ use serde::{Deserialize, Serialize};
 use crate::block::Block;
 use crate::document::Document;
 use crate::id::BlockId;
+use crate::id::SheetId;
 use crate::primitives::TextStyle;
-use crate::text_crdt::{TextCrdt, TextCrdtError, TextOp};
+use crate::sheet::{CellInput, Sheet, is_formula_source, is_valid_address};
+use crate::text_crdt::{Stamp, TextCrdt, TextCrdtError, TextOp};
 use crate::tree_crdt::{NodeId, TreeCrdt, TreeError, TreeOp, project_document};
 
 /// Identity of a replica. Each editing session has its own.
@@ -38,6 +40,31 @@ pub enum SyncOp {
         node: NodeId,
         /// The character change.
         op: TextOp,
+    },
+    /// A cell of a live grid. The newest stamp wins, so a cell written at the same time on two
+    /// replicas ends up the same on both.
+    Cell {
+        /// The sheet holding the cell.
+        sheet: SheetId,
+        /// Canonical A1 address.
+        address: String,
+        /// When the cell was written.
+        stamp: Stamp,
+        /// The new value, or `None` to clear the cell.
+        input: Option<CellInput>,
+    },
+    /// The minimum size and header rows of a live grid. The newest stamp wins.
+    SheetSize {
+        /// The sheet.
+        sheet: SheetId,
+        /// When the size was set.
+        stamp: Stamp,
+        /// Minimum rows.
+        rows: u32,
+        /// Minimum columns.
+        cols: u32,
+        /// Leading rows that are headers.
+        header_rows: u32,
     },
 }
 
@@ -102,6 +129,10 @@ pub enum SyncError {
     Text(TextCrdtError),
     /// The node is not a text block that this replica knows.
     NotText(NodeId),
+    /// The cell address is not canonical A1 notation.
+    InvalidAddress(String),
+    /// A formula does not start with `=`.
+    InvalidFormula(String),
 }
 
 impl core::fmt::Display for SyncError {
@@ -110,6 +141,8 @@ impl core::fmt::Display for SyncError {
             Self::Tree(e) => write!(f, "{e}"),
             Self::Text(e) => write!(f, "{e}"),
             Self::NotText(n) => write!(f, "node {} is not a text block", n.0),
+            Self::InvalidAddress(a) => write!(f, "'{a}' is not a valid cell address"),
+            Self::InvalidFormula(a) => write!(f, "formula in cell '{a}' must start with '='"),
         }
     }
 }
@@ -132,6 +165,17 @@ pub struct Replica {
     /// Newest presence update from each replica.
     presence: BTreeMap<ReplicaId, PresenceUpdate>,
     presence_counter: u64,
+    /// Lamport clock for stamps made here, advanced by every stamp seen.
+    clock: u64,
+    /// Live grids, with the stamp of each cell and of the size.
+    sheets: BTreeMap<SheetId, ReplicaSheet>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ReplicaSheet {
+    data: Sheet,
+    cell_stamps: BTreeMap<String, Stamp>,
+    size_stamp: Option<Stamp>,
 }
 
 impl Replica {
@@ -147,6 +191,8 @@ impl Replica {
             held: Vec::new(),
             presence: BTreeMap::new(),
             presence_counter: 0,
+            clock: 0,
+            sheets: BTreeMap::new(),
         }
     }
 
@@ -158,6 +204,9 @@ impl Replica {
     /// The document as this replica sees it, with each text block's characters from its CRDT.
     pub fn document(&self) -> Document {
         let mut doc = project_document(&self.tree);
+        for (id, sheet) in &self.sheets {
+            doc.sheets.insert(*id, sheet.data.clone());
+        }
         for (node, text) in &self.texts {
             if let Some(Block::Text { content, .. }) = doc.blocks.get_mut(&BlockId(node.0)) {
                 *content = text.text();
@@ -240,6 +289,60 @@ impl Replica {
         Ok(self.emit(SyncOp::Text { node, op }))
     }
 
+    /// Sets cell `address` of live grid `sheet` to `input`, or clears it with `None`.
+    pub fn set_cell(
+        &mut self,
+        sheet: SheetId,
+        address: &str,
+        input: Option<CellInput>,
+    ) -> Result<Envelope, SyncError> {
+        if !is_valid_address(address) {
+            return Err(SyncError::InvalidAddress(address.into()));
+        }
+        if let Some(CellInput::Formula { source }) = &input {
+            if !is_formula_source(source) {
+                return Err(SyncError::InvalidFormula(address.into()));
+            }
+        }
+        let stamp = self.next_stamp();
+        let op = SyncOp::Cell {
+            sheet,
+            address: address.into(),
+            stamp,
+            input,
+        };
+        self.try_apply(&op);
+        Ok(self.emit(op))
+    }
+
+    /// Sets the minimum size of live grid `sheet`.
+    pub fn set_sheet_size(
+        &mut self,
+        sheet: SheetId,
+        rows: u32,
+        cols: u32,
+        header_rows: u32,
+    ) -> Envelope {
+        let stamp = self.next_stamp();
+        let op = SyncOp::SheetSize {
+            sheet,
+            stamp,
+            rows,
+            cols,
+            header_rows,
+        };
+        self.try_apply(&op);
+        self.emit(op)
+    }
+
+    fn next_stamp(&mut self) -> Stamp {
+        self.clock += 1;
+        Stamp {
+            lamport: self.clock,
+            replica: self.id,
+        }
+    }
+
     /// Operations this replica made that the peer has not acknowledged, in order. After a
     /// reconnect, send these again. The peer ignores any it already has.
     pub fn pending(&self) -> &[Envelope] {
@@ -302,7 +405,52 @@ impl Replica {
     /// Applies `op` if its dependencies are here. A failed apply changes nothing.
     fn try_apply(&mut self, op: &SyncOp) -> bool {
         match op {
+            SyncOp::Cell {
+                sheet,
+                address,
+                stamp,
+                input,
+            } => {
+                self.clock = self.clock.max(stamp.lamport);
+                let entry = self.sheets.entry(*sheet).or_default();
+                if entry
+                    .cell_stamps
+                    .get(address)
+                    .is_some_and(|seen| seen >= stamp)
+                {
+                    return true;
+                }
+                entry.cell_stamps.insert(address.clone(), *stamp);
+                match input {
+                    Some(value) => {
+                        entry.data.cells.insert(address.clone(), value.clone());
+                    }
+                    None => {
+                        entry.data.cells.remove(address);
+                    }
+                }
+                true
+            }
+            SyncOp::SheetSize {
+                sheet,
+                stamp,
+                rows,
+                cols,
+                header_rows,
+            } => {
+                self.clock = self.clock.max(stamp.lamport);
+                let entry = self.sheets.entry(*sheet).or_default();
+                if entry.size_stamp.is_some_and(|seen| seen >= *stamp) {
+                    return true;
+                }
+                entry.size_stamp = Some(*stamp);
+                entry.data.rows = *rows;
+                entry.data.cols = *cols;
+                entry.data.header_rows = *header_rows;
+                true
+            }
             SyncOp::Tree(tree_op) => {
+                self.clock = self.clock.max(tree_op.stamp().lamport);
                 self.tree.apply(tree_op);
                 if let TreeOp::Create {
                     node,

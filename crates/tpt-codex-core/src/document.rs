@@ -59,6 +59,10 @@ pub struct Document {
     /// JSON when there are none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub canvases: BTreeMap<BlockId, Canvas>,
+    /// Footnote definitions: the text block that holds each footnote's text, and its label.
+    /// Absent from the JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub footnotes: BTreeMap<BlockId, String>,
 }
 
 impl Document {
@@ -74,6 +78,7 @@ impl Document {
             sheets: BTreeMap::new(),
             frames: BTreeMap::new(),
             canvases: BTreeMap::new(),
+            footnotes: BTreeMap::new(),
         }
     }
 
@@ -143,6 +148,17 @@ impl Document {
                         sheet: *sheet_id,
                     });
                 }
+            }
+        }
+        let mut labels = alloc::collections::BTreeSet::new();
+        for (&block, label) in &self.footnotes {
+            if label.is_empty() || !labels.insert(label.as_str()) {
+                return Err(ValidationError::DuplicateFootnote(label.clone()));
+            }
+            match self.blocks.get(&block) {
+                None => return Err(ValidationError::FootnoteOfMissingBlock(block)),
+                Some(Block::Text { .. }) => {}
+                Some(_) => return Err(ValidationError::FootnoteNotText(block)),
             }
         }
         for (&block, frame) in &self.frames {

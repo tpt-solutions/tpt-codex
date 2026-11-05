@@ -541,3 +541,289 @@ fn query_source_is_shown_in_an_editable_input() {
     let html = render(&e.view());
     assert!(html.contains("query-source"), "{html}");
 }
+
+#[test]
+fn the_table_size_is_chosen_before_inserting() {
+    let mut e = Editor::new(doc());
+    assert_eq!(e.table_size(), (3, 3));
+    e.update(Msg::SetTableSize { rows: 2, cols: 5 });
+    assert_eq!(e.table_size(), (2, 5));
+    e.update(Msg::InsertTable { rows: 2, cols: 5 });
+    assert_eq!(e.status(), None);
+
+    // A bad size is refused and the size stays as it was.
+    e.update(Msg::SetTableSize { rows: 0, cols: 5 });
+    assert!(e.status().is_some());
+    assert_eq!(e.table_size(), (2, 5));
+    let html = render(&e.view());
+    assert!(html.contains("table-rows"), "{html}");
+}
+
+#[test]
+fn a_slide_is_inserted_placed_and_drawn() {
+    use tpt_codex_core::Rect;
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertSlide);
+    assert_eq!(e.status(), None);
+    let slide = *e.document().blocks.keys().max().unwrap();
+    let html = render(&e.view());
+    assert!(html.contains("slide"), "{html}");
+
+    // Put the title on the slide, then place it. The slide must hold the block.
+    let title = BlockId(1);
+    let slide_children = match e.document().get(slide) {
+        Some(Block::Container { children, .. }) => children.clone(),
+        _ => unreachable!(),
+    };
+    assert!(slide_children.is_empty());
+    e.update(Msg::PlaceBlock {
+        block: title,
+        frame: Some(Rect {
+            x: 1.0,
+            y: 2.0,
+            width: 3.0,
+            height: 4.0,
+        }),
+    });
+    // The title is not on the slide, so placing it is refused.
+    assert!(e.status().is_some());
+
+    e.update(Msg::Undo);
+    assert!(e.document().canvases.is_empty() && !e.document().blocks.contains_key(&slide));
+}
+
+#[test]
+fn replacing_text_changes_only_the_difference_and_undoes_as_one_step() {
+    let mut e = Editor::new(doc());
+    // Block 2 is "Body" in the test document.
+    e.update(Msg::ReplaceText {
+        block: BlockId(2),
+        text: "Bxxdy!".into(),
+    });
+    assert_eq!(e.status(), None);
+    match e.document().get(BlockId(2)) {
+        Some(Block::Text { content, .. }) => assert_eq!(content, "Bxxdy!"),
+        other => panic!("{other:?}"),
+    }
+    // The caret follows the change.
+    assert_eq!(e.caret().unwrap().focus, 6);
+
+    e.update(Msg::Undo);
+    match e.document().get(BlockId(2)) {
+        Some(Block::Text { content, .. }) => assert_eq!(content, "Body"),
+        other => panic!("{other:?}"),
+    }
+    // Replacing with the same text changes nothing and is not an undo step.
+    e.update(Msg::ReplaceText {
+        block: BlockId(2),
+        text: "Body".into(),
+    });
+    assert_eq!(e.status(), None);
+}
+
+#[test]
+fn replacing_the_text_of_a_non_text_block_is_refused() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::ReplaceText {
+        block: BlockId(0),
+        text: "x".into(),
+    });
+    assert!(e.status().is_some());
+}
+
+#[test]
+fn presenter_mode_shows_one_slide_and_moves_between_slides() {
+    let mut e = Editor::new(doc());
+    // No slides yet: presenting says so and changes nothing.
+    e.update(Msg::StartPresenting { index: 0 });
+    assert!(e.status().is_some());
+    assert_eq!(e.presenting(), None);
+
+    e.update(Msg::InsertSlide);
+    e.update(Msg::InsertSlide);
+    e.update(Msg::StartPresenting { index: 9 });
+    assert_eq!(e.presenting(), Some(1), "clamped to the last slide");
+    let html = render(&e.view());
+    assert!(html.contains("slide 2 of 2"), "{html}");
+    assert!(!html.contains("Body"), "only the slide is shown: {html}");
+
+    e.update(Msg::NextSlide);
+    assert_eq!(e.presenting(), Some(1), "last slide stays");
+    e.update(Msg::PreviousSlide);
+    e.update(Msg::PreviousSlide);
+    assert_eq!(e.presenting(), Some(0), "first slide stays");
+
+    e.update(Msg::StopPresenting);
+    assert_eq!(e.presenting(), None);
+    assert!(render(&e.view()).contains("Body"));
+}
+
+#[test]
+fn remote_carets_are_drawn_in_their_paragraph() {
+    use tpt_codex_app::RemoteCursor;
+    let mut e = Editor::new(doc());
+    e.set_remote_cursors(vec![RemoteCursor {
+        label: "Ann".into(),
+        block: BlockId(2),
+        offset: 2,
+    }]);
+    let html = render(&e.view());
+    assert!(html.contains("Bo[Ann]dy"), "{html}");
+    assert!(html.contains("Title"), "{html}");
+    assert!(!html.contains("Title["), "{html}");
+}
+
+/// A slide holding a text block (id 1 in `doc()`), placed at (10, 10) and 100 by 50 points.
+fn slide_with_placed_title() -> Editor {
+    use tpt_codex_core::Rect;
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertSlide);
+    let slide = *e.document().blocks.keys().max().unwrap();
+    // Put block 1 on the slide.
+    let mut d = e.document().clone();
+    if let Some(Block::Container { children, .. }) = d.blocks.get_mut(&slide) {
+        children.push(BlockId(1));
+    }
+    if let Some(Block::Container { children, .. }) = d.blocks.get_mut(&BlockId(0)) {
+        children.retain(|c| *c != BlockId(1));
+    }
+    d.frames.insert(
+        BlockId(1),
+        Rect {
+            x: 10.0,
+            y: 10.0,
+            width: 100.0,
+            height: 50.0,
+        },
+    );
+    Editor::new(d)
+}
+
+#[test]
+fn moving_a_block_keeps_it_on_the_slide_and_undoes() {
+    let mut e = slide_with_placed_title();
+    e.update(Msg::MoveBlock {
+        block: BlockId(1),
+        dx: 20.0,
+        dy: 5.0,
+    });
+    assert_eq!(e.status(), None);
+    let moved = e.document().frames[&BlockId(1)];
+    assert_eq!((moved.x, moved.y), (30.0, 15.0));
+
+    // Pushing past the right and bottom edges stops at the slide's edge.
+    e.update(Msg::MoveBlock {
+        block: BlockId(1),
+        dx: 10_000.0,
+        dy: 10_000.0,
+    });
+    let far = e.document().frames[&BlockId(1)];
+    assert_eq!((far.x, far.y), (960.0 - 100.0, 540.0 - 50.0));
+
+    e.update(Msg::Undo);
+    assert_eq!(e.document().frames[&BlockId(1)], moved);
+}
+
+#[test]
+fn resizing_stops_at_the_slide_edge_and_refuses_bad_sizes() {
+    let mut e = slide_with_placed_title();
+    e.update(Msg::ResizeBlock {
+        block: BlockId(1),
+        width: 5_000.0,
+        height: 60.0,
+    });
+    let f = e.document().frames[&BlockId(1)];
+    assert_eq!(f.width, 960.0 - 10.0);
+    assert_eq!(f.height, 60.0);
+
+    e.update(Msg::ResizeBlock {
+        block: BlockId(1),
+        width: 0.0,
+        height: 60.0,
+    });
+    assert!(e.status().is_some());
+    assert_eq!(e.document().frames[&BlockId(1)], f);
+}
+
+#[test]
+fn a_block_that_is_not_on_a_slide_cannot_be_moved() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::MoveBlock {
+        block: BlockId(1),
+        dx: 1.0,
+        dy: 1.0,
+    });
+    assert!(e.status().is_some());
+    assert!(e.document().frames.is_empty());
+}
+
+#[test]
+fn a_filter_query_shows_matching_blocks_and_refuses_unknown_fields() {
+    let mut e = Editor::new(query_doc("not a query"));
+    e.update(Msg::FilterQuery {
+        block: BlockId(3),
+        field: "kind".into(),
+        value: "paragraph".into(),
+    });
+    assert_eq!(e.status(), None);
+    let html = render(&e.view());
+    assert!(html.contains("query-row"), "{html}");
+    assert!(html.contains("Alpha"), "{html}");
+
+    e.update(Msg::FilterQuery {
+        block: BlockId(3),
+        field: "secret".into(),
+        value: "x".into(),
+    });
+    assert!(e.status().is_some());
+}
+
+#[test]
+fn nested_containers_draw_their_children() {
+    let mut d = doc();
+    // Put a flow container holding the title, inside the root.
+    d.insert(
+        BlockId(9),
+        Block::Container {
+            layout_mode: tpt_codex_core::LayoutMode::Flow,
+            children: vec![BlockId(1)],
+        },
+    );
+    if let Some(Block::Container { children, .. }) = d.blocks.get_mut(&BlockId(0)) {
+        children.push(BlockId(9));
+    }
+    let html = render(&Editor::new(d).view());
+    assert!(html.contains("container-flow"), "{html}");
+    assert!(html.contains("Title"), "{html}");
+}
+
+#[test]
+fn the_paginated_view_cuts_the_document_into_pages() {
+    use tpt_codex_views::{FlowOptions, MonospaceMeasure, PageGeometry};
+    let measure = MonospaceMeasure {
+        char_width: 6.0,
+        line_height: 14.0,
+    };
+    let flow = FlowOptions {
+        width: 300.0,
+        block_spacing: 0.0,
+        box_height: 40.0,
+        row_height: 20.0,
+    };
+    // Each page holds one 14-point line.
+    let geometry = PageGeometry {
+        height: 20.0,
+        margin_top: 0.0,
+        margin_bottom: 0.0,
+        min_lines: 1,
+    };
+    let mut d = doc();
+    // Make the body longer, so that it spans more than one page.
+    let mut h = tpt_codex_core::History::new();
+    tpt_codex_core::edit_text(&mut d, &mut h, BlockId(2), 4, 4, " and more text here").unwrap();
+    let e = Editor::new(d);
+    let html = render(&e.paginated_view(&measure, flow, geometry).unwrap());
+    assert!(html.contains("Page 1"), "{html}");
+    assert!(html.contains("Page 2"), "{html}");
+    assert!(html.contains("page-line"), "{html}");
+}

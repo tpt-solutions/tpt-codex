@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use tpt_codex_core::{Block, BlockId, Document, LayoutMode, Metadata, TextStyle};
-use tpt_codex_markdown::{from_markdown, to_markdown};
+use tpt_codex_markdown::{from_markdown, migrate_legacy_markdown, to_markdown};
 
 fn para(s: &str) -> Block {
     Block::Text {
@@ -104,7 +104,6 @@ fn each_unsupported_construct_is_an_error() {
         "    indented\n",
         ":::  grid\n",
         "<div>\n",
-        "[^1]: note\n",
         "para\n---\n",
         "para\n![a](b.png)\n",
         "- item\n  continued\n",
@@ -921,4 +920,74 @@ fn an_unclosed_emphasis_marker_is_an_error_on_its_line() {
     let err = from_markdown("first\n\nsecond *open\n").unwrap_err();
     assert_eq!(err.line, 3);
     assert!(err.suggestion.is_some());
+}
+
+#[test]
+fn migrated_legacy_text_reads_back_as_the_original_literal_text() {
+    let legacy = "# Costs * 2\n\nA 2 * 3 and [x](y) and \\b and \\* end\n\n- item * one\n- [a] b\n\n```\n*code* stays\n```\n\n$$\nx * y\n$$\n";
+    let migrated = migrate_legacy_markdown(legacy);
+    // Heading, paragraph, two list items, and the paragraph's line; code and math are untouched.
+    assert_eq!(migrated.changed_lines, vec![1, 3, 5, 6]);
+    assert!(migrated.text.contains("*code* stays"));
+    assert!(migrated.text.contains("x * y"));
+
+    let doc = from_markdown(&migrated.text).unwrap();
+    let texts: Vec<String> = doc
+        .blocks
+        .values()
+        .filter_map(|b| match b {
+            Block::Text { content, style } => Some(format!(
+                "{}{}",
+                content,
+                if style.runs.is_empty() {
+                    ""
+                } else {
+                    " [marks]"
+                }
+            )),
+            _ => None,
+        })
+        .collect();
+    // Every text reads back as the original characters, with no marks.
+    assert!(texts.contains(&"Costs * 2".to_string()), "{texts:?}");
+    assert!(
+        texts.contains(&"A 2 * 3 and [x](y) and \\b and \\* end".to_string()),
+        "{texts:?}"
+    );
+    assert!(texts.contains(&"item * one".to_string()), "{texts:?}");
+    assert!(texts.contains(&"[a] b".to_string()), "{texts:?}");
+    assert!(texts.iter().all(|t| !t.contains("[marks]")), "{texts:?}");
+}
+
+#[test]
+fn migrating_text_with_no_markers_changes_nothing() {
+    let plain = "# Title\n\nPlain words here.\n";
+    let migrated = migrate_legacy_markdown(plain);
+    assert_eq!(migrated.text, plain);
+    assert!(migrated.changed_lines.is_empty());
+}
+
+#[test]
+fn bare_citations_read_and_write_back() {
+    let md = "As shown in [@smith2020] and [Jones](@jones2018).\n";
+    let doc = from_markdown(md).unwrap();
+    assert_eq!(to_markdown(&doc).unwrap(), md);
+    assert!(from_markdown("A [@bad key] here.\n").is_err());
+}
+
+#[test]
+fn footnotes_read_and_write_back() {
+    let md = "Claim with a note[^n1] and again[^n1].\n\n[^n1]: The note text.\n";
+    let doc = from_markdown(md).unwrap();
+    assert_eq!(doc.footnotes.len(), 1);
+    assert_eq!(to_markdown(&doc).unwrap(), md);
+}
+
+#[test]
+fn a_paragraph_that_looks_like_a_definition_is_escaped_on_write() {
+    // A plain paragraph that starts like a definition must not read back as one.
+    let doc = doc_of(vec![para("[^x]: not a note")]);
+    let md = to_markdown(&doc).unwrap();
+    assert_eq!(from_markdown(&md).unwrap(), doc, "{md}");
+    assert!(from_markdown(&md).unwrap().footnotes.is_empty());
 }

@@ -16,7 +16,6 @@ fn opts(width: f64) -> FlowOptions {
         block_spacing: 0.0,
         box_height: 50.0,
         row_height: 20.0,
-        header_rows: 0,
     }
 }
 

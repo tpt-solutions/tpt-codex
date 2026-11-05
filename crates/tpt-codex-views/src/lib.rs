@@ -17,14 +17,21 @@
 
 extern crate alloc;
 
+mod canvas;
 mod chrome;
 mod flow;
 mod measure;
 mod paginate;
+mod svg;
 
+pub use canvas::{CanvasError, CanvasItem, CanvasLayout, layout_canvas, slide_ids};
 pub use chrome::{PageChrome, PaperSize, RenderedChrome, render_chrome, render_template};
-pub use flow::{FlowItem, FlowKind, FlowLayout, FlowOptions, LayoutError, layout_flow};
+pub use flow::{
+    FlowCache, FlowItem, FlowKind, FlowLayout, FlowOptions, LayoutError, layout_flow,
+    layout_flow_cached,
+};
 pub use measure::{MonospaceMeasure, TextMeasure};
 pub use paginate::{Page, PageError, PageGeometry, paginate};
+pub use svg::render_slide_svg;
 
 pub use tpt_codex_core as core;

@@ -50,6 +50,10 @@ const LINK_IN_EMPHASIS: InlineError = InlineError {
     message: "a link cannot start inside emphasis",
     suggestion: "move the link outside the emphasis markers",
 };
+const CITATION_KEY: InlineError = InlineError {
+    message: "citation key has a character other than letters, digits, - _ : or .",
+    suggestion: "use only letters, digits, and - _ : . in a citation key",
+};
 const LINK_ADDRESS: InlineError = InlineError {
     message: "link address has a space, parenthesis, angle bracket or backslash",
     suggestion: "use an address without spaces, parentheses, angle brackets or backslashes",
@@ -110,6 +114,25 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                 }
                 let close = find_close_bracket(&chars, i + 1)?;
                 if chars.get(close + 1) != Some(&'(') {
+                    // A bare [@key] is a citation, and [^label] a footnote reference. Each shows its
+                    // key or label until the text is replaced.
+                    if let Some(&prefix @ ('@' | '^')) = chars.get(i + 1) {
+                        let key: String = chars[i + 2..close].iter().collect();
+                        if !is_citation_key(&key) {
+                            return Err(CITATION_KEY);
+                        }
+                        let start = out.len();
+                        out.extend(key.chars());
+                        runs.push(InlineRun {
+                            start,
+                            end: out.len(),
+                            bold: false,
+                            italic: false,
+                            link: Some(alloc::format!("{prefix}{key}")),
+                        });
+                        i = close + 1;
+                        continue;
+                    }
                     return Err(LINK_SYNTAX);
                 }
                 let address_start = close + 2;
@@ -186,6 +209,14 @@ fn plain(chars: &[char]) -> Result<String, InlineError> {
     Ok(out)
 }
 
+/// Whether `key` is a citation key: non-empty, with letters, digits, `-`, `_`, `:` or `.`.
+pub(crate) fn is_citation_key(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.'))
+}
+
 /// Whether `address` can be written inside `(…)` and read back unchanged.
 fn is_address(address: &str) -> bool {
     !address.is_empty()
@@ -247,6 +278,21 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
                 out.push_str(&escape(&segment));
                 out.push_str(marker);
             }
+            (_, _, Some(url))
+                if (url.starts_with('@') || url.starts_with('^')) && segment == url[1..] =>
+            {
+                // A bare citation or footnote reference, when the text is the key or label.
+                let key = &url[1..];
+                if !is_citation_key(key) {
+                    return Err(
+                        "citation key or footnote label has a character other than letters, digits, - _ : or .",
+                    );
+                }
+                out.push('[');
+                out.push_str(&url[..1]);
+                out.push_str(key);
+                out.push(']');
+            }
             (_, _, Some(url)) => {
                 if !is_address(url) {
                     return Err(
@@ -269,7 +315,7 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
 ///
 /// A backslash is escaped only where it would start an escape: before ASCII punctuation, or at
 /// the end of the segment, since a marker may follow it. Other backslashes stay as written.
-fn escape(text: &str) -> String {
+pub(crate) fn escape(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     for (i, &c) in chars.iter().enumerate() {

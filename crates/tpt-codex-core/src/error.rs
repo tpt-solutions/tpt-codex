@@ -29,6 +29,12 @@ pub enum ValidationError {
         /// The text block.
         block: BlockId,
     },
+    /// A footnote is recorded for a block that does not exist.
+    FootnoteOfMissingBlock(BlockId),
+    /// A footnote's block is not a text block.
+    FootnoteNotText(BlockId),
+    /// Two footnotes share a label, or a label is empty.
+    DuplicateFootnote(alloc::string::String),
     /// A frame is recorded for a block that does not exist.
     FrameOfMissingBlock(BlockId),
     /// A frame has a non-finite edge or a negative size.
@@ -79,6 +85,17 @@ impl fmt::Display for ValidationError {
                 "text block {} has an inline run outside its text or with no characters",
                 block.0
             ),
+            Self::FootnoteOfMissingBlock(id) => {
+                write!(
+                    f,
+                    "a footnote is recorded for block {} which does not exist",
+                    id.0
+                )
+            }
+            Self::FootnoteNotText(id) => write!(f, "footnote block {} is not text", id.0),
+            Self::DuplicateFootnote(label) => {
+                write!(f, "footnote label '{label}' is empty or used twice")
+            }
             Self::FrameOfMissingBlock(id) => {
                 write!(
                     f,

@@ -273,8 +273,12 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
         },
     );
     doc.metadata = metadata;
+    let labels = core::mem::take(&mut b.labels);
     for (i, block) in b.blocks.into_iter().enumerate() {
         doc.insert(BlockId(i as u64 + 1), block);
+    }
+    for (id, label) in labels {
+        doc.footnotes.insert(id, label);
     }
     Ok(doc)
 }
@@ -304,11 +308,31 @@ fn text_block_styled(content: &str, line: usize, style: TextStyle) -> Result<Blo
     })
 }
 
+/// Splits a footnote definition `[^label]: text` into its label and text. `None` for any other
+/// paragraph, including one whose label is not a valid key.
+fn footnote_definition(content: &str) -> Option<(String, String)> {
+    let rest = content.strip_prefix("[^")?;
+    let end = rest.find("]:")?;
+    let label = &rest[..end];
+    if !crate::inline::is_citation_key(label) {
+        return None;
+    }
+    let text = rest[end + 2..]
+        .strip_prefix(' ')
+        .unwrap_or(&rest[end + 2..]);
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some((String::from(label), String::from(text)))
+}
+
 /// Block ids are allocated in the order blocks are created. The root is `BlockId(0)`.
 #[derive(Default)]
 struct Builder {
     blocks: Vec<Block>,
     root: Vec<BlockId>,
+    /// Footnote definitions: the block that holds each text, and its label.
+    labels: Vec<(BlockId, String)>,
 }
 
 impl Builder {
@@ -342,8 +366,18 @@ struct Open {
 impl Open {
     fn close_paragraph(&mut self, b: &mut Builder) -> Result<(), ParseError> {
         if let Some(content) = self.para.take() {
-            let block = text_block(&content, self.para_line)?;
-            b.push_root(block);
+            match footnote_definition(&content) {
+                Some((label, text)) => {
+                    let block = text_block(&text, self.para_line)?;
+                    let id = b.alloc(block);
+                    b.root.push(id);
+                    b.labels.push((id, label));
+                }
+                None => {
+                    let block = text_block(&content, self.para_line)?;
+                    b.push_root(block);
+                }
+            }
         }
         Ok(())
     }

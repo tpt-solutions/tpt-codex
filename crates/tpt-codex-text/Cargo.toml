@@ -13,6 +13,7 @@ tpt-codex-core.workspace = true
 tpt-codex-views.workspace = true
 tpt-text.workspace = true
 tpt-layout.workspace = true
+tpt-typeset.workspace = true
 
 [dev-dependencies]
 tpt-codex-markdown.workspace = true

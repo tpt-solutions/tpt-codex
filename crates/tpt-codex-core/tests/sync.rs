@@ -210,3 +210,133 @@ fn messages_round_trip_through_json() {
         assert_eq!(back, m);
     }
 }
+
+#[test]
+fn grid_cells_converge_and_the_newest_write_wins() {
+    use tpt_codex_core::{CellInput, SheetId};
+
+    let mut a = Replica::new(1);
+    let mut b = Replica::new(2);
+    let sheet = SheetId(1);
+
+    let sent = a.set_sheet_size(sheet, 2, 2, 1);
+    let (_, mut block_ops) = a
+        .create_block(
+            ROOT,
+            0,
+            Block::Grid {
+                sheet_id: sheet,
+                view_bounds: None,
+            },
+        )
+        .unwrap();
+    block_ops.insert(0, sent);
+    deliver(&mut b, ops(block_ops));
+
+    // Both replicas write A1 while apart. The later write (by stamp) must win on both.
+    let from_a = a
+        .set_cell(sheet, "A1", Some(CellInput::Number { value: 1.0 }))
+        .unwrap();
+    let from_b = b
+        .set_cell(sheet, "A1", Some(CellInput::Number { value: 2.0 }))
+        .unwrap();
+    // a writes B2 and then clears it; b must end up with it cleared.
+    let set_b2 = a
+        .set_cell(sheet, "B2", Some(CellInput::Text { value: "hi".into() }))
+        .unwrap();
+    let clear_b2 = a.set_cell(sheet, "B2", None).unwrap();
+
+    deliver(&mut b, [Message::Op(from_a)]);
+    deliver(&mut a, [Message::Op(from_b)]);
+    deliver(&mut b, [Message::Op(set_b2), Message::Op(clear_b2)]);
+
+    let doc_a = a.document();
+    let doc_b = b.document();
+    assert_eq!(doc_a, doc_b);
+    doc_a.validate().unwrap();
+    let cells = &doc_a.sheets[&sheet].cells;
+    assert!(cells.contains_key("A1"));
+    assert!(!cells.contains_key("B2"));
+    assert_eq!(doc_a.sheets[&sheet].rows, 2);
+}
+
+#[test]
+fn a_stale_cell_write_does_not_overwrite_a_newer_one() {
+    use tpt_codex_core::{CellInput, SheetId};
+
+    let mut a = Replica::new(1);
+    let mut b = Replica::new(2);
+    let sheet = SheetId(7);
+    let old = a
+        .set_cell(sheet, "C3", Some(CellInput::Number { value: 1.0 }))
+        .unwrap();
+    // b sees a's write, then writes a newer value.
+    b.receive(Message::Op(old.clone()));
+    let newer = b
+        .set_cell(sheet, "C3", Some(CellInput::Number { value: 9.0 }))
+        .unwrap();
+    // Replaying the old write on b must not win.
+    b.receive(Message::Op(old));
+    a.receive(Message::Op(newer));
+    assert_eq!(a.document(), b.document());
+    assert_eq!(
+        a.document().sheets[&sheet].cells.get("C3"),
+        Some(&CellInput::Number { value: 9.0 })
+    );
+}
+
+#[test]
+fn invalid_cell_writes_are_refused_before_anything_is_sent() {
+    use tpt_codex_core::{CellInput, SheetId};
+
+    let mut a = Replica::new(1);
+    assert!(matches!(
+        a.set_cell(SheetId(1), "a1", None),
+        Err(tpt_codex_core::SyncError::InvalidAddress(_))
+    ));
+    assert!(matches!(
+        a.set_cell(
+            SheetId(1),
+            "A1",
+            Some(CellInput::Formula {
+                source: "1+1".into()
+            })
+        ),
+        Err(tpt_codex_core::SyncError::InvalidFormula(_))
+    ));
+    assert!(a.pending().is_empty());
+}
+
+#[test]
+fn a_relay_keeps_one_copy_of_each_operation_and_serves_late_replicas() {
+    use tpt_codex_core::{Publish, Relay};
+
+    let mut a = Replica::new(1);
+    let mut b = Replica::new(2);
+    let mut relay = Relay::new();
+    let (node, sent) = a.create_text(ROOT, 0, TextStyle::default()).unwrap();
+    let mut sent_ops = ops(sent);
+    sent_ops.extend(ops(a.insert_text(node, 0, "relayed").unwrap()));
+
+    // a sends, then sends its outbox again after a reconnect: the relay keeps one copy.
+    for m in sent_ops.clone() {
+        assert!(matches!(relay.publish("doc-1", m), Publish::Stored(_)));
+    }
+    for m in sent_ops.clone() {
+        assert_eq!(relay.publish("doc-1", m), Publish::Duplicate);
+    }
+    assert_eq!(relay.len("doc-1"), sent_ops.len());
+
+    // A presence update is forwarded, not logged.
+    let presence = Message::Presence(a.set_cursor(None));
+    assert_eq!(relay.publish("doc-1", presence), Publish::NotLogged);
+    assert_eq!(relay.len("doc-1"), sent_ops.len());
+
+    // b joins late and catches up from the start.
+    for m in relay.since("doc-1", 0).to_vec() {
+        b.receive(m);
+    }
+    assert_eq!(b.document(), a.document());
+    assert!(relay.since("doc-1", 999).is_empty());
+    assert!(relay.since("other", 0).is_empty());
+}

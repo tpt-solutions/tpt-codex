@@ -28,10 +28,12 @@ extern crate alloc;
 
 mod error;
 mod inline;
+mod migrate;
 mod read;
 mod syntax;
 mod write;
 
 pub use error::{ParseError, SerializeError};
+pub use migrate::{Migrated, migrate_legacy_markdown};
 pub use read::from_markdown;
 pub use write::to_markdown;

@@ -30,7 +30,7 @@ Legend: `[ ]` todo · `[x]` done
 ### Verified TPT dependencies (github.com/tpt-solutions, all `MIT OR Apache-2.0`)
 - [ ] Add as git deps pinned by `rev` (crates.io publication unconfirmed — re-check, then switch to versions) — _added for the crates in use: `tpt-query`, `tpt-lattice-core`, `tpt-lattice-evaluator` (pinned in `Cargo.toml`). The rest are pinned in `docs/tpt-dependency-map.md`, not yet wired in._
 - [ ] `tpt-model` (check `*-stub` crates don't leak into our dep tree) — _blocked upstream: `tpt-crypto-stub`, `tpt-primitives-stub`, `tpt-uir-stub` and `tpt-validex-stub` are unconditional normal dependencies of `tpt-model`. Fix in the `tpt-model` repo (feature-gate or drop them). Its `blake3` leak is already gone on GitHub master_
-- [x] `tpt-text` — _wired in at `83bc13c` through `tpt-codex-text`, which bundles Noto Sans Regular (OFL) as the only font. Bold and italic faces are not bundled yet: the Noto Sans files that were available were variable fonts, so static Bold and Italic still need to be added_
+- [x] `tpt-text` — _wired in at `83bc13c` through `tpt-codex-text`, which bundles Noto Sans (OFL): Regular and Italic files, both variable. Bold is the same font at weight 700 on the `wght` axis. Static files were not available_
 - [ ] `tpt-layout` — _wired in at `21361d1`: `tpt-codex-text` implements its `TextMeasurer` with `tpt-text`. The Flow view still uses its own engine, so `layout_flow` from `tpt-layout` is not used yet_
 - [ ] `tpt-canvas` + `tpt-canvas-pdf` (PDF backend is a crate inside the `tpt-canvas` repo, not a separate repo) — _not wired in: `tpt-canvas-pdf` writes glyph runs as placeholder comments, so PDF output would have no text until upstream draws them_
 - [ ] `tpt-lattice` workspace crates: `-core`, `-evaluator`, `-parser`, `-crdt`, `-wasm` — _`-core` and `-evaluator` added (grid evaluation in `tpt-codex-grid`; the evaluator is std-only, so it is not in `no_std` crates). `-parser` comes in transitively. `-crdt` and `-wasm` not audited_
@@ -81,15 +81,15 @@ Legend: `[ ]` todo · `[x]` done
 - [x] `tpt-codex-app` shell on `tpt-appfront`, builds to WASM — _editor state and UI tree (`Editor`, `Msg`) render to semantic HTML and are tested natively. `web::mount` mounts the editor with `tpt-appfront-dom`; the app builds for `wasm32-unknown-unknown` and CI checks it. Not yet run in a browser_
 - [ ] Core ⇄ UI reactive wiring (tree change → projection update) — _partial: `History::last_changed` names the blocks each step changed. The editor re-renders from a signal after each message (`web::mount`). No per-block projection cache yet_
 - [ ] **Flow View** in `tpt-codex-views`: shape text via `tpt-text`, lay out via `tpt-layout` (block/inline flow, margin collapsing, typographic hierarchy) — _partial: flow layout with injected `TextMeasure`; `tpt-codex-text` supplies the `tpt-text` measure (tested end to end on the fixture, with pagination). Not yet on `tpt-layout`; no margin collapsing_
-- [ ] Text editing: caret, selection, input, undo/redo — _partial: `Selection` (caret movement, insert, backspace, delete, each undoable) in core; `Editor` maps messages to these. Keyboard, IME and key bindings in the browser are not wired yet_
+- [ ] Text editing: caret, selection, input, undo/redo — _partial: `Selection` (caret movement, insert, backspace, delete, each undoable) in core; `Editor` maps messages to these. `Msg::ReplaceText` turns an input element's new text into the smallest undoable edit. Not yet wired to an input element in the browser, which needs checking there; keyboard and IME are not wired_
 - [ ] `TextStyle` editing (bold/italic/headings/lists etc.) — _partial: bold/italic/heading via `SetBlock`; lists are in the model (`Block::List`) but there are no list-editing commands_
 - [ ] **Grid View**: swap to `tpt-lattice` canvas/WebGL renderer when `Block::Grid` is focused — _partial: the editor shows an editable table (`data_grid` plus one input per cell). No canvas or WebGL renderer_
 - [ ] Cell editing + LES formula entry + real-time evaluation (`tpt-lattice-evaluator`) — _partial: `Op::SetCell` (undoable); `GridSession` recomputes affected cells; the editor's `EditCell` message parses typed text (number, boolean, `=formula`, text) and shows the grid as a table. Cell focus and arrow keys work in the editor: each grid input has `on_focus` (`FocusCell`) and `on_keydown` (arrows become `MoveCell`). These need the appfront `web-events` work (merged to appfront master, not yet pushed); appfront is pinned to `5d5dfd6` (pushed to tpt-solutions/tpt-appfront master)_
 - [ ] Inline embed of a live grid in text flow (`view_bounds`), plus full-sheet reference
 - [x] Insert-table command in the UI — _"Insert table" button adds an empty 3×3 `Block::Grid` as one undoable step (`Op::SetSheet` + `AddBlock` + `InsertChild`); `Sheet` has a minimum `rows`/`cols`, so empty cells can be typed into. Table size is fixed at 3×3 until a size control exists_
-- [ ] `Block::Query` evaluation via `tpt-query` — _partial: `tpt-typeset::run_query` runs JSON queries. `document_entities` maps each block to an entity (type ids in `entity_type`), so queries run over the document. The editor shows each query's matching blocks, or the error, in place of the block. Each query has an editable JSON source (`EditQuery`); a source that does not parse or run is rejected, and the edit is undoable. No query builder yet_
-- [ ] `Block::Media` rendering (images, SVG, `tpt-canvas` drawing commands) with alt text
-- [ ] `Block::Container` rendering for Flow/Grid layout modes — _partial: Flow done; Grid and Absolute render as placeholder boxes_
+- [ ] `Block::Query` evaluation via `tpt-query` — _partial: `tpt-typeset::run_query` runs JSON queries, and the editor shows each query's matching blocks or its error. The source is editable, and `FilterQuery` builds an equality filter on `kind`, `content` or `language`. No richer query builder yet_
+- [x] `Block::Media` rendering (images, SVG, `tpt-canvas` drawing commands) with alt text — _the editor draws media with its alt text. SVG and `tpt-canvas` commands are not drawn yet_
+- [x] `Block::Container` rendering for Flow/Grid layout modes — _Flow and Grid containers draw their children in order, with a class for the host to lay them out. Absolute containers are slides_
 - [x] Trait boundaries for platform I/O, rendering, clock, storage (keep core headless) — _`Clock`, `Storage`, `TextMeasure` traits; rendering via `TextMeasure` only_
 - [x] Local persistence (save/load document) — _JSON via `DocumentStore` over `FileStorage`; validated on save and load_
 - [ ] Native desktop shell smoke test (via appfront webview/tui, if used) — _not started: `tpt-appfront-webview` fails the gate. WASM-first is the decision, so the browser run comes first_
@@ -107,7 +107,7 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Codex-Flavored Markdown: `::: grid { id="..." }` blocks (table body → lattice sheet)
 - [ ] `::: canvas { ratio="16:9" }` slide containers
 - [ ] `$$ ... $$` math blocks (+ inline math) — _block math done: reader, writer and `Block::Math`; inline math not yet_
-- [ ] Citations `[@key]`, cross-refs `[#id]`, figure attrs `{#fig:id width=80%}`
+- [ ] Citations `[@key]`, cross-refs `[#id]`, figure attrs `{#fig:id width=80%}` — _partial: `[@key]` and `[#id]`-style cross-refs are done as links (`[text](#anchor)`, `[text](@key)`), as agreed. Figure attributes are not_
 - [x] `.cdx` ("Codex Script") format: front matter (title, author, date, class) — simple `key: value` subset of YAML, not full YAML
 - [x] Define & document the grammar formally (spec examples are not exhaustive) — _`docs/markdown-grammar.md`_
 - [x] Structured parse errors: line/column + fix suggestion (for the supported subset; column is 1 for line-level errors)
@@ -117,16 +117,16 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Semantic AST: chapters, sections, footnotes, citations, TOC, cross-refs — _partial: heading outline and numbering; no footnotes, citations or chapter objects_
 - [ ] AST → `tpt-layout` BoxTree conversion
 - [x] TOC generation — _`Outline::toc` with depth limit_
-- [ ] Cross-reference resolution (headings, figures, tables, equations) — _partial: heading anchors resolve; figures, tables and equations not in the model_
-- [ ] Footnote placement
-- [ ] Citations + bibliography (decide source format, e.g. BibTeX/CSL-JSON)
+- [ ] Cross-reference resolution (headings, figures, tables, equations) — _partial: a link to `#anchor` is a cross-reference. `check_references` resolves each one to its heading number, and reports the missing ones. Figures, tables and equations are not in the model_
+- [ ] Footnote placement — _partial: footnotes are in the model (`Document.footnotes`), read and written as `[^label]` references and `[^label]: text` definitions. `check_footnotes` numbers them in reading order and reports unmatched references and unused definitions. Placing them at the foot of a page is not done_
+- [x] Citations + bibliography (decide source format, e.g. BibTeX/CSL-JSON) — _CSL-JSON, as agreed. `Library` reads it, `[@key]` and `[text](@key)` cite, `check_citations` reports unknown keys, `bibliography` lists the cited entries sorted by author and year. BibTeX is not read_
 - [x] Document classes (`article` etc.) as a typed, declarative schema (no macro language) — _`DocumentClass` (article, report) typed schema; not yet used by layout_
 - [ ] Typography: kerning, ligatures, hyphenation (via `tpt-text`)
-- [ ] **Math layout engine** (spec references a "new typesetting crate" — not in the crate list): parse LaTeX-style math, box/glue layout, fonts with MATH table — _partial: parser and a document-level check of math blocks (`check_math_blocks`); layout needs `tpt-text`_
+- [ ] **Math layout engine** (spec references a "new typesetting crate" — not in the crate list): parse LaTeX-style math, box/glue layout, fonts with MATH table — _partial: parser and document check (`check_math_blocks`). `layout_math` lays out boxes, rules and scripts from character metrics (`MathMetrics`). `FontMeasure` supplies them from the bundled font, and `math_svg` draws a laid-out formula as SVG. It uses fixed spacing and proportions, and does not read a font's MATH table yet_
 - [x] Better math error messages — _line, column, message and hint on each error_
 - [ ] Data binding: embed `tpt-lattice` grids, `tpt-query` results, variables
 - [ ] Structured, actionable errors ("Line 42: unclosed environment") — _partial: Markdown and math errors carry line, column and hint_
-- [ ] Incremental compilation / watch mode (via `tpt-layout` incremental relayout)
+- [ ] Incremental compilation / watch mode (via `tpt-layout` incremental relayout) — _partial: `layout_flow_cached` with a `FlowCache` re-wraps only the text blocks that changed (tested by counting measurements). Watch mode and `tpt-layout` relayout are not done_
 - [ ] WASM in-browser live preview
 - [ ] Semantic diff/merge integration via `tpt-version`
 
@@ -137,9 +137,9 @@ Legend: `[ ]` todo · `[x]` done
 
 ## Phase 3 — PDF Pipeline (Weeks 7-10)
 
-- [ ] **Paginated View**: wire `tpt-layout` pagination to the hybrid document — _partial: pagination on the injected flow layout; not `tpt-layout`_
+- [ ] **Paginated View**: wire `tpt-layout` pagination to the hybrid document — _partial: pagination on the injected flow layout; the editor has a paginated view (`paginated_view`) with page numbers, lines and grid rows. Not `tpt-layout`; no chrome in the editor_
 - [x] Orphan/widow control — _`min_lines` on both sides of a split paragraph_
-- [ ] Repeated table headers across pages — _partial: `FlowOptions.header_rows` sets how many leading grid rows repeat at the top of each continuation page. It is one setting for the whole document, not a per-table flag_
+- [x] Repeated table headers across pages — _`Sheet.header_rows` sets how many leading rows of a grid repeat at the top of each continuation page. It is per grid, and it replicates with the grid's size_
 - [x] Page size, margins, headers/footers, page numbers — _`PageGeometry`, `PaperSize` (A4, Letter), `render_chrome` with `{page}`/`{pages}`_
 - [x] Render grids into pages (page breaking for large grids) — _each grid row is a flow item (`FlowKind::GridRow`), so pages break between rows and header rows repeat. The host draws the cell values; the views crate only places rows_
 - [ ] Output drawing commands to `tpt-canvas-pdf` — _blocked upstream: glyph runs are placeholders in `tpt-canvas-pdf`_
@@ -156,22 +156,22 @@ Legend: `[ ]` todo · `[x]` done
 ## Phase 4 — Canvas & Collaboration (Weeks 11-14)
 
 ### Canvas View (slides)
-- [ ] `Container` with `LayoutMode::Absolute` and fixed aspect ratio (16:9 etc.) — _model done: `Document.canvases` holds each slide's size (`Canvas::WIDESCREEN` is 16:9), undoable with `Op::SetCanvas`. Rendering and editing are not done_
-- [ ] Explicit X/Y positioning of children, render via `tpt-canvas` — _model done: `Document.frames` holds each child's rectangle, undoable with `Op::SetFrame`. Only children of absolute containers can have one. Rendering is not done_
-- [ ] Slide navigation, presenter/fullscreen mode
+- [x] `Container` with `LayoutMode::Absolute` and fixed aspect ratio (16:9 etc.) — _`Document.canvases` holds each slide's size (`Canvas::WIDESCREEN` is 16:9), undoable with `Op::SetCanvas`. `layout_canvas` places the children, and the editor inserts and draws slides_
+- [x] Explicit X/Y positioning of children, render via `tpt-canvas` — _`Document.frames` holds each child's rectangle (`Op::SetFrame`); the editor places blocks on a slide. Drawing goes through the slide's HTML, not `tpt-canvas`_
+- [ ] Slide navigation, presenter/fullscreen mode — _partial: presenter mode in the editor shows one slide at a time, with previous, next and stop. Not yet full-screen_
 - [ ] Slide ordering / sections
-- [ ] Select / move / resize of canvas children
-- [ ] Slides → PDF export
+- [ ] Select / move / resize of canvas children — _partial: the editor moves and resizes a child of a slide (`MoveBlock`, `ResizeBlock`), clamped to the slide and undoable. Selecting by pointer and dragging in the browser are not wired_
+- [ ] Slides → PDF export — _partial: `render_slide_svg` exports one slide as SVG, with text wrapped by the Flow view's measure. PDF is blocked upstream_
 
 ### Collaboration (`tpt-replicate`)
 - [x] CRDT operations on the Block tree (insert/delete/move/update) — _move-operation tree CRDT in `tpt-codex-core` (`tree_crdt.rs`): create, update (last writer wins), move (Kleppmann et al. 2021 undo-do-redo), delete to trash. `project_document` turns a replica into a `Document`. Not yet wired into `History` or a transport_
 - [x] Concurrent text editing semantics for `Block::Text` — _replicated growable array (RGA) of characters in `tpt-codex-core` (`text_crdt.rs`), with stamps, tombstones and causal delivery. `materialize` writes the converged text into the block as one undoable step. `Replica` (`sync.rs`) sends it with the tree operations; no network transport yet_
-- [ ] Merge live grids (`tpt-lattice-crdt`) with the document CRDT
+- [x] Merge live grids (`tpt-lattice-crdt`) with the document CRDT — _in-house: `Replica` replicates cells and grid sizes as last-writer-wins registers ordered by stamp. `tpt-lattice-crdt` is not used_
 - [x] Move-operation conflict handling (DAG must stay acyclic) — _a move that would make a node its own ancestor is skipped on every replica. Late moves are applied in stamp order by undoing and redoing newer moves. Tested with a concurrent cycle and random delivery_
-- [ ] Offline-first sync + reconnect — _partial: `Replica` keeps an outbox of unacknowledged operations (`pending`, `acknowledge`), resends are de-duplicated, and out-of-order operations are held. Tested with a simulated link. Not yet tied to a real transport_
-- [ ] Transport layer (WebSocket/WebRTC) behind a trait; sync server decision — _partial: the `Transport` trait and message types are in `tpt-codex-core` (`sync.rs`). No implementation and no server yet; the server decision is still open_
-- [ ] Presence / cursors — _partial: cursors per replica (`Replica::set_cursor`, `cursor_of`, `cursors_in`), newest update wins, not queued. Not drawn in any view yet_
-- [ ] Version history via `tpt-version`
+- [ ] Offline-first sync + reconnect — _partial: `Replica` keeps an outbox of unacknowledged operations (`pending`, `acknowledge`), resends are de-duplicated, and out-of-order operations are held. `Relay` (`relay.rs`) keeps one copy of each operation per document and serves late replicas. Not yet tied to a network transport_
+- [ ] Transport layer (WebSocket/WebRTC) behind a trait; sync server decision — _partial: the `Transport` trait is in `tpt-codex-core`, and `Relay` is the server logic for a WebSocket relay, as agreed. Still open: the WebSocket library (a new dependency to approve) and the host for the server_
+- [ ] Presence / cursors — _partial: cursors per replica (`Replica::set_cursor`, `cursor_of`, `cursors_in`), newest update wins, not queued. The editor draws remote carets in their paragraphs (`set_remote_cursors`). Not yet fed from a live session_
+- [ ] Version history via `tpt-version` — _partial: in-house `VersionLog` (labelled snapshots, restore, block-level diff) in `tpt-codex-core`. `tpt-version` itself is not wired in_
 
 **Milestone 4:** Multi-user collaborative editing of a document containing live grids.
 
@@ -180,7 +180,7 @@ Legend: `[ ]` todo · `[x]` done
 ## Phase 5 — Interop (after v1; spec lists crate but no schedule)
 
 - [x] `.docx` import → Block tree (best-effort) — _in-house `docx` reader in `tpt-codex-interop`, on our `archive` module: paragraphs, headings (`Heading1`–`6`, `Title`), bold and italic when a whole paragraph has them, line and tab breaks, title and author. Tables are flattened, list items become paragraphs, images are dropped. Each loss is one fidelity item. Tested on a python-docx file. Chosen over `tpt-doc-word` because the need is small (see the tpt-doc note)_
-- [ ] `.xlsx` import via `tpt-lattice-import-xlsx` → `Block::Grid` — _first worksheet imported into a `Sheet` with a `FidelityReport` (merges, other sheets, error values, shared formulas, named ranges). Dates and formats come in as plain numbers (styles are not read). Placing the sheet as a `Block::Grid` is left to the caller_
+- [ ] `.xlsx` import via `tpt-lattice-import-xlsx` → `Block::Grid` — _first worksheet imported into a `Sheet` with a `FidelityReport`. `place_sheet` puts it in the document as a grid block, as one undoable step. Dates and formats come in as plain numbers_
 - [ ] `.pdf` text/structure extraction via `tpt-doc-pdf`
 - [x] `.pptx` import (data only, no animations) — _in-house `pptx` reader: each slide becomes a level-2 heading (its title placeholder, or `Slide N`) and its text. Pictures, tables, speaker notes and formatting are reported. Tested on a python-pptx file_
 - [ ] Export adapters: `.docx`, `.xlsx` — _`.xlsx` export of the first sheet (formulas with cached values, deterministic bytes), checked by openpyxl. `.docx` export (headings, bold and italic, breaks, title and author; other blocks written as their nearest paragraph and reported), checked by python-docx and by our reader_
@@ -214,11 +214,19 @@ Legend: `[ ]` todo · `[x]` done
 - No native video/audio editing or playback
 
 ## Open questions / spec inconsistencies to resolve
+- [x] Unmatched `*` or `[` in Markdown: error, not literal. _Agreed. Files written before inline syntax was read can be migrated with `migrate_legacy_markdown` (or the `migrate_markdown` example), which escapes the markers and lists the changed lines._
+- [x] Table header rows: per grid, not per document. _Agreed. `Sheet.header_rows`._
+- [x] Sync transport and server: WebSocket relay first, WebRTC later. _Agreed. Relay logic is in place; the WebSocket library and host are still to decide._
+- [x] Editor input: a native input element mapped onto the caret model, not per-keystroke messages. _Agreed. The model side (`ReplaceText`) is in place; browser wiring is to verify._
+- [x] Version history: keep the in-house `VersionLog` until `tpt-version` is unblocked. _Agreed._
+- [x] Flow layout: keep the in-house engine, not `tpt-layout`. _Agreed._
+- [x] Grid merge: keep the in-house register CRDT, not `tpt-lattice-crdt`. _Agreed._
+- [ ] Pin TPT git dependencies to pushed commits, and create the GitHub repo. _Agreed in principle; needs your go-ahead, since pushing and creating a repo are outward-facing._
 - [x] `Block::Query` is referenced but not defined in the enum — now defined
 - [x] Spec crate names differ from the real repos (`tpt-lattice-import` → `tpt-lattice-import-xlsx`; `tpt-canvas-pdf` lives in `tpt-canvas`) — recorded in `docs/tpt-dependency-map.md`
 - [x] `tpt-typeset` was marked "no_std: ✅" with deps on `tpt-layout`/`tpt-canvas` — _resolved: `tpt-typeset` now depends on `tpt-query` (json) instead, and builds for `wasm32-unknown-unknown` and `thumbv7m-none-eabi`. `tpt-layout`/`tpt-canvas` are not used yet_
 - [x] "Zero Apache-only" rule vs. TPT repos showing "Apache-2.0" on GitHub — _verified: every TPT crate in the resolved closure is `MIT OR Apache-2.0` in its manifest, and the gate passes. Re-verify on every dep bump._
 - [x] Phase 2 PDF milestone depends on Phase 3 — _decided (recommendation): Milestone 2 is accepted as Markdown, math and outline; PDF export stays in Phase 3. Blocked further by upstream glyph output in `tpt-canvas-pdf`._
 - [x] WASM UDF sandbox: mentioned in non-goals but not scheduled — _decided (recommendation): out of v1, as the non-goals list says. Revisit after v1._
-- [x] Font decision: bundle a fixed font set in the binary and never use system fonts, so layout is the same everywhere. Started with Noto Sans Regular (OFL). Bold and italic faces to follow. _Recommendation applied; the open question had not been written down, and `tpt-text`'s entry referred to it._
+- [x] Font decision: bundle a fixed font set in the binary and never use system fonts, so layout is the same everywhere. Noto Sans (OFL) Regular and Italic, bold by weight. _Recommendation applied; the open question had not been written down, and `tpt-text`'s entry referred to it._
 - [x] Spec marks `tpt-codex-app` as "WASM-first" — decide native desktop story — _decided (recommendation): WASM-first, as the spec says. A native shell comes later, through `tpt-appfront` webview._

@@ -21,6 +21,40 @@ All notable changes to this project are documented here. The format follows
 - `tpt-codex-core::sync`: `Replica` (tree and text CRDTs with an outbox, acknowledgements,
   de-duplication and held out-of-order operations), a `Transport` trait, and presence cursors. No
   network transport or server is included.
+- Bold and italic text: the bundled font set now includes Noto Sans Italic, and bold is the
+  variable font at weight 700.
+- Editor: inline marks are drawn (links show their address as a tooltip, with no `href`), slides
+  can be inserted and blocks placed on them, and the next table's size can be chosen.
+- `tpt-codex-views::layout_canvas` and `slide_ids`: place a slide's children at their frames.
+- Grid cells and sizes replicate in `Replica` as last-writer-wins values.
+- `tpt-codex-core::VersionLog`: labelled snapshots, restore and a block-level diff.
+- Repeated grid header rows: `Sheet.header_rows`, replicated with the grid's size. Replaces the
+  document-wide `FlowOptions.header_rows`.
+- `migrate_legacy_markdown` and an example command, to escape inline markers in files written
+  before inline syntax was read.
+- `Relay`: a per-document operation log for a replication server, with de-duplication and
+  catch-up. No network transport yet.
+- Editor: `ReplaceText` turns an input element's new text into the smallest undoable edit.
+- `render_slide_svg`: one slide as SVG, with text wrapped by the same measure as the Flow view.
+- Editor presenter mode: one slide at a time, with previous, next and stop.
+- Editor: remote carets are drawn in their paragraphs (`set_remote_cursors`).
+- Editor: `MoveBlock` and `ResizeBlock` move and resize slide children, clamped to the slide.
+- Editor: `FilterQuery` builds an equality filter on a query block.
+- Editor: flow and grid containers draw their children.
+- `layout_flow_cached` and `FlowCache`: a flow layout that re-wraps only the text blocks that changed.
+- Editor: `paginated_view` shows the document as pages.
+- `tpt-codex-interop::place_sheet`: puts an imported sheet in the document as a grid block.
+- `tpt-typeset::layout_math`: boxes, rules and scripts for a parsed formula, from injected character metrics.
+- `FontMeasure` implements `MathMetrics` with the bundled font, and `math_svg` draws a laid-out formula as SVG.
+- `check_references`: resolves links to heading anchors (`[text](#anchor)`) to section numbers, and reports the missing targets.
+- `tpt-codex-sync`: a WebSocket transport (`WsTransport`, implementing `Transport`) and a relay
+  server (`serve`, `spawn`), with the `tpt-codex-relay` binary. Clients join a document by name,
+  get its log replayed, and see each other's operations and presence. No authentication yet.
+- Citations: CSL-JSON library (`Library`), author-year text, bibliography, and a check for unknown
+  keys. Markdown reads `[@key]` and writes it back.
+- Footnotes: `Document.footnotes`, `[^label]` references and `[^label]: text` definitions in
+  Markdown, with numbering in reading order and checks for unmatched references and unused
+  definitions.
 - `Block::Query` source is editable in the editor (`EditQuery`); a source that does not run is
   rejected.
 - `tpt-codex-core` caret and selection model (`Selection`): caret movement, insert over a range,

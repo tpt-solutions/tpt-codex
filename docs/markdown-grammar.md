@@ -71,6 +71,10 @@ escape       = "\" ASCII-punctuation ;      (* the punctuation character, litera
 emphasis     = "*" text-no-edge-space "*" ;  (* closes with one star *)
 strong       = "**" text-no-edge-space "**" ; (* closes with two stars *)
 link         = "[" link-text "](" address ")" ;
+citation     = "[@" key "]" ;               (* shows the key until its text is replaced *)
+footnote-ref = "[^" label "]" ;            (* likewise, for a footnote label *)
+key          = letters, digits, and - _ : . ;
+footnote-def = "[^" label "]: " text ;     (* a paragraph; its text becomes the footnote *)
 link-text    = { plain | escape } ;          (* not empty; no unescaped * [ ] *)
 address      = text without spaces, parentheses, angle brackets or backslashes ;
 ```
@@ -81,6 +85,12 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
 - Emphasis does not nest, and a link cannot start inside emphasis. Bold together with italic on the
   same text is not written yet.
 - A backslash before ASCII punctuation is an escape. Any other backslash is literal.
+- A link whose address starts with `@` is a citation of that key, and one that starts with `^` is a
+  footnote reference. `[@key]` and `[^label]` are the bare forms, with the key or label as their
+  text. A link to `#anchor` is a cross-reference to a heading.
+- A paragraph that starts `[^label]: ` is a footnote definition. Its text becomes the footnote's
+  block, and it is written back in the same form. A plain paragraph that starts that way is escaped,
+  so it reads back as text.
 - A lone `*` or `[` that the subset cannot close is an error, with the fix "escape it with a
   backslash". It is never silently literal.
 - The writer escapes `*`, `[`, `]` and `\` where they would start syntax. It refuses what the

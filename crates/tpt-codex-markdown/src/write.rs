@@ -34,12 +34,21 @@ pub fn to_markdown(doc: &Document) -> Result<String, SerializeError> {
 
     let mut parts: Vec<String> = Vec::new();
     let mut prev: Option<&Block> = None;
+    for &id in doc.footnotes.keys() {
+        if !root.contains(&id) {
+            return Err(SerializeError {
+                index: None,
+                reason: format!("footnote block {} is not a top-level block", id.0),
+            });
+        }
+    }
     for (index, id) in root.iter().enumerate() {
         let block = doc.get(*id).ok_or_else(|| SerializeError {
             index: Some(index),
             reason: format!("child block {} is missing", id.0),
         })?;
-        parts.push(write_block(doc, index, block, prev)?);
+        let label = doc.footnotes.get(id).map(String::as_str);
+        parts.push(write_block(doc, index, block, prev, label)?);
         prev = Some(block);
     }
     out.push_str(&parts.join("\n\n"));
@@ -88,13 +97,17 @@ fn write_block(
     index: usize,
     block: &Block,
     prev: Option<&Block>,
+    label: Option<&str>,
 ) -> Result<String, SerializeError> {
     let fail = |reason: &str| SerializeError {
         index: Some(index),
         reason: String::from(reason),
     };
     match block {
-        Block::Text { content, style } => write_text(index, content, style),
+        Block::Text { content, style } => match label {
+            Some(label) => write_footnote(index, label, content, style),
+            None => write_text(index, content, style),
+        },
         Block::List {
             ordered,
             start,
@@ -147,6 +160,27 @@ fn write_text(index: usize, content: &str, style: &TextStyle) -> Result<String, 
         }
     }
     Ok(escaped)
+}
+
+/// A footnote definition: `[^label]: text`, in a plain paragraph.
+fn write_footnote(
+    index: usize,
+    label: &str,
+    content: &str,
+    style: &TextStyle,
+) -> Result<String, SerializeError> {
+    let fail = |reason: &str| SerializeError {
+        index: Some(index),
+        reason: String::from(reason),
+    };
+    if style.heading_level.is_some() || style.bold || style.italic {
+        return Err(fail("footnote text must be a plain paragraph"));
+    }
+    if !crate::inline::is_citation_key(label) {
+        return Err(fail("footnote label must be letters, digits, and - _ : ."));
+    }
+    let text = write_text(index, content, style)?;
+    Ok(format!("[^{label}]: {text}"))
 }
 
 fn write_list(

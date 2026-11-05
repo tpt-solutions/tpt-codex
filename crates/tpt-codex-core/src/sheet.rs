@@ -47,6 +47,10 @@ pub struct Sheet {
     /// Minimum number of columns the grid shows. Zero means the columns that hold cells.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub cols: u32,
+    /// Number of leading rows that are headers. Pagination repeats them at the top of each page
+    /// that the grid continues onto. Zero (the default, and absent from the JSON) means none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub header_rows: u32,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -60,6 +64,7 @@ impl Sheet {
             cells: BTreeMap::new(),
             rows,
             cols,
+            header_rows: 0,
         }
     }
 

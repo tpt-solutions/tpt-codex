@@ -1,0 +1,22 @@
+[package]
+name = "tpt-codex-sync"
+description = "WebSocket transport and relay server for tpt-codex replicas (std)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tpt-codex-relay"
+path = "src/main.rs"
+
+[dependencies]
+tpt-codex-core.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["std"] }
+tungstenite = "0.24"
+
+[lints]
+workspace = true

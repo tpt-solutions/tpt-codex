@@ -19,6 +19,7 @@ tpt-codex-interop = { path = "crates/tpt-codex-interop" }
 tpt-codex-app = { path = "crates/tpt-codex-app" }
 tpt-codex-grid = { path = "crates/tpt-codex-grid" }
 tpt-codex-text = { path = "crates/tpt-codex-text" }
+tpt-codex-sync = { path = "crates/tpt-codex-sync" }
 
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }

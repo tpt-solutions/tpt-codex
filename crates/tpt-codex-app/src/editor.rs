@@ -8,14 +8,16 @@
 use tpt_appfront_core::UITree;
 use tpt_appfront_core::ui_tree::ContainerBuilder;
 use tpt_codex_core::{
-    Block, BlockId, CellInput, Document, EditError, History, MediaSource, Movement, Op, Selection,
-    Sheet, SheetId, delete_backward, delete_forward, insert_text, is_valid_address,
+    Block, BlockId, Canvas, CellInput, Document, EditError, History, InlineRun, LayoutMode,
+    MediaSource, Movement, Op, Rect, Selection, Sheet, SheetId, delete_backward, delete_forward,
+    edit_text, insert_text, is_valid_address,
 };
 use tpt_codex_grid::{CellResult, evaluate_sheet};
+use tpt_codex_views::{FlowKind, FlowOptions, PageGeometry, TextMeasure, layout_flow, paginate};
 use tpt_typeset::{document_entities, run_query};
 
 /// Something the user did.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     /// Put the caret at the end of this text block.
     Focus(BlockId),
@@ -62,6 +64,70 @@ pub enum Msg {
         /// Number of columns.
         cols: u32,
     },
+    /// Show slide `index` (0-based) in presenter mode. Out-of-range indices are clamped.
+    StartPresenting {
+        /// The slide to start on.
+        index: usize,
+    },
+    /// Leave presenter mode and show the whole document.
+    StopPresenting,
+    /// Show the next slide in presenter mode. The last slide stays on screen.
+    NextSlide,
+    /// Show the previous slide in presenter mode. The first slide stays on screen.
+    PreviousSlide,
+    /// Choose the size of the next table. Each side must be between 1 and [`MAX_TABLE_SIDE`].
+    SetTableSize {
+        /// Number of rows.
+        rows: u32,
+        /// Number of columns.
+        cols: u32,
+    },
+    /// Replace the whole text of paragraph `block` with `text`, as typed into an input element.
+    /// Only the characters that differ are changed, as one undoable step, and the caret goes to
+    /// the end of the change.
+    ReplaceText {
+        /// The text block.
+        block: BlockId,
+        /// Its new text.
+        text: String,
+    },
+    /// Add an empty slide (16:9) at the end of the document, as one undoable step.
+    InsertSlide,
+    /// Place `block` on the slide that holds it, at `frame`. `None` removes its position.
+    PlaceBlock {
+        /// The block to place. It must be a child of a slide.
+        block: BlockId,
+        /// Where it goes, in points.
+        frame: Option<Rect>,
+    },
+    /// Move a block on its slide by (`dx`, `dy`) points. It stays inside the slide.
+    MoveBlock {
+        /// The block to move. It must have a position on a slide.
+        block: BlockId,
+        /// Horizontal distance, in points.
+        dx: f64,
+        /// Vertical distance, in points.
+        dy: f64,
+    },
+    /// Give a block on its slide a new size, keeping its top-left corner. It stays inside the slide.
+    ResizeBlock {
+        /// The block to resize. It must have a position on a slide.
+        block: BlockId,
+        /// New width, in points.
+        width: f64,
+        /// New height, in points.
+        height: f64,
+    },
+    /// Make a query block show the blocks whose `field` equals `value`. The fields are `kind`,
+    /// `content` and `language`. The query is checked like any other source edit.
+    FilterQuery {
+        /// The query block to set.
+        block: BlockId,
+        /// The field to test: `kind`, `content` or `language`.
+        field: String,
+        /// The text the field must equal.
+        value: String,
+    },
     /// Undo the last step.
     Undo,
     /// Redo the last undone step.
@@ -100,6 +166,24 @@ pub struct Editor {
     caret: Option<Selection>,
     cell: Option<CellFocus>,
     status: Option<String>,
+    /// Rows and columns of the next table inserted.
+    table_size: (u32, u32),
+    /// The slide being shown in presenter mode, as an index into the slides. `None` shows the
+    /// whole document.
+    presenting: Option<usize>,
+    /// Other people's carets, drawn in their paragraphs.
+    remote_cursors: Vec<RemoteCursor>,
+}
+
+/// Another replica's caret, to draw in a paragraph. The label names the replica's author.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteCursor {
+    /// Shown next to the caret.
+    pub label: String,
+    /// The paragraph it is in.
+    pub block: BlockId,
+    /// Character offset in the paragraph.
+    pub offset: usize,
 }
 
 impl Editor {
@@ -111,7 +195,15 @@ impl Editor {
             caret: None,
             cell: None,
             status: None,
+            table_size: (3, 3),
+            presenting: None,
+            remote_cursors: Vec::new(),
         }
+    }
+
+    /// The rows and columns the next inserted table will have.
+    pub fn table_size(&self) -> (u32, u32) {
+        self.table_size
     }
 
     /// The document as it is now.
@@ -166,6 +258,36 @@ impl Editor {
                 text,
             } => self.edit_cell(sheet, &address, &text),
             Msg::EditQuery { block, source } => self.edit_query(block, source),
+            Msg::SetTableSize { rows, cols } => self.set_table_size(rows, cols),
+            Msg::InsertSlide => self.insert_slide(),
+            Msg::StartPresenting { index } => {
+                let count = self.slide_ids().len();
+                if count == 0 {
+                    Err("there are no slides to present".to_string())
+                } else {
+                    self.presenting = Some(index.min(count - 1));
+                    Ok(())
+                }
+            }
+            Msg::StopPresenting => {
+                self.presenting = None;
+                Ok(())
+            }
+            Msg::NextSlide => self.move_slide(1),
+            Msg::PreviousSlide => self.move_slide(-1),
+            Msg::ReplaceText { block, text } => self.replace_text(block, &text),
+            Msg::PlaceBlock { block, frame } => self.place_block(block, frame),
+            Msg::MoveBlock { block, dx, dy } => self.move_block(block, dx, dy),
+            Msg::FilterQuery {
+                block,
+                field,
+                value,
+            } => self.filter_query(block, &field, &value),
+            Msg::ResizeBlock {
+                block,
+                width,
+                height,
+            } => self.resize_block(block, width, height),
             Msg::InsertTable { rows, cols } => self.insert_table(rows, cols),
             Msg::Undo => {
                 let r = self.history.undo(&mut self.doc).map(|_| ());
@@ -269,6 +391,196 @@ impl Editor {
             .map_err(|e| e.to_string())
     }
 
+    fn replace_text(&mut self, block: BlockId, text: &str) -> Result<(), String> {
+        let content = match self.doc.get(block) {
+            Some(Block::Text { content, .. }) => content.clone(),
+            Some(_) => return Err("that block is not text".to_string()),
+            None => return Err(format!("block {} does not exist", block.0)),
+        };
+        let old: Vec<char> = content.chars().collect();
+        let new: Vec<char> = text.chars().collect();
+        // The change is the span between the common prefix and the common suffix.
+        let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+        let max_suffix = old.len().min(new.len()) - prefix;
+        let suffix = old
+            .iter()
+            .rev()
+            .zip(new.iter().rev())
+            .take(max_suffix)
+            .take_while(|(a, b)| a == b)
+            .count();
+        if prefix == old.len() && prefix == new.len() {
+            return Ok(());
+        }
+        let insert: String = new[prefix..new.len() - suffix].iter().collect();
+        let end = old.len() - suffix;
+        edit_text(
+            &mut self.doc,
+            &mut self.history,
+            block,
+            prefix,
+            end,
+            &insert,
+        )
+        .map_err(|e| e.to_string())?;
+        self.caret = Some(Selection::caret(block, prefix + insert.chars().count()));
+        self.cell = None;
+        Ok(())
+    }
+
+    /// Replaces the other people's carets shown in the document.
+    pub fn set_remote_cursors(&mut self, cursors: Vec<RemoteCursor>) {
+        self.remote_cursors = cursors;
+    }
+
+    /// The slides of the document, in order.
+    pub fn slide_ids(&self) -> Vec<BlockId> {
+        tpt_codex_views::slide_ids(&self.doc)
+    }
+
+    /// The slide being presented, if presenter mode is on.
+    pub fn presenting(&self) -> Option<usize> {
+        self.presenting
+    }
+
+    fn move_slide(&mut self, step: isize) -> Result<(), String> {
+        let count = self.slide_ids().len();
+        let Some(current) = self.presenting else {
+            return Err("presenter mode is off".to_string());
+        };
+        if count == 0 {
+            return Err("there are no slides to present".to_string());
+        }
+        let next = (current as isize + step).clamp(0, count as isize - 1);
+        self.presenting = Some(next as usize);
+        Ok(())
+    }
+
+    fn insert_slide(&mut self) -> Result<(), String> {
+        let root = self.doc.root;
+        let Some(Block::Container { children, .. }) = self.doc.get(root) else {
+            return Err("the document root cannot hold a slide".to_string());
+        };
+        let index = children.len();
+        let slide = BlockId(
+            self.doc
+                .blocks
+                .keys()
+                .map(|b| b.0)
+                .max()
+                .map_or(1, |m| m + 1),
+        );
+        let ops = vec![
+            Op::AddBlock {
+                id: slide,
+                block: Block::Container {
+                    layout_mode: LayoutMode::Absolute,
+                    children: Vec::new(),
+                },
+            },
+            Op::InsertChild {
+                parent: root,
+                index,
+                child: slide,
+            },
+            Op::SetCanvas {
+                id: slide,
+                canvas: Some(Canvas::WIDESCREEN),
+            },
+        ];
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The slide that holds `block`, if it is a child of an absolute container.
+    fn slide_of(&self, block: BlockId) -> Option<BlockId> {
+        self.doc.blocks.iter().find_map(|(id, b)| match b {
+            Block::Container {
+                layout_mode: LayoutMode::Absolute,
+                children,
+            } if children.contains(&block) => Some(*id),
+            _ => None,
+        })
+    }
+
+    /// The current frame of `block`, and the size of the slide it is on.
+    fn placed(&self, block: BlockId) -> Result<(Rect, Canvas), String> {
+        let frame = self
+            .doc
+            .frames
+            .get(&block)
+            .copied()
+            .ok_or_else(|| format!("block {} has no position on a slide", block.0))?;
+        let slide = self
+            .slide_of(block)
+            .ok_or_else(|| format!("block {} is not on a slide", block.0))?;
+        let canvas = self
+            .doc
+            .canvases
+            .get(&slide)
+            .copied()
+            .unwrap_or(Canvas::WIDESCREEN);
+        Ok((frame, canvas))
+    }
+
+    fn filter_query(&mut self, block: BlockId, field: &str, value: &str) -> Result<(), String> {
+        if !matches!(field, "kind" | "content" | "language") {
+            return Err(format!("'{field}' cannot be filtered on"));
+        }
+        let source = serde_json::json!({
+            "source": 1,
+            "filters": [{ "Eq": { "field": field, "value": value } }],
+        })
+        .to_string();
+        self.edit_query(block, source)
+    }
+
+    fn move_block(&mut self, block: BlockId, dx: f64, dy: f64) -> Result<(), String> {
+        let (frame, canvas) = self.placed(block)?;
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err("a move needs finite distances".to_string());
+        }
+        // Keep the whole block on the slide, even if it is larger than the slide.
+        let x = clamp_to(frame.x + dx, 0.0, canvas.width - frame.width);
+        let y = clamp_to(frame.y + dy, 0.0, canvas.height - frame.height);
+        self.place_block(block, Some(Rect { x, y, ..frame }))
+    }
+
+    fn resize_block(&mut self, block: BlockId, width: f64, height: f64) -> Result<(), String> {
+        let (frame, canvas) = self.placed(block)?;
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return Err("a size needs positive, finite width and height".to_string());
+        }
+        // Keep the block's top-left corner, and stop at the slide's edges.
+        let width = width.min(canvas.width - frame.x).max(1.0);
+        let height = height.min(canvas.height - frame.y).max(1.0);
+        self.place_block(
+            block,
+            Some(Rect {
+                width,
+                height,
+                ..frame
+            }),
+        )
+    }
+
+    fn place_block(&mut self, block: BlockId, frame: Option<Rect>) -> Result<(), String> {
+        self.history
+            .commit(&mut self.doc, vec![Op::SetFrame { id: block, frame }])
+            .map_err(|e| e.to_string())
+    }
+
+    fn set_table_size(&mut self, rows: u32, cols: u32) -> Result<(), String> {
+        if !(1..=MAX_TABLE_SIDE).contains(&rows) || !(1..=MAX_TABLE_SIDE).contains(&cols) {
+            return Err(format!(
+                "a table needs between 1 and {MAX_TABLE_SIDE} rows and columns"
+            ));
+        }
+        self.table_size = (rows, cols);
+        Ok(())
+    }
+
     fn insert_table(&mut self, rows: u32, cols: u32) -> Result<(), String> {
         if !(1..=MAX_TABLE_SIDE).contains(&rows) || !(1..=MAX_TABLE_SIDE).contains(&cols) {
             return Err(format!(
@@ -333,7 +645,49 @@ impl Editor {
     }
 
     /// Builds the UI tree for the current state.
+    /// The document as pages. Each page is a container, with its lines, boxes and grid rows in
+    /// order. Layout uses `measure` and `flow`, and pages are cut to `geometry`.
+    pub fn paginated_view(
+        &self,
+        measure: &dyn TextMeasure,
+        flow: FlowOptions,
+        geometry: PageGeometry,
+    ) -> Result<UITree<Msg>, String> {
+        let layout = layout_flow(&self.doc, measure, flow).map_err(|e| e.to_string())?;
+        let pages = paginate(&layout, geometry).map_err(|e| e.to_string())?;
+        Ok(UITree::container(|c| {
+            for page in &pages {
+                c.container(|p| {
+                    p.heading(3, format!("Page {}", page.number))
+                        .class("page-number");
+                    for item in &page.items {
+                        match &item.kind {
+                            FlowKind::Line { text, .. } => {
+                                p.text(text.clone())
+                                    .class("page-line")
+                                    .on_click(Msg::Focus(item.block));
+                            }
+                            FlowKind::Box => {
+                                p.text("(block)").class("page-box");
+                            }
+                            FlowKind::GridRow { row, header, .. } => {
+                                let class = if *header { "grid-header" } else { "grid-row" };
+                                p.text(format!("row {row}")).class(class);
+                            }
+                        }
+                    }
+                })
+                .class("page");
+            }
+        }))
+    }
+
+    /// The whole document as the editor shows it: the root's blocks, with a status line and the
+    /// editing controls. In presenter mode, the current slide only.
     pub fn view(&self) -> UITree<Msg> {
+        if let Some(index) = self.presenting {
+            return self.view_presenter(index);
+        }
         let children = match self.doc.get(self.doc.root) {
             Some(Block::Container { children, .. }) => children.clone(),
             _ => Vec::new(),
@@ -344,8 +698,25 @@ impl Editor {
             }
             c.button("Undo").on_click(Msg::Undo);
             c.button("Redo").on_click(Msg::Redo);
+            let (rows, cols) = self.table_size;
+            c.input(rows.to_string())
+                .aria("label", "table rows")
+                .on_input(move |text| Msg::SetTableSize {
+                    rows: text.trim().parse().unwrap_or(0),
+                    cols,
+                })
+                .class("table-rows");
+            c.input(cols.to_string())
+                .aria("label", "table columns")
+                .on_input(move |text| Msg::SetTableSize {
+                    rows,
+                    cols: text.trim().parse().unwrap_or(0),
+                })
+                .class("table-cols");
             c.button("Insert table")
-                .on_click(Msg::InsertTable { rows: 3, cols: 3 });
+                .on_click(Msg::InsertTable { rows, cols });
+            c.button("Present slides")
+                .on_click(Msg::StartPresenting { index: 0 });
             if let Some(status) = &self.status {
                 c.text(status.clone()).class("status");
             }
@@ -358,15 +729,35 @@ impl Editor {
         };
         match block {
             Block::Text { content, style } => {
-                let shown = match self.caret {
-                    Some(sel) if sel.block == id && sel.is_collapsed() => {
-                        let mut s: String = content.chars().take(sel.focus).collect();
-                        s.push('|');
-                        s.extend(content.chars().skip(sel.focus));
-                        s
+                let mut markers = Vec::new();
+                if let Some(sel) = self.caret {
+                    if sel.block == id && sel.is_collapsed() {
+                        markers.push(Marker {
+                            at: sel.focus,
+                            text: "|".to_string(),
+                            kind: MarkerKind::Caret,
+                        });
                     }
-                    _ => content.clone(),
-                };
+                }
+                for remote in self.remote_cursors.iter().filter(|r| r.block == id) {
+                    markers.push(Marker {
+                        at: remote.offset,
+                        text: format!("[{}]", remote.label),
+                        kind: MarkerKind::Remote,
+                    });
+                }
+                // Headings are shown as plain text: their marks are not drawn.
+                if style.heading_level.is_none() && !style.runs.is_empty() {
+                    c.container(|p| {
+                        for seg in inline_segments(content, &style.runs, &markers) {
+                            segment_node(p, seg);
+                        }
+                    })
+                    .class("para")
+                    .on_click(Msg::Focus(id));
+                    return;
+                }
+                let shown = plain_with_markers(content, &markers);
                 match style.heading_level {
                     Some(level) => c.heading(level, shown),
                     None => c.text(shown),
@@ -407,8 +798,77 @@ impl Editor {
                 }
             },
             Block::Query(query) => self.view_query(c, id, query),
-            Block::Container { .. } => {}
+            Block::Container {
+                layout_mode: LayoutMode::Absolute,
+                children,
+            } => self.view_slide(c, id, children),
+            Block::Container {
+                layout_mode,
+                children,
+            } => {
+                // Flow and grid containers stack their children in order. The class says which
+                // layout the host should give them.
+                let class = match layout_mode {
+                    LayoutMode::Grid => "container-grid",
+                    _ => "container-flow",
+                };
+                c.container(|inner| {
+                    for &child in children {
+                        self.view_block(inner, child);
+                    }
+                })
+                .class(class);
+            }
         }
+    }
+
+    /// Presenter mode: one slide, with controls. Shows a status line if there are no slides.
+    fn view_presenter(&self, index: usize) -> UITree<Msg> {
+        let slides = self.slide_ids();
+        UITree::container(|c| {
+            match slides.get(index) {
+                Some(&slide) => {
+                    c.container(|stage| self.view_block(stage, slide))
+                        .class("presenter");
+                    c.text(format!("slide {} of {}", index + 1, slides.len()))
+                        .class("presenter-count");
+                }
+                None => {
+                    c.text("there are no slides to present").class("status");
+                }
+            }
+            c.button("Previous").on_click(Msg::PreviousSlide);
+            c.button("Next").on_click(Msg::NextSlide);
+            c.button("Stop presenting").on_click(Msg::StopPresenting);
+        })
+    }
+
+    /// A slide: its size is kept as the aspect ratio, and each child is placed at its frame.
+    /// Children without a frame are listed below the slide.
+    fn view_slide(&self, c: &mut ContainerBuilder<Msg>, id: BlockId, children: &[BlockId]) {
+        let canvas = self
+            .doc
+            .canvases
+            .get(&id)
+            .copied()
+            .unwrap_or(Canvas::WIDESCREEN);
+        let aspect = format!("aspect-ratio:{} / {};", canvas.width, canvas.height);
+        c.container(|slide| {
+            for &child in children {
+                match self.doc.frames.get(&child) {
+                    Some(frame) => {
+                        let style = format!(
+                            "{aspect} position:absolute; left:{}px; top:{}px; width:{}px; height:{}px;",
+                            frame.x, frame.y, frame.width, frame.height
+                        );
+                        slide.container(|wrap| self.view_block(wrap, child)).attr("style", style);
+                    }
+                    None => self.view_block(slide, child),
+                }
+            }
+        })
+        .class("slide")
+        .attr("style", format!("{aspect} position:relative; width:100%;"));
     }
 
     /// A query shows one line for each block it matches, or why it could not run. The query runs
@@ -607,5 +1067,187 @@ fn show(value: &CellResult) -> String {
         CellResult::Text(t) => t.clone(),
         CellResult::Boolean(b) => format!("{b}"),
         CellResult::Error(e) => format!("#ERR({e})"),
+    }
+}
+
+/// Something drawn inside a paragraph at a character offset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Marker {
+    /// Character offset it is drawn before.
+    pub(crate) at: usize,
+    /// What is drawn.
+    pub(crate) text: String,
+    /// What it stands for.
+    pub(crate) kind: MarkerKind,
+}
+
+/// The kinds of marker a paragraph can show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MarkerKind {
+    /// This editor's caret.
+    Caret,
+    /// Another person's caret.
+    Remote,
+}
+
+/// A stretch of a paragraph that shares its marks.
+#[derive(Debug, Clone, PartialEq)]
+struct Segment {
+    text: String,
+    strong: bool,
+    italic: bool,
+    link: Option<String>,
+    /// The marker this segment is, if it is one.
+    marker: Option<MarkerKind>,
+}
+
+/// `value` limited to `low..=high`. If the range is empty (`high < low`), the result is `low`.
+fn clamp_to(value: f64, low: f64, high: f64) -> f64 {
+    if high < low {
+        low
+    } else {
+        value.clamp(low, high)
+    }
+}
+
+/// The paragraph as plain text, with markers drawn in. Markers at the same offset keep their
+/// order.
+fn plain_with_markers(content: &str, markers: &[Marker]) -> String {
+    let mut out = String::new();
+    let mut sorted: Vec<&Marker> = markers.iter().collect();
+    sorted.sort_by_key(|m| m.at);
+    let mut next = sorted.iter().peekable();
+    for (i, ch) in content.chars().enumerate() {
+        while let Some(m) = next.next_if(|m| m.at <= i) {
+            out.push_str(&m.text);
+        }
+        out.push(ch);
+    }
+    for m in next {
+        out.push_str(&m.text);
+    }
+    out
+}
+
+/// Splits `content` into segments with the same marks, with markers as segments of their own.
+fn inline_segments(content: &str, runs: &[InlineRun], markers: &[Marker]) -> Vec<Segment> {
+    type Char<'a> = (char, bool, bool, Option<&'a str>, Option<MarkerKind>);
+    let mut chars: Vec<Char<'_>> = content
+        .chars()
+        .enumerate()
+        .map(|(i, ch)| {
+            let (mut strong, mut italic, mut link) = (false, false, None);
+            for run in runs.iter().filter(|r| i >= r.start && i < r.end) {
+                strong |= run.bold;
+                italic |= run.italic;
+                if run.link.is_some() {
+                    link = run.link.as_deref();
+                }
+            }
+            (ch, strong, italic, link, None)
+        })
+        .collect();
+    // Insert from the end, so earlier offsets stay valid.
+    let mut sorted: Vec<&Marker> = markers.iter().collect();
+    sorted.sort_by_key(|m| m.at);
+    for marker in sorted.iter().rev() {
+        let at = marker.at.min(chars.len());
+        for (k, ch) in marker.text.chars().enumerate() {
+            chars.insert(at + k, (ch, false, false, None, Some(marker.kind)));
+        }
+    }
+    let mut out: Vec<Segment> = Vec::new();
+    for (ch, strong, italic, link, marker) in chars {
+        let link = link.map(String::from);
+        match out.last_mut() {
+            Some(seg)
+                if seg.strong == strong
+                    && seg.italic == italic
+                    && seg.link == link
+                    && seg.marker == marker =>
+            {
+                seg.text.push(ch);
+            }
+            _ => out.push(Segment {
+                text: ch.to_string(),
+                strong,
+                italic,
+                link,
+                marker,
+            }),
+        }
+    }
+    out
+}
+
+/// Draws one segment. Links show their address as a tooltip and have no `href`: the address is
+/// text the user typed, and a `javascript:` address must not become a live link.
+fn segment_node(p: &mut ContainerBuilder<Msg>, seg: Segment) {
+    let class = if seg.marker == Some(MarkerKind::Caret) {
+        "caret"
+    } else if seg.marker == Some(MarkerKind::Remote) {
+        "remote-cursor"
+    } else {
+        match (seg.strong, seg.italic) {
+            (true, true) => "strong em",
+            (true, false) => "strong",
+            (false, true) => "em",
+            (false, false) => "plain",
+        }
+    };
+    match seg.link {
+        Some(address) => {
+            p.text(seg.text)
+                .class(format!("{class} link"))
+                .attr("title", address);
+        }
+        None => {
+            p.text(seg.text).class(class);
+        }
+    }
+}
+
+#[cfg(test)]
+mod inline_view_tests {
+    use super::*;
+
+    fn run(start: usize, end: usize, bold: bool, italic: bool, link: Option<&str>) -> InlineRun {
+        InlineRun {
+            start,
+            end,
+            bold,
+            italic,
+            link: link.map(String::from),
+        }
+    }
+
+    #[test]
+    fn segments_follow_the_runs() {
+        let segs = inline_segments(
+            "ab cd",
+            &[
+                run(0, 2, true, false, None),
+                run(3, 5, false, false, Some("u")),
+            ],
+            &[],
+        );
+        let texts: Vec<&str> = segs.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(texts, vec!["ab", " ", "cd"]);
+        assert!(segs[0].strong);
+        assert_eq!(segs[2].link.as_deref(), Some("u"));
+    }
+
+    #[test]
+    fn the_caret_is_its_own_segment() {
+        let caret = [Marker {
+            at: 1,
+            text: "|".into(),
+            kind: MarkerKind::Caret,
+        }];
+        let segs = inline_segments("abc", &[run(0, 3, true, false, None)], &caret);
+        let texts: Vec<&str> = segs.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(texts, vec!["a", "|", "bc"]);
+        assert_eq!(segs[1].marker, Some(MarkerKind::Caret));
+        assert!(segs[0].strong && segs[2].strong && !segs[1].strong);
     }
 }

@@ -16,13 +16,18 @@ use tpt_layout::text::{LineBox, TextMeasurer};
 use tpt_text::font::{FontError, FontFace, FontRegistry};
 use tpt_text::fx::Fx;
 use tpt_text::layout::{LayoutError, ParagraphLayout, layout_paragraph_with};
-use tpt_text::style::TextStyle;
+use tpt_text::style::{FontVariation, TextStyle};
+use tpt_typeset::MathMetrics;
 
 /// Family name used for the bundled font.
 pub const FAMILY: &str = "Noto Sans";
 
-/// Noto Sans Regular, under the SIL Open Font License (see `fonts/OFL.txt`).
+/// Noto Sans Regular (variable font), under the SIL Open Font License (see `fonts/OFL.txt`).
+/// Its default instance is Regular. Bold is the same font at weight 700.
 pub const NOTO_SANS_REGULAR: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
+
+/// Noto Sans Italic (variable font). Bold italic is this font at weight 700.
+pub const NOTO_SANS_ITALIC: &[u8] = include_bytes!("../fonts/NotoSans-Italic.ttf");
 
 /// Body text size, in points. Headings scale from this, as in `MonospaceMeasure`.
 pub const BODY_POINTS: f32 = 11.0;
@@ -51,25 +56,47 @@ impl std::error::Error for TextError {}
 #[derive(Debug)]
 pub struct FontMeasure {
     registry: FontRegistry,
-    _face: Arc<FontFace>,
+    regular: Arc<FontFace>,
+    _faces: Vec<Arc<FontFace>>,
 }
 
+/// The weight used for bold text. The bundled fonts are variable, so bold is this weight on
+/// the `wght` axis, not a separate file.
+pub const BOLD_WEIGHT: f32 = 700.0;
+
 impl FontMeasure {
-    /// Loads the bundled font.
+    /// Loads the bundled fonts.
     pub fn bundled() -> Result<Self, TextError> {
         let registry = FontRegistry::new();
-        let face = registry
+        let regular = registry
             .load_from_memory(NOTO_SANS_REGULAR.to_vec(), 0, FAMILY, 400, false)
+            .map_err(TextError::Font)?;
+        let italic = registry
+            .load_from_memory(NOTO_SANS_ITALIC.to_vec(), 0, FAMILY, 400, true)
             .map_err(TextError::Font)?;
         Ok(Self {
             registry,
-            _face: face,
+            regular: Arc::clone(&regular),
+            _faces: vec![regular, italic],
         })
     }
 
-    /// Lays out `text` at `size` points, breaking lines at `max_width`.
-    fn layout(&self, text: &str, size: f32, max_width: Fx) -> Result<ParagraphLayout, TextError> {
-        let style = TextStyle::new(FAMILY, Fx::from_f32(size));
+    /// Lays out `text` at `size` points with the given emphasis, breaking lines at `max_width`.
+    fn layout(
+        &self,
+        text: &str,
+        size: f32,
+        emphasis: Emphasis,
+        max_width: Fx,
+    ) -> Result<ParagraphLayout, TextError> {
+        let mut style = TextStyle::new(FAMILY, Fx::from_f32(size));
+        style.italic = emphasis.italic;
+        if emphasis.bold {
+            style.variations = vec![FontVariation {
+                tag: *b"wght",
+                value: Fx::from_f32(BOLD_WEIGHT),
+            }];
+        }
         layout_paragraph_with(
             &self.registry,
             text,
@@ -94,6 +121,22 @@ impl FontMeasure {
     }
 }
 
+/// The emphasis of a piece of text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Emphasis {
+    bold: bool,
+    italic: bool,
+}
+
+impl Emphasis {
+    fn of(style: &CoreStyle) -> Self {
+        Self {
+            bold: style.bold,
+            italic: style.italic,
+        }
+    }
+}
+
 /// Advance width of one line, in points.
 fn line_width(line: &tpt_text::layout::LayoutLine) -> f32 {
     line.runs
@@ -111,7 +154,7 @@ fn unbounded() -> Fx {
 impl TextMeasure for FontMeasure {
     fn width(&self, text: &str, style: &CoreStyle) -> f64 {
         let size = Self::points(style);
-        match self.layout(text, size, unbounded()) {
+        match self.layout(text, size, Emphasis::of(style), unbounded()) {
             Ok(layout) => f64::from(layout.lines.iter().map(line_width).fold(0.0, f32::max)),
             // The font is checked when it is loaded, so this is not expected in practice.
             Err(_) => text.chars().count() as f64 * f64::from(size) * 0.5,
@@ -120,17 +163,38 @@ impl TextMeasure for FontMeasure {
 
     fn line_height(&self, style: &CoreStyle) -> f64 {
         let size = Self::points(style);
-        match self.layout("Ag", size, unbounded()) {
+        match self.layout("Ag", size, Emphasis::of(style), unbounded()) {
             Ok(layout) => f64::from(layout.total_height.to_f32()),
             Err(_) => f64::from(size) * 1.2,
         }
     }
 }
 
+impl MathMetrics for FontMeasure {
+    fn advance(&self, ch: char, size: f64) -> f64 {
+        let mut buf = [0u8; 4];
+        let text: &str = ch.encode_utf8(&mut buf);
+        match self.layout(text, size as f32, Emphasis::default(), unbounded()) {
+            Ok(layout) => f64::from(layout.lines.iter().map(line_width).fold(0.0, f32::max)),
+            Err(_) => size * 0.5,
+        }
+    }
+
+    fn ascent(&self, size: f64) -> f64 {
+        let upm = f64::from(self.regular.units_per_em().max(1));
+        f64::from(self.regular.ascender()) / upm * size
+    }
+
+    fn descent(&self, size: f64) -> f64 {
+        let upm = f64::from(self.regular.units_per_em().max(1));
+        f64::from(self.regular.descender()).abs() / upm * size
+    }
+}
+
 impl TextMeasurer for FontMeasure {
     fn line_boxes(&self, text: &str, max_width: Px) -> Vec<LineBox> {
         let width = Fx::from_f32(max_width.to_f32().max(1.0));
-        let Ok(layout) = self.layout(text, BODY_POINTS, width) else {
+        let Ok(layout) = self.layout(text, BODY_POINTS, Emphasis::default(), width) else {
             return Vec::new();
         };
         layout
@@ -193,5 +257,55 @@ mod tests {
         for line in &boxes {
             assert!(line.width.to_f32() <= 201.0, "{line:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod emphasis_tests {
+    use super::*;
+
+    #[test]
+    fn bold_is_wider_than_regular_and_italic_differs() {
+        let m = FontMeasure::bundled().unwrap();
+        let plain = CoreStyle::default();
+        let bold = CoreStyle {
+            bold: true,
+            ..CoreStyle::default()
+        };
+        let italic = CoreStyle {
+            italic: true,
+            ..CoreStyle::default()
+        };
+        let text = "Emphasis matters here";
+        assert!(m.width(text, &bold) > m.width(text, &plain));
+        assert_ne!(m.width(text, &italic), m.width(text, &plain));
+        assert!(m.width(text, &bold) > 0.0);
+    }
+
+    #[test]
+    fn the_bundled_italic_font_is_the_expected_file() {
+        assert_eq!(NOTO_SANS_ITALIC.len(), 2_322_640);
+    }
+}
+
+#[cfg(test)]
+mod math_tests {
+    use super::*;
+    use tpt_typeset::{MathBox, MathItem, layout_math, parse_math};
+
+    #[test]
+    fn wide_glyphs_advance_further_than_narrow_ones() {
+        let m = FontMeasure::bundled().unwrap();
+        assert!(m.advance('W', 10.0) > m.advance('i', 10.0));
+        assert!(m.advance('a', 20.0) > m.advance('a', 10.0));
+    }
+
+    #[test]
+    fn a_font_backed_formula_lays_out_with_real_metrics() {
+        let m = FontMeasure::bundled().unwrap();
+        let formula = parse_math(r"\frac{a^2}{b}").unwrap();
+        let b: MathBox = layout_math(&formula, &m, 11.0);
+        assert!(b.width > 0.0 && b.ascent > 0.0 && b.descent > 0.0);
+        assert!(b.items.iter().any(|i| matches!(i, MathItem::Rule { .. })));
     }
 }

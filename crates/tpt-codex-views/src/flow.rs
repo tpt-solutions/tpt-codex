@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Flow projection: lays the document out as one continuous column.
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -20,9 +21,6 @@ pub struct FlowOptions {
     pub box_height: f64,
     /// Height of one grid row, in points.
     pub row_height: f64,
-    /// Number of leading grid rows that are headers. Pagination repeats them at the top of each
-    /// page that a grid continues onto.
-    pub header_rows: u32,
 }
 
 /// What a flow item draws.
@@ -93,11 +91,56 @@ impl core::fmt::Display for LayoutError {
 
 impl core::error::Error for LayoutError {}
 
+/// Remembers how each text block was wrapped, so that a later layout re-measures only the blocks
+/// that changed. A block is reused when its content, style and the column width are the same.
+#[derive(Debug, Clone, Default)]
+pub struct FlowCache {
+    blocks: BTreeMap<BlockId, CachedBlock>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedBlock {
+    content: String,
+    style: TextStyle,
+    width: f64,
+    lines: Vec<String>,
+    line_height: f64,
+}
+
+impl FlowCache {
+    /// An empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The number of blocks cached.
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Whether the cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+}
+
 /// Lays out `doc` as a single flow column.
 pub fn layout_flow(
     doc: &Document,
     measure: &dyn TextMeasure,
     options: FlowOptions,
+) -> Result<FlowLayout, LayoutError> {
+    layout_flow_cached(doc, measure, options, &mut FlowCache::new())
+}
+
+/// Lays out `doc` as a single flow column, reusing `cache` for blocks that have not changed.
+/// The result is the same as [`layout_flow`]. Cache entries for blocks that no longer exist are
+/// dropped.
+pub fn layout_flow_cached(
+    doc: &Document,
+    measure: &dyn TextMeasure,
+    options: FlowOptions,
+    cache: &mut FlowCache,
 ) -> Result<FlowLayout, LayoutError> {
     if options.width.is_nan() || options.width <= 0.0 {
         return Err(LayoutError::InvalidWidth(options.width));
@@ -113,8 +156,38 @@ pub fn layout_flow(
         items: Vec::new(),
         height: 0.0,
     };
-    flow_children(doc, doc.root, measure, options, &mut out)?;
+    flow_children(doc, doc.root, measure, options, cache, &mut out)?;
+    cache.blocks.retain(|id, _| doc.blocks.contains_key(id));
     Ok(out)
+}
+
+/// The wrapped lines and line height of text block `id`, from the cache when it is current.
+fn wrapped_text(
+    id: BlockId,
+    content: &str,
+    style: &TextStyle,
+    measure: &dyn TextMeasure,
+    width: f64,
+    cache: &mut FlowCache,
+) -> (Vec<String>, f64) {
+    if let Some(hit) = cache.blocks.get(&id) {
+        if hit.content == content && hit.style == *style && hit.width == width {
+            return (hit.lines.clone(), hit.line_height);
+        }
+    }
+    let lines = wrap(content, style, measure, width);
+    let line_height = measure.line_height(style);
+    cache.blocks.insert(
+        id,
+        CachedBlock {
+            content: String::from(content),
+            style: style.clone(),
+            width,
+            lines: lines.clone(),
+            line_height,
+        },
+    );
+    (lines, line_height)
 }
 
 fn flow_children(
@@ -122,6 +195,7 @@ fn flow_children(
     container: BlockId,
     measure: &dyn TextMeasure,
     options: FlowOptions,
+    cache: &mut FlowCache,
     out: &mut FlowLayout,
 ) -> Result<(), LayoutError> {
     let children = match doc.get(container) {
@@ -132,8 +206,9 @@ fn flow_children(
         let block = doc.get(id).ok_or(LayoutError::MissingBlock(id))?;
         match block {
             Block::Text { content, style } => {
-                for text in wrap(content, style, measure, options.width) {
-                    let height = measure.line_height(style);
+                let (lines, height) =
+                    wrapped_text(id, content, style, measure, options.width, cache);
+                for text in lines {
                     out.items.push(FlowItem {
                         block: id,
                         y: out.height,
@@ -151,10 +226,12 @@ fn flow_children(
                 layout_mode: LayoutMode::Flow,
                 ..
             } => {
-                flow_children(doc, id, measure, options, out)?;
+                flow_children(doc, id, measure, options, cache, out)?;
             }
             Block::Grid { sheet_id, .. } if doc.sheets.contains_key(sheet_id) => {
-                let (rows, _) = doc.sheets[sheet_id].extent();
+                let sheet = &doc.sheets[sheet_id];
+                let (rows, _) = sheet.extent();
+                let header_rows = sheet.header_rows;
                 for row in 1..=rows {
                     out.items.push(FlowItem {
                         block: id,
@@ -163,7 +240,7 @@ fn flow_children(
                         kind: FlowKind::GridRow {
                             sheet: *sheet_id,
                             row,
-                            header: row <= options.header_rows,
+                            header: row <= header_rows,
                         },
                     });
                     out.height += options.row_height;
