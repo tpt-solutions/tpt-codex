@@ -8,6 +8,7 @@ fn sheet(cells: &[(&str, CellInput)]) -> Sheet {
             .iter()
             .map(|(a, c)| (a.to_string(), c.clone()))
             .collect(),
+        ..Sheet::default()
     }
 }
 

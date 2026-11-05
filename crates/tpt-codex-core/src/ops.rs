@@ -18,7 +18,7 @@ use alloc::string::String;
 use crate::block::Block;
 use crate::document::Document;
 use crate::id::{BlockId, SheetId};
-use crate::sheet::{CellInput, is_formula_source, is_valid_address};
+use crate::sheet::{CellInput, Sheet, is_formula_source, is_valid_address};
 
 /// One change to a document. Child positions are indices into a container's `children`.
 #[derive(Debug, Clone, PartialEq)]
@@ -66,6 +66,14 @@ pub enum Op {
         address: String,
         /// The new input, or `None` to clear the cell.
         input: Option<CellInput>,
+    },
+    /// Insert, replace or remove a whole sheet. `Some` inserts or replaces it, `None` removes
+    /// it. A sheet that a `Block::Grid` still displays cannot be removed.
+    SetSheet {
+        /// The sheet to change.
+        id: SheetId,
+        /// The new sheet, or `None` to remove it.
+        sheet: Option<Sheet>,
     },
     /// Move a reference from one position to another, possibly in another container.
     MoveChild {
@@ -124,6 +132,13 @@ pub enum EditError {
     InvalidAddress(String),
     /// A formula does not start with `=`.
     InvalidFormula(String),
+    /// `SetSheet` tried to remove a sheet that a grid block still displays.
+    SheetReferenced {
+        /// The sheet that cannot be removed.
+        id: SheetId,
+        /// A grid block that displays it.
+        block: BlockId,
+    },
     /// A character range is outside the text.
     RangeOutOfBounds {
         /// The block being edited.
@@ -160,6 +175,9 @@ impl fmt::Display for EditError {
             Self::NoSuchSheet(id) => write!(f, "sheet {} does not exist", id.0),
             Self::InvalidAddress(a) => write!(f, "'{a}' is not a valid cell address"),
             Self::InvalidFormula(a) => write!(f, "formula '{a}' must start with '='"),
+            Self::SheetReferenced { id, block } => {
+                write!(f, "sheet {} is still displayed by block {}", id.0, block.0)
+            }
             Self::RangeOutOfBounds { id, len } => write!(
                 f,
                 "character range is outside block {} (text length {len})",
@@ -185,7 +203,7 @@ impl Op {
             Op::InsertChild { parent, .. } | Op::RemoveChild { parent, .. } => {
                 alloc::vec![*parent]
             }
-            Op::SetCell { .. } => Vec::new(),
+            Op::SetCell { .. } | Op::SetSheet { .. } => Vec::new(),
             Op::MoveChild {
                 from_parent,
                 to_parent,
@@ -288,6 +306,24 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
                 parent: *parent,
                 index: *index,
                 child,
+            })
+        }
+        Op::SetSheet { id, sheet } => {
+            let previous = match sheet {
+                Some(new) => doc.sheets.insert(*id, new.clone()),
+                None => {
+                    if let Some(block) = doc.blocks.iter().find_map(|(bid, b)| match b {
+                        Block::Grid { sheet_id, .. } if sheet_id == id => Some(*bid),
+                        _ => None,
+                    }) {
+                        return Err(EditError::SheetReferenced { id: *id, block });
+                    }
+                    doc.sheets.remove(id)
+                }
+            };
+            Ok(Op::SetSheet {
+                id: *id,
+                sheet: previous,
             })
         }
         Op::SetCell {

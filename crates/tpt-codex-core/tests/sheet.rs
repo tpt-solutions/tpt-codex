@@ -188,3 +188,63 @@ fn sheets_round_trip_through_json_and_empty_sheets_are_omitted() {
     );
     assert!(!serde_json::to_string(&plain).unwrap().contains("sheets"));
 }
+
+#[test]
+fn set_sheet_is_undoable_and_protects_displayed_sheets() {
+    use tpt_codex_core::{Block, BlockId, Op, apply};
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: tpt_codex_core::LayoutMode::Flow,
+            children: vec![],
+        },
+    );
+    let inserted = apply(
+        &mut doc,
+        &Op::SetSheet {
+            id: SheetId(3),
+            sheet: Some(Sheet::with_size(2, 2)),
+        },
+    )
+    .expect("insert");
+    assert_eq!(
+        inserted,
+        Op::SetSheet {
+            id: SheetId(3),
+            sheet: None
+        }
+    );
+    doc.insert(
+        BlockId(1),
+        Block::Grid {
+            sheet_id: SheetId(3),
+            view_bounds: None,
+        },
+    );
+    assert!(matches!(
+        apply(
+            &mut doc,
+            &Op::SetSheet {
+                id: SheetId(3),
+                sheet: None
+            }
+        ),
+        Err(tpt_codex_core::EditError::SheetReferenced { .. })
+    ));
+    assert!(doc.sheets.contains_key(&SheetId(3)));
+    let replaced = apply(
+        &mut doc,
+        &Op::SetSheet {
+            id: SheetId(3),
+            sheet: Some(Sheet::with_size(5, 5)),
+        },
+    )
+    .expect("replace");
+    assert_eq!(
+        replaced,
+        Op::SetSheet {
+            id: SheetId(3),
+            sheet: Some(Sheet::with_size(2, 2))
+        }
+    );
+}

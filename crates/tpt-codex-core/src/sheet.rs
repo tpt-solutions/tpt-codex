@@ -40,6 +40,67 @@ pub struct Sheet {
     /// Non-empty cells only. Empty cells are absent.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub cells: BTreeMap<String, CellInput>,
+    /// Minimum number of rows the grid shows, so that a new table can have empty rows.
+    /// Zero (the default, and absent from the JSON) means the rows that hold cells.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rows: u32,
+    /// Minimum number of columns the grid shows. Zero means the columns that hold cells.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cols: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+impl Sheet {
+    /// An empty sheet that shows `rows` by `cols` cells.
+    pub fn with_size(rows: u32, cols: u32) -> Self {
+        Self {
+            cells: BTreeMap::new(),
+            rows,
+            cols,
+        }
+    }
+
+    /// The number of rows and columns to show: the larger of the stored size and the cells.
+    pub fn extent(&self) -> (u32, u32) {
+        let (mut rows, mut cols) = (self.rows, self.cols);
+        for address in self.cells.keys() {
+            if let Some((col, row)) = address_position(address) {
+                rows = rows.max(row);
+                cols = cols.max(col);
+            }
+        }
+        (rows, cols)
+    }
+}
+
+/// Splits a canonical A1 address into `(column, row)`, both 1-based. `None` if it is not valid.
+pub fn address_position(address: &str) -> Option<(u32, u32)> {
+    if !is_valid_address(address) {
+        return None;
+    }
+    let letters = address.bytes().take_while(u8::is_ascii_uppercase).count();
+    let col = address.as_bytes()[..letters]
+        .iter()
+        .fold(0u32, |acc, b| acc * 26 + u32::from(b - b'A' + 1));
+    let row: u32 = address[letters..].parse().ok()?;
+    Some((col, row))
+}
+
+/// The canonical A1 address of a 1-based `(column, row)`, for example `(27, 4)` gives `AA4`.
+pub fn address_of(col: u32, row: u32) -> alloc::string::String {
+    let mut letters = alloc::vec::Vec::new();
+    let mut c = col;
+    while c > 0 {
+        letters.push(b'A' + ((c - 1) % 26) as u8);
+        c = (c - 1) / 26;
+    }
+    letters.reverse();
+    let mut out = alloc::string::String::from_utf8(letters).expect("ASCII letters");
+    out.push_str(&alloc::format!("{row}"));
+    out
 }
 
 /// Returns `true` for a canonical A1 address: one to three upper-case letters, then a row
@@ -75,6 +136,26 @@ mod tests {
         ] {
             assert!(!is_valid_address(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn positions_and_addresses_round_trip() {
+        assert_eq!(address_position("A1"), Some((1, 1)));
+        assert_eq!(address_position("AA4"), Some((27, 4)));
+        assert_eq!(address_position("a1"), None);
+        for (col, row) in [(1, 1), (26, 9), (27, 4), (702, 100), (16384, 1_048_576)] {
+            let a = address_of(col, row);
+            assert_eq!(address_position(&a), Some((col, row)), "{a}");
+        }
+    }
+
+    #[test]
+    fn extent_is_at_least_the_stored_size() {
+        let mut s = Sheet::with_size(3, 2);
+        assert_eq!(s.extent(), (3, 2));
+        s.cells
+            .insert("D5".into(), CellInput::Number { value: 1.0 });
+        assert_eq!(s.extent(), (5, 4));
     }
 
     #[test]

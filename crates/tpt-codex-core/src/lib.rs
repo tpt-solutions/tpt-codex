@@ -33,6 +33,8 @@ pub use ops::{EditError, Op, apply, changed_blocks};
 pub use platform::{Clock, FixedClock, MemoryStorage, Storage};
 pub use primitives::{LayoutMode, MediaSource, Rect, TextStyle};
 pub use selection::{Movement, Selection, delete_backward, delete_forward, insert_text};
-pub use sheet::{CellInput, Sheet, is_formula_source, is_valid_address};
+pub use sheet::{
+    CellInput, Sheet, address_of, address_position, is_formula_source, is_valid_address,
+};
 pub use text::{edit_text, replace_chars};
 pub use text_crdt::{Stamp, TextCrdt, TextCrdtError, TextOp, materialize};
