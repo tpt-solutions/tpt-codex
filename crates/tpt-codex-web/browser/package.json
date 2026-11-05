@@ -1,0 +1,12 @@
+{
+  "name": "tpt-codex-browser-test",
+  "private": true,
+  "type": "module",
+  "description": "Drives the tpt-codex demo page in Chrome. See ../README.md for the build steps.",
+  "scripts": {
+    "test": "node browser-test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1"
+  }
+}

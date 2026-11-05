@@ -81,7 +81,7 @@ Legend: `[ ]` todo · `[x]` done
 - [x] `tpt-codex-app` shell on `tpt-appfront`, builds to WASM — _editor state and UI tree (`Editor`, `Msg`) render to semantic HTML and are tested natively. `web::mount` mounts the editor with `tpt-appfront-dom`; the app builds for `wasm32-unknown-unknown` and CI checks it. Not yet run in a browser_
 - [ ] Core ⇄ UI reactive wiring (tree change → projection update) — _partial: `History::last_changed` names the blocks each step changed. The editor re-renders from a signal after each message (`web::mount`). No per-block projection cache yet_
 - [ ] **Flow View** in `tpt-codex-views`: shape text via `tpt-text`, lay out via `tpt-layout` (block/inline flow, margin collapsing, typographic hierarchy) — _partial: flow layout with injected `TextMeasure`; `tpt-codex-text` supplies the `tpt-text` measure. Decided, as agreed: keep our own flow engine and do not adopt `tpt-layout`'s. Margin collapsing and typographic hierarchy are still to do_
-- [ ] Text editing: caret, selection, input, undo/redo — _partial: `Selection` (caret movement, insert, backspace, delete, each undoable) in core; `Editor` maps messages to these. `Msg::ReplaceText` turns an input element's new text into the smallest undoable edit. Not yet wired to an input element in the browser, which needs checking there; keyboard and IME are not wired_
+- [ ] Text editing: caret, selection, input, undo/redo — _partial: checked in Chrome (`crates/tpt-codex-web/browser`): typing in the focused paragraph (a native text area, `ReplaceText`) updates the model, typing in the middle lands at the browser's caret, undo works, and grid cells take typed values and recalculate. Shift-selection and IME are not checked yet, and the model's caret is set only at the end of an edit_
 - [ ] `TextStyle` editing (bold/italic/headings/lists etc.) — _partial: bold/italic/heading via `SetBlock`; lists are in the model (`Block::List`) but there are no list-editing commands_
 - [ ] **Grid View**: swap to `tpt-lattice` canvas/WebGL renderer when `Block::Grid` is focused — _partial: the editor shows an editable table (`data_grid` plus one input per cell). No canvas or WebGL renderer_
 - [ ] Cell editing + LES formula entry + real-time evaluation (`tpt-lattice-evaluator`) — _partial: `Op::SetCell` (undoable); `GridSession` recomputes affected cells; the editor's `EditCell` message parses typed text (number, boolean, `=formula`, text) and shows the grid as a table. Cell focus and arrow keys work in the editor: each grid input has `on_focus` (`FocusCell`) and `on_keydown` (arrows become `MoveCell`). These need the appfront `web-events` work (merged to appfront master, not yet pushed); appfront is pinned to `5d5dfd6` (pushed to tpt-solutions/tpt-appfront master)_
@@ -92,7 +92,7 @@ Legend: `[ ]` todo · `[x]` done
 - [x] `Block::Container` rendering for Flow/Grid layout modes — _Flow and Grid containers draw their children in order, with a class for the host to lay them out. Absolute containers are slides_
 - [x] Trait boundaries for platform I/O, rendering, clock, storage (keep core headless) — _`Clock`, `Storage`, `TextMeasure` traits; rendering via `TextMeasure` only_
 - [x] Local persistence (save/load document) — _JSON via `DocumentStore` over `FileStorage`; validated on save and load_
-- [ ] Native desktop shell smoke test (via appfront webview/tui, if used) — _not started: `tpt-appfront-webview` fails the gate. WASM-first is the decision, so the browser run comes first_
+- [ ] Native desktop shell smoke test (via appfront webview/tui, if used) — _not started: `tpt-appfront-webview` fails the gate. WASM-first is the decision, and the browser run now works_
 
 **Milestone 1:** A user types a paragraph, inserts a live calculation table, and it updates reactively in the browser via WASM.
 
@@ -127,7 +127,7 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Data binding: embed `tpt-lattice` grids, `tpt-query` results, variables
 - [ ] Structured, actionable errors ("Line 42: unclosed environment") — _partial: Markdown and math errors carry line, column and hint_
 - [ ] Incremental compilation / watch mode (via `tpt-layout` incremental relayout) — _partial: `layout_flow_cached` with a `FlowCache` re-wraps only the text blocks that changed (tested by counting measurements). Watch mode and `tpt-layout` relayout are not done_
-- [ ] WASM in-browser live preview
+- [ ] WASM in-browser live preview — _partial: the editor runs in Chrome as a wasm module (`tpt-codex-web`), with a demo page and a browser test. It is an editor, not a preview of a rendered page; the paginated view is not on the page yet_
 - [ ] Semantic diff/merge integration via `tpt-version` — _partial: word-level diff of text blocks and a block-level diff are in the in-house log. Merging two diverged versions is not done_
 
 **Milestone 2:** A `.cdx` file with Markdown, math, and cross-references exports to a beautifully typeset PDF.

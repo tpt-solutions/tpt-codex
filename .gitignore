@@ -23,3 +23,6 @@ Desktop.ini
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Node packages for the browser test
+node_modules/

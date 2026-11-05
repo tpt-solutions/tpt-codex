@@ -631,6 +631,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-codex-web"
+version = "0.1.0-spec"
+dependencies = [
+ "tpt-codex-app",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "tpt-lattice-core"
 version = "0.1.0"
 source = "git+https://github.com/tpt-solutions/tpt-lattice?rev=d72332117c1c5f2074513ce9cd7ce1cf7e423d1f#d72332117c1c5f2074513ce9cd7ce1cf7e423d1f"

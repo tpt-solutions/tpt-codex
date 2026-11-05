@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tpt-codex demo</title>
+    <style>
+      body { font-family: "Noto Sans", system-ui, sans-serif; margin: 16px; line-height: 1.5; }
+      /* Marks inside a paragraph are containers; they flow inline with the text. */
+      .para > div { display: inline; }
+      .para > div.strong { font-weight: bold; }
+      .para > div.em { font-style: italic; }
+      .para > div.strong.em { font-weight: bold; font-style: italic; }
+      .para > div.link { color: #1a56db; text-decoration: underline; }
+      .para > div.remote-cursor { background: #fde68a; }
+      table.grid-table { border-collapse: collapse; margin: 8px 0; }
+      table.grid-table td, table.grid-table th { border: 1px solid #bbb; padding: 2px 8px; text-align: right; }
+      input.grid-cell { width: 6em; }
+      textarea.paragraph-input { width: 100%; min-height: 3em; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      // The pkg folder is produced by wasm-bindgen from tpt_codex_web.wasm.
+      import init, { mount_sample } from "./pkg/tpt_codex_web.js";
+      await init();
+      mount_sample("app");
+    </script>
+  </body>
+</html>

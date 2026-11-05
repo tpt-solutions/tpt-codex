@@ -41,3 +41,88 @@ pub fn mount(container: &Element, doc: Document) -> Result<EffectHandle, JsValue
     };
     render(container, view, dispatch)
 }
+
+/// A small sample document: a heading, a paragraph with emphasis and a link, and a grid with a
+/// formula. Used by the browser demo page.
+pub fn sample_document() -> Document {
+    use tpt_codex_core::{
+        Block, BlockId, CellInput, InlineRun, LayoutMode, Sheet, SheetId, TextStyle,
+    };
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: vec![BlockId(1), BlockId(2), BlockId(3)],
+        },
+    );
+    doc.insert(
+        BlockId(1),
+        Block::Text {
+            content: "Field notes".into(),
+            style: TextStyle {
+                heading_level: Some(1),
+                ..TextStyle::default()
+            },
+        },
+    );
+    doc.insert(
+        BlockId(2),
+        Block::Text {
+            content: "Plain, bold, and a link.".into(),
+            style: TextStyle {
+                runs: vec![
+                    InlineRun {
+                        start: 7,
+                        end: 11,
+                        bold: true,
+                        italic: false,
+                        link: None,
+                    },
+                    InlineRun {
+                        start: 19,
+                        end: 23,
+                        bold: false,
+                        italic: false,
+                        link: Some("https://example.test".into()),
+                    },
+                ],
+                ..TextStyle::default()
+            },
+        },
+    );
+    doc.insert(
+        BlockId(3),
+        Block::Grid {
+            sheet_id: SheetId(1),
+            view_bounds: None,
+        },
+    );
+    let mut sheet = Sheet::with_size(2, 2);
+    sheet
+        .cells
+        .insert("A1".into(), CellInput::Number { value: 2.0 });
+    sheet.cells.insert(
+        "B1".into(),
+        CellInput::Formula {
+            source: "=A1*21".into(),
+        },
+    );
+    doc.insert_sheet(SheetId(1), sheet);
+    doc
+}
+
+/// Mounts the sample document in the element with id `container_id`. Called from the demo page.
+
+pub fn mount_sample(container_id: &str) -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+    let document = window
+        .document()
+        .ok_or_else(|| JsValue::from_str("no document"))?;
+    let container = document
+        .get_element_by_id(container_id)
+        .ok_or_else(|| JsValue::from_str("no container element"))?;
+    let handle = mount(&container, sample_document())?;
+    // The page keeps the editor for its whole life.
+    std::mem::forget(handle);
+    Ok(())
+}

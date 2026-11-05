@@ -74,13 +74,18 @@ fn caret_is_shown_in_the_rendered_view() {
     let mut e = Editor::new(doc());
     e.update(Msg::Focus(BlockId(2)));
     let html = render(&e.view());
-    assert!(html.contains("Body|"), "{html}");
+    // The focused paragraph is a text area, holding its text.
+    assert!(html.contains("paragraph-input"), "{html}");
+    assert!(html.contains("Body</textarea>"), "{html}");
     assert!(html.contains("<h1>Title</h1>"), "{html}");
 
     e.update(Msg::Focus(BlockId(1)));
     let html = render(&e.view());
-    assert!(!html.contains("Body|"), "{html}");
-    assert!(html.contains("Title|"), "{html}");
+    assert!(!html.contains("Body</textarea>"), "{html}");
+    assert!(
+        html.contains("<h1>Title</h1>") || html.contains("Title</textarea>"),
+        "{html}"
+    );
 }
 
 #[test]
@@ -668,7 +673,8 @@ fn remote_carets_are_drawn_in_their_paragraph() {
         offset: 2,
     }]);
     let html = render(&e.view());
-    assert!(html.contains("Bo[Ann]dy"), "{html}");
+    assert!(html.contains("remote-cursor"), "{html}");
+    assert!(html.contains("[Ann]"), "{html}");
     assert!(html.contains("Title"), "{html}");
     assert!(!html.contains("Title["), "{html}");
 }

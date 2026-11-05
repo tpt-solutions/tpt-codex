@@ -1,0 +1,19 @@
+[package]
+name = "tpt-codex-web"
+description = "Browser entry point for tpt-codex: a wasm module that mounts the editor (cdylib)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tpt-codex-app.workspace = true
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true

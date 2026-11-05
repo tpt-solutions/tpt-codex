@@ -9,8 +9,8 @@ use tpt_appfront_core::UITree;
 use tpt_appfront_core::ui_tree::ContainerBuilder;
 use tpt_codex_core::{
     Block, BlockId, Canvas, CellInput, Document, EditError, History, InlineRun, LayoutMode,
-    MediaSource, Movement, Op, Rect, Selection, Sheet, SheetId, delete_backward, delete_forward,
-    edit_text, insert_text, is_valid_address,
+    MediaSource, Movement, Op, Rect, Selection, Sheet, SheetId, TextStyle, delete_backward,
+    delete_forward, edit_text, insert_text, is_valid_address,
 };
 use tpt_codex_grid::{CellResult, evaluate_sheet};
 use tpt_codex_views::{
@@ -347,7 +347,8 @@ impl Editor {
         if row > rows || col > cols {
             return Err(format!("'{address}' is outside the table"));
         }
-        self.caret = None;
+        // The paragraph caret is kept. Clearing it would re-draw the paragraph, and the browser
+        // would lose focus from the cell being selected.
         self.cell = Some(CellFocus { sheet, col, row });
         Ok(())
     }
@@ -769,28 +770,30 @@ impl Editor {
             for (page, marks) in pages.iter().zip(&rendered) {
                 c.container(|p| {
                     if let Some(header) = &marks.header {
-                        p.text(header.clone()).class("page-header");
+                        styled_text(p, header.clone(), "page-header");
                     }
                     p.heading(3, format!("Page {}", page.number))
                         .class("page-number");
                     for item in &page.items {
                         match &item.kind {
                             FlowKind::Line { text, .. } => {
-                                p.text(text.clone())
-                                    .class("page-line")
-                                    .on_click(Msg::Focus(item.block));
+                                p.container(|s| {
+                                    s.text(text.clone());
+                                })
+                                .class("page-line")
+                                .on_click(Msg::Focus(item.block));
                             }
                             FlowKind::Box => {
-                                p.text("(block)").class("page-box");
+                                styled_text(p, "(block)", "page-box");
                             }
                             FlowKind::GridRow { row, header, .. } => {
                                 let class = if *header { "grid-header" } else { "grid-row" };
-                                p.text(format!("row {row}")).class(class);
+                                styled_text(p, format!("row {row}"), class);
                             }
                         }
                     }
                     if let Some(footer) = &marks.footer {
-                        p.text(footer.clone()).class("page-footer");
+                        styled_text(p, footer.clone(), "page-footer");
                     }
                 })
                 .class("page");
@@ -831,12 +834,77 @@ impl Editor {
                 .class("table-cols");
             c.button("Insert table")
                 .on_click(Msg::InsertTable { rows, cols });
+            c.button("Insert slide").on_click(Msg::InsertSlide);
             c.button("Present slides")
                 .on_click(Msg::StartPresenting { index: 0 });
             if let Some(status) = &self.status {
-                c.text(status.clone()).class("status");
+                styled_text(c, status.clone(), "status");
             }
         })
+    }
+
+    /// One paragraph or heading: a text area while the caret is in it, otherwise its text with
+    /// marks and remote carets.
+    fn view_paragraph(
+        &self,
+        c: &mut ContainerBuilder<Msg>,
+        id: BlockId,
+        content: &str,
+        style: &TextStyle,
+    ) {
+        if self.has_caret_in(id) {
+            // The paragraph being typed in is a native text area, so the browser handles
+            // typing, selection and input methods. Each change becomes one undoable edit.
+            // Keyed, so that the browser keeps this element (and its focus) across renders.
+            c.textarea(content.to_string())
+                .key(format!("paragraph-{}", id.0))
+                .aria("label", "paragraph")
+                .on_input(move |text| Msg::ReplaceText { block: id, text })
+                .class("paragraph-input");
+            return;
+        }
+
+        let mut markers = Vec::new();
+        if let Some(sel) = self.caret {
+            if sel.block == id && sel.is_collapsed() {
+                markers.push(Marker {
+                    at: sel.focus,
+                    text: "|".to_string(),
+                    kind: MarkerKind::Caret,
+                });
+            }
+        }
+        for remote in self.remote_cursors.iter().filter(|r| r.block == id) {
+            markers.push(Marker {
+                at: remote.offset,
+                text: format!("[{}]", remote.label),
+                kind: MarkerKind::Remote,
+            });
+        }
+        // Headings are shown as plain text: their marks are not drawn.
+        // A paragraph with marks, or with another person's caret, is drawn as containers.
+        if style.heading_level.is_none() && (!style.runs.is_empty() || !markers.is_empty()) {
+            c.container(|p| {
+                for seg in inline_segments(content, &style.runs, &markers) {
+                    segment_node(p, seg);
+                }
+            })
+            .class("para")
+            .on_click(Msg::Focus(id));
+            return;
+        }
+        let shown = plain_with_markers(content, &markers);
+        match style.heading_level {
+            Some(level) => c.heading(level, shown),
+            None => c.text(shown),
+        }
+        .on_click(Msg::Focus(id));
+    }
+
+    /// Whether the caret is collapsed in block `id`.
+    fn has_caret_in(&self, id: BlockId) -> bool {
+        self.caret
+            .is_some_and(|sel| sel.block == id && sel.is_collapsed())
     }
 
     fn view_block(&self, c: &mut ContainerBuilder<Msg>, id: BlockId) {
@@ -845,40 +913,10 @@ impl Editor {
         };
         match block {
             Block::Text { content, style } => {
-                let mut markers = Vec::new();
-                if let Some(sel) = self.caret {
-                    if sel.block == id && sel.is_collapsed() {
-                        markers.push(Marker {
-                            at: sel.focus,
-                            text: "|".to_string(),
-                            kind: MarkerKind::Caret,
-                        });
-                    }
-                }
-                for remote in self.remote_cursors.iter().filter(|r| r.block == id) {
-                    markers.push(Marker {
-                        at: remote.offset,
-                        text: format!("[{}]", remote.label),
-                        kind: MarkerKind::Remote,
-                    });
-                }
-                // Headings are shown as plain text: their marks are not drawn.
-                if style.heading_level.is_none() && !style.runs.is_empty() {
-                    c.container(|p| {
-                        for seg in inline_segments(content, &style.runs, &markers) {
-                            segment_node(p, seg);
-                        }
-                    })
-                    .class("para")
-                    .on_click(Msg::Focus(id));
-                    return;
-                }
-                let shown = plain_with_markers(content, &markers);
-                match style.heading_level {
-                    Some(level) => c.heading(level, shown),
-                    None => c.text(shown),
-                }
-                .on_click(Msg::Focus(id));
+                // Every paragraph is a container with a fixed type. Its contents change with the
+                // caret (text area, text, marks), so the rest of the document keeps its place.
+                c.container(|inner| self.view_paragraph(inner, id, content, style))
+                    .class("text-block");
             }
             Block::List { items, ordered, .. } => {
                 for (n, item) in items.iter().enumerate() {
@@ -894,13 +932,13 @@ impl Editor {
                 }
             }
             Block::Code { code, .. } => {
-                c.text(code.clone()).class("code");
+                styled_text(c, code.clone(), "code");
             }
             Block::ThematicBreak => {
                 c.text("—————");
             }
             Block::Math { source } => {
-                c.text(format!("$$ {source} $$")).class("math");
+                styled_text(c, format!("$$ {source} $$"), "math");
             }
             Block::Media { source, alt_text } => {
                 if let MediaSource::Uri { uri } = source {
@@ -910,7 +948,7 @@ impl Editor {
             Block::Grid { sheet_id, .. } => match self.doc.sheets.get(sheet_id) {
                 Some(sheet) => self.view_grid(c, *sheet_id, sheet),
                 None => {
-                    c.text("(missing sheet)").class("grid");
+                    styled_text(c, "(missing sheet)", "grid");
                 }
             },
             Block::Query(query) => self.view_query(c, id, query),
@@ -950,11 +988,14 @@ impl Editor {
                         } else {
                             "presenter"
                         });
-                    c.text(format!("slide {} of {}", index + 1, slides.len()))
-                        .class("presenter-count");
+                    styled_text(
+                        c,
+                        format!("slide {} of {}", index + 1, slides.len()),
+                        "presenter-count",
+                    );
                 }
                 None => {
-                    c.text("there are no slides to present").class("status");
+                    styled_text(c, "there are no slides to present", "status");
                 }
             }
             c.button("Previous").on_click(Msg::PreviousSlide);
@@ -1008,20 +1049,23 @@ impl Editor {
         let json = match run_query(query, &entities) {
             Ok(json) => json,
             Err(e) => {
-                c.text(e.to_string()).class("query query-error");
+                styled_text(c, e.to_string(), "query query-error");
                 return;
             }
         };
         let rows: Vec<serde_json::Value> = match serde_json::from_str(&json) {
             Ok(rows) => rows,
             Err(e) => {
-                c.text(format!("query result is not a list of rows: {e}"))
-                    .class("query query-error");
+                styled_text(
+                    c,
+                    format!("query result is not a list of rows: {e}"),
+                    "query query-error",
+                );
                 return;
             }
         };
         if rows.is_empty() {
-            c.text("(no matching blocks)").class("query");
+            styled_text(c, "(no matching blocks)", "query");
             return;
         }
         for row in rows {
@@ -1029,7 +1073,7 @@ impl Editor {
             let line = id
                 .and_then(|id| self.doc.get(BlockId(id)))
                 .map_or_else(|| "(unknown block)".to_string(), block_text);
-            c.text(line).class("query query-row");
+            styled_text(c, line, "query query-row");
         }
     }
 
@@ -1043,7 +1087,7 @@ impl Editor {
     ) {
         let (rows, cols) = sheet.extent();
         if rows == 0 || cols == 0 {
-            c.text("(empty grid)").class("grid");
+            styled_text(c, "(empty grid)", "grid");
             return;
         }
         let results = evaluate_sheet(sheet);
@@ -1074,7 +1118,9 @@ impl Editor {
                         row,
                     });
                 let address_for_focus = address.clone();
+                // Keyed by address, so that focus stays on a cell when the table re-renders.
                 c.input(raw)
+                    .key(format!("cell-{}-{}", sheet_id.0, address))
                     .aria("label", address.clone())
                     .on_input(move |text| Msg::EditCell {
                         sheet: sheet_id,
@@ -1221,6 +1267,16 @@ struct Segment {
     marker: Option<MarkerKind>,
 }
 
+/// A text line with a class. The browser applies classes to containers, not to text nodes, so the
+/// text is wrapped in a container that carries the class.
+fn styled_text(c: &mut ContainerBuilder<Msg>, text: impl Into<String>, class: &str) {
+    let text = text.into();
+    c.container(|s| {
+        s.text(text);
+    })
+    .class(class);
+}
+
 /// `value` limited to `low..=high`. If the range is empty (`high < low`), the result is `low`.
 fn clamp_to(value: f64, low: f64, high: f64) -> f64 {
     if high < low {
@@ -1315,14 +1371,22 @@ fn segment_node(p: &mut ContainerBuilder<Msg>, seg: Segment) {
             (false, false) => "plain",
         }
     };
+    // The browser renders classes on containers, not on text nodes, so each stretch is a small
+    // container. The host's stylesheet makes these inline (see the demo page).
+    let text = seg.text;
     match seg.link {
         Some(address) => {
-            p.text(seg.text)
-                .class(format!("{class} link"))
-                .attr("title", address);
+            p.container(|s| {
+                s.text(text);
+            })
+            .class(format!("{class} link"))
+            .attr("title", address);
         }
         None => {
-            p.text(seg.text).class(class);
+            p.container(|s| {
+                s.text(text);
+            })
+            .class(class);
         }
     }
 }

@@ -67,6 +67,12 @@ All notable changes to this project are documented here. The format follows
 - Acceptance tests for milestones 2 (up to the PDF), 4 (collaboration with live grids over the
   relay) and 5 (a real `.docx` and `.xlsx` opened, edited and written back).
 - Mutation tests now cover citations, footnotes and the CSL-JSON reader.
+- Browser: `tpt-codex-web` is a wasm module that mounts the editor on a page. A browser test
+  (`crates/tpt-codex-web/browser`) drives it in Chrome: grid cells and formulas, undo, typing in a
+  paragraph, mid-paragraph typing, arrow keys, and slides.
+- Editor: a focused paragraph is a native text area, and each change is a `ReplaceText`. Paragraph
+  marks and remote carets are drawn with containers, which the browser can style. Focusing a grid
+  cell keeps the paragraph caret, so the cell keeps focus.
 - `Block::Query` source is editable in the editor (`EditQuery`); a source that does not run is
   rejected.
 - `tpt-codex-core` caret and selection model (`Selection`): caret movement, insert over a range,
