@@ -21,6 +21,7 @@ mod platform;
 mod primitives;
 mod selection;
 mod sheet;
+mod sync;
 mod text;
 mod text_crdt;
 mod tree_crdt;
@@ -36,6 +37,9 @@ pub use primitives::{Canvas, InlineRun, LayoutMode, MediaSource, Rect, TextStyle
 pub use selection::{Movement, Selection, delete_backward, delete_forward, insert_text};
 pub use sheet::{
     CellInput, Sheet, address_of, address_position, is_formula_source, is_valid_address,
+};
+pub use sync::{
+    Cursor, Envelope, Message, PresenceUpdate, Replica, ReplicaId, SyncError, SyncOp, Transport,
 };
 pub use text::{clip_runs, edit_text, remap_runs, replace_chars};
 pub use text_crdt::{Stamp, TextCrdt, TextCrdtError, TextOp, materialize};
