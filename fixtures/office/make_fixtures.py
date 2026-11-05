@@ -13,7 +13,12 @@ Requires: openpyxl (3.x).
 import pathlib
 import zipfile
 
+import base64
+
+import docx
 import openpyxl
+from pptx import Presentation
+from pptx.util import Inches
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -49,7 +54,56 @@ def make_zips() -> None:
         z.writestr("data.bin", b"x" * 100, compress_type=zipfile.ZIP_BZIP2)
 
 
+# A 1x1 PNG, so the document has a real image part.
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+)
+
+
+def make_docx() -> None:
+    doc = docx.Document()
+    doc.core_properties.title = "Field Notes"
+    doc.core_properties.author = "A. Author"
+    doc.add_heading("Introduction", level=1)
+    doc.add_paragraph("Plain paragraph with two lines.")
+    doc.paragraphs[-1].add_run().add_break()
+    doc.paragraphs[-1].add_run("Second line.")
+    mixed = doc.add_paragraph()
+    mixed.add_run("bold ").bold = True
+    mixed.add_run("then plain")
+    doc.add_heading("Details", level=2)
+    doc.add_paragraph("first bullet", style="List Bullet")
+    doc.add_paragraph("second bullet", style="List Bullet")
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "cell A1"
+    table.cell(0, 1).text = "cell B1"
+    table.cell(1, 0).text = "cell A2"
+    table.cell(1, 1).text = "cell B2"
+    doc.add_picture(str(HERE / "_pixel.png"))
+    doc.add_paragraph("Final paragraph & <end>.")
+    doc.save(HERE / "basic.docx")
+
+
+def make_pptx() -> None:
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Agenda"
+    body = slide.placeholders[1].text_frame
+    body.text = "First point"
+    body.add_paragraph().text = "Second point"
+    slide.notes_slide.notes_text_frame.text = "speaker note text"
+    slide2 = prs.slides.add_slide(prs.slide_layouts[5])
+    slide2.shapes.title.text = "Figures"
+    box = slide2.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+    box.text_frame.text = "free text box & <ok>"
+    prs.save(HERE / "basic.pptx")
+
+
 if __name__ == "__main__":
+    (HERE / "_pixel.png").write_bytes(PNG_1X1)
     make_basic_xlsx()
     make_zips()
-    print("wrote", sorted(p.name for p in HERE.iterdir() if p.suffix in (".xlsx", ".zip")))
+    make_docx()
+    make_pptx()
+    (HERE / "_pixel.png").unlink()
+    print("wrote", sorted(p.name for p in HERE.iterdir() if p.suffix in (".xlsx", ".zip", ".docx", ".pptx")))

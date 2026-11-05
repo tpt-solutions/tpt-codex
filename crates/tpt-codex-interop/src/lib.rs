@@ -10,11 +10,17 @@
 #![warn(missing_docs)]
 
 mod archive;
+mod docx;
+mod docx_write;
 mod fidelity;
+mod pptx;
 mod xlsx;
 
 pub use archive::{Archive, ArchiveWriter, ZipError};
+pub use docx::{DocxError, DocxImport, import_docx};
+pub use docx_write::{DocxExport, export_docx};
 pub use fidelity::{Fidelity, FidelityItem, FidelityReport};
+pub use pptx::{PptxImport, import_pptx};
 pub use xlsx::{XlsxError, XlsxImport, export_xlsx, import_xlsx};
 
 pub use tpt_codex_core as core;
