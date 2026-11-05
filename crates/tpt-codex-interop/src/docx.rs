@@ -332,6 +332,7 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
             bold: all_bold,
             italic: all_italic,
             heading_level: heading,
+            runs: Vec::new(),
         },
     });
 }

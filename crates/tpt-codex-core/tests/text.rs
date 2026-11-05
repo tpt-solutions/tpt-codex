@@ -19,6 +19,7 @@ fn doc() -> Document {
                 bold: true,
                 italic: false,
                 heading_level: None,
+                runs: Vec::new(),
             },
         },
     );

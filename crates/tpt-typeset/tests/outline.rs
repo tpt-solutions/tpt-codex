@@ -9,6 +9,7 @@ fn heading(level: u8, title: &str) -> Block {
             bold: false,
             italic: false,
             heading_level: Some(level),
+            runs: Vec::new(),
         },
     }
 }

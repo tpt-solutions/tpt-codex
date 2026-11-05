@@ -33,6 +33,7 @@ fn seed_documents() -> Vec<String> {
                 bold: true,
                 italic: false,
                 heading_level: Some(2),
+                runs: Vec::new(),
             },
         },
     );

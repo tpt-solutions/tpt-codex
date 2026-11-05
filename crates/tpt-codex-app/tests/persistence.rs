@@ -30,6 +30,7 @@ fn sample() -> Document {
                 bold: true,
                 italic: false,
                 heading_level: Some(1),
+                runs: Vec::new(),
             },
         },
     );

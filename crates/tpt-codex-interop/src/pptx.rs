@@ -55,6 +55,7 @@ pub fn import_pptx(bytes: &[u8]) -> Result<PptxImport, DocxError> {
                 bold: false,
                 italic: false,
                 heading_level: Some(2),
+                runs: Vec::new(),
             },
         });
         for paragraph in slide.body {

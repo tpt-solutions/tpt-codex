@@ -24,6 +24,11 @@ pub enum ValidationError {
     },
     /// The block graph contains a cycle through this block.
     Cycle(BlockId),
+    /// A text block has an inline run that is empty, reversed, or past the end of its text.
+    InvalidRun {
+        /// The text block.
+        block: BlockId,
+    },
     /// A `Block::Grid` refers to a sheet that does not exist.
     MissingSheet {
         /// The grid block.
@@ -61,6 +66,11 @@ impl fmt::Display for ValidationError {
                 parent.0, child.0
             ),
             Self::Cycle(id) => write!(f, "block {} is part of a cycle", id.0),
+            Self::InvalidRun { block } => write!(
+                f,
+                "text block {} has an inline run outside its text or with no characters",
+                block.0
+            ),
             Self::MissingSheet { block, sheet } => write!(
                 f,
                 "grid block {} refers to missing sheet {}",

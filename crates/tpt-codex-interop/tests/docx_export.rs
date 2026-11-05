@@ -11,6 +11,7 @@ fn text(content: &str, level: Option<u8>, bold: bool, italic: bool) -> Block {
             bold,
             italic,
             heading_level: level,
+            runs: Vec::new(),
         },
     }
 }

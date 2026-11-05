@@ -16,6 +16,7 @@ fn heading(level: u8, s: &str) -> Block {
             bold: false,
             italic: false,
             heading_level: Some(level),
+            runs: Vec::new(),
         },
     }
 }
@@ -499,6 +500,7 @@ fn writer_refuses_bold_and_italic_rather_than_dropping_them() {
             bold: true,
             italic: false,
             heading_level: None,
+            runs: Vec::new(),
         },
     }]);
     let err = to_markdown(&doc).unwrap_err();

@@ -217,6 +217,7 @@ fn materialize_writes_converged_text_as_one_undoable_step() {
                 bold: true,
                 italic: false,
                 heading_level: Some(2),
+                runs: Vec::new(),
             },
         },
     );

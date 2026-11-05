@@ -176,6 +176,7 @@ fn set_block_replaces_contents_and_inverse_restores_them() {
                     bold: true,
                     italic: false,
                     heading_level: None,
+                    runs: Vec::new(),
                 },
             },
         },

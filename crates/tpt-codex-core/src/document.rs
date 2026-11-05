@@ -134,6 +134,18 @@ impl Document {
                 }
             }
         }
+        for (&block, data) in &self.blocks {
+            if let Block::Text { content, style } = data {
+                let len = content.chars().count();
+                let bad = style
+                    .runs
+                    .iter()
+                    .any(|run| run.start >= run.end || run.end > len);
+                if bad {
+                    return Err(ValidationError::InvalidRun { block });
+                }
+            }
+        }
         if let Some(id) = self.find_cycle() {
             return Err(ValidationError::Cycle(id));
         }

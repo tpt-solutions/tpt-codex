@@ -181,6 +181,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     bold: false,
                     italic: false,
                     heading_level: Some(level),
+                    runs: Vec::new(),
                 },
             });
             continue;

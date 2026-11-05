@@ -85,6 +85,7 @@ fn headings_are_larger_than_body_text() {
         bold: false,
         italic: false,
         heading_level: Some(1),
+        runs: Vec::new(),
     };
     let doc = doc_of(vec![text("Title", h1), plain("body")]);
     let layout = layout_flow(&doc, &MEASURE, opts(100.0)).unwrap();

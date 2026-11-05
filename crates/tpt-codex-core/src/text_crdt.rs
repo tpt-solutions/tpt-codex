@@ -227,14 +227,14 @@ pub fn materialize(
     crdt: &TextCrdt,
 ) -> Result<(), crate::EditError> {
     use crate::{Block, EditError, Op};
-    let style = match doc.get(id) {
+    let mut style = match doc.get(id) {
         Some(Block::Text { style, .. }) => style.clone(),
         Some(_) => return Err(EditError::NotText(id)),
         None => return Err(EditError::NoSuchBlock(id)),
     };
-    let block = Block::Text {
-        content: crdt.text(),
-        style,
-    };
+    let content = crdt.text();
+    // The merged text is not aligned with the old runs, so keep only the marks that still fit.
+    style.runs = crate::text::clip_runs(&style.runs, content.chars().count());
+    let block = Block::Text { content, style };
     history.commit(doc, alloc::vec![Op::SetBlock { id, block }])
 }

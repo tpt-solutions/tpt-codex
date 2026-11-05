@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use alloc::string::String;
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 /// Axis-aligned rectangle in document units (points).
@@ -27,6 +28,35 @@ pub struct TextStyle {
     /// Heading level 1..=6, or `None` for body text.
     #[serde(default)]
     pub heading_level: Option<u8>,
+    /// Inline marks on parts of the text: emphasis and links. A character takes the marks
+    /// of every run that covers it, so runs may overlap. Empty for plain text, and then not
+    /// written.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runs: Vec<InlineRun>,
+}
+
+/// Inline marks on a range of characters of a `Block::Text`.
+///
+/// `start` and `end` count `char`s, as for editing. The range is half-open and never empty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InlineRun {
+    /// First character covered.
+    pub start: usize,
+    /// One past the last character covered.
+    pub end: usize,
+    /// Bold weight for these characters.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bold: bool,
+    /// Italic style for these characters.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub italic: bool,
+    /// Link target, or `None` for text that is not a link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// How the children of a `Block::Container` are positioned.
