@@ -37,7 +37,7 @@ Legend: `[ ]` todo · `[x]` done
 - [x] `tpt-lattice-import-xlsx` / `-export-xlsx` (spec's "tpt-lattice-import" = these) — _replaced by our own stack in `tpt-codex-interop`: `archive` (ZIP reader and writer, stored and DEFLATE, CRC and size limits) and `xlsx` (reader and writer, on `quick-xml`). `zip`, `calamine` and the lattice xlsx crates are no longer used. Tested against openpyxl and Python `zipfile` fixtures, both directions_
 - [ ] `tpt-replicate` — _gate clean, but its CRDT types (`UirNode`, `ActorId`, `CrdtCompatible`) come from its own `stubs` module. Not adopted: a stub type would enter the sync format. Text CRDT written in `tpt-codex-core` instead (see Phase 4)_
 - [ ] `tpt-appfront` crates: `-core`, `-dom`, `-canvas`, `-html`, `-webview` (pick which are needed) — _audited per crate: `-core`, `-dom`, `-html` gate OK and in use. `-canvas` and `-webview` fail the gate (Apache-only GUI stacks: winit, glutin, tao). They are native-desktop crates, outside the WASM-first decision_
-- [ ] `tpt-doc` crates: `-core`, `-word`, `-spreadsheet`, `-pdf`, `-convert` — _audited per crate: `-core`, `-pdf`, `-convert` gate OK. `-word` and `-spreadsheet` fail on `zopfli` (Apache-only, via `zip`'s `deflate` feature); `-spreadsheet` also on `ryu` (`Apache-2.0 OR BSL-1.0`, BSL not allowed). Fix upstream in tpt-doc_
+- [ ] `tpt-doc` crates: `-core`, `-word`, `-spreadsheet`, `-pdf`, `-convert` — _gate results: `-core`, `-pdf`, `-convert` OK. `-word` passes once `zip` uses `deflate-flate2` instead of `deflate` (commit `5a37c6f` on branch `gate-zip-deflate-flate2` in `tpt-solutions/tpt-doc`, also as a patch in the session scratchpad). The push was refused: this account has no write access to `tpt-doc`. Until the branch is pushed, `-word` cannot be pinned, and it is not needed. `-spreadsheet` also needs `ryu` via `csv`, and is not needed (xlsx is in-house)_
 - [x] `tpt-query` — _added: `tpt-typeset::run_query` runs `Block::Query` JSON with the `json` feature. Gate clean, `no_std` build verified_
 - [ ] `tpt-version` (for semantic diff/merge) — _gate clean; depends on `tpt-crypto-hash`/`-sig` (git). Not wired in: Phase 4_
 - [ ] Audit each for `no_std` support, wasm32 support, and `-sys`/C-FFI transitive deps — _`-sys` closure checked for TPT crates; `no_std`/wasm builds not verified (needs approval to compile external code)_
@@ -84,9 +84,9 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Text editing: caret, selection, input, undo/redo — _partial: `Selection` (caret movement, insert, backspace, delete, each undoable) in core; `Editor` maps messages to these. Keyboard, IME and key bindings in the browser are not wired yet_
 - [ ] `TextStyle` editing (bold/italic/headings/lists etc.) — _partial: bold/italic/heading via `SetBlock`; lists are in the model (`Block::List`) but there are no list-editing commands_
 - [ ] **Grid View**: swap to `tpt-lattice` canvas/WebGL renderer when `Block::Grid` is focused — _partial: the editor shows an editable table (`data_grid` plus one input per cell). No canvas or WebGL renderer_
-- [ ] Cell editing + LES formula entry + real-time evaluation (`tpt-lattice-evaluator`) — _partial: `Op::SetCell` (undoable); `GridSession` recomputes affected cells; the editor's `EditCell` message parses typed text (number, boolean, `=formula`, text) and shows the grid as a table. Cell focus and arrow-key navigation not yet_
+- [ ] Cell editing + LES formula entry + real-time evaluation (`tpt-lattice-evaluator`) — _partial: `Op::SetCell` (undoable); `GridSession` recomputes affected cells; the editor's `EditCell` message parses typed text (number, boolean, `=formula`, text) and shows the grid as a table. Cell focus and arrow keys work in the editor: each grid input has `on_focus` (`FocusCell`) and `on_keydown` (arrows become `MoveCell`). These need the appfront `web-events` work (merged to appfront master, not yet pushed); appfront is pinned to `5d5dfd6` (pushed to tpt-solutions/tpt-appfront master)_
 - [ ] Inline embed of a live grid in text flow (`view_bounds`), plus full-sheet reference
-- [ ] Insert-table command in the UI
+- [x] Insert-table command in the UI — _"Insert table" button adds an empty 3×3 `Block::Grid` as one undoable step (`Op::SetSheet` + `AddBlock` + `InsertChild`); `Sheet` has a minimum `rows`/`cols`, so empty cells can be typed into. Table size is fixed at 3×3 until a size control exists_
 - [ ] `Block::Query` evaluation via `tpt-query` — _partial: `tpt-typeset::run_query` runs JSON queries. `document_entities` maps each block to an entity (type ids in `entity_type`), so queries run over the document. No query UI or query-result rendering yet_
 - [ ] `Block::Media` rendering (images, SVG, `tpt-canvas` drawing commands) with alt text
 - [ ] `Block::Container` rendering for Flow/Grid layout modes — _partial: Flow done; Grid and Absolute render as placeholder boxes_
@@ -164,10 +164,10 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Slides → PDF export
 
 ### Collaboration (`tpt-replicate`)
-- [ ] CRDT operations on the Block tree (insert/delete/move/update) — _partial: `Op` insert, delete, move and update with inverses; not a CRDT. Text inside a block is (see next item)_
+- [x] CRDT operations on the Block tree (insert/delete/move/update) — _move-operation tree CRDT in `tpt-codex-core` (`tree_crdt.rs`): create, update (last writer wins), move (Kleppmann et al. 2021 undo-do-redo), delete to trash. `project_document` turns a replica into a `Document`. Not yet wired into `History` or a transport_
 - [x] Concurrent text editing semantics for `Block::Text` — _replicated growable array (RGA) of characters in `tpt-codex-core` (`text_crdt.rs`), with stamps, tombstones and causal delivery. `materialize` writes the converged text into the block as one undoable step. Not yet connected to a transport_
 - [ ] Merge live grids (`tpt-lattice-crdt`) with the document CRDT
-- [ ] Move-operation conflict handling (DAG must stay acyclic) — _partial: local moves reject cycles; concurrent conflict handling not designed_
+- [x] Move-operation conflict handling (DAG must stay acyclic) — _a move that would make a node its own ancestor is skipped on every replica. Late moves are applied in stamp order by undoing and redoing newer moves. Tested with a concurrent cycle and random delivery_
 - [ ] Offline-first sync + reconnect
 - [ ] Transport layer (WebSocket/WebRTC) behind a trait; sync server decision
 - [ ] Presence / cursors
@@ -179,14 +179,14 @@ Legend: `[ ]` todo · `[x]` done
 
 ## Phase 5 — Interop (after v1; spec lists crate but no schedule)
 
-- [ ] `.docx` import via `tpt-doc-word` → Block tree (best-effort data extraction) — _unblocked in principle: the same in-house `archive` module reads `.docx` parts. Not started_
+- [x] `.docx` import → Block tree (best-effort) — _in-house `docx` reader in `tpt-codex-interop`, on our `archive` module: paragraphs, headings (`Heading1`–`6`, `Title`), bold and italic when a whole paragraph has them, line and tab breaks, title and author. Tables are flattened, list items become paragraphs, images are dropped. Each loss is one fidelity item. Tested on a python-docx file. Chosen over `tpt-doc-word` because the need is small (see the tpt-doc note)_
 - [ ] `.xlsx` import via `tpt-lattice-import-xlsx` → `Block::Grid` — _first worksheet imported into a `Sheet` with a `FidelityReport` (merges, other sheets, error values, shared formulas, named ranges). Dates and formats come in as plain numbers (styles are not read). Placing the sheet as a `Block::Grid` is left to the caller_
 - [ ] `.pdf` text/structure extraction via `tpt-doc-pdf`
-- [ ] `.pptx` import (data only, no animations)
-- [ ] Export adapters: `.docx`, `.xlsx` — _`.xlsx` export of the first sheet is done (formulas with cached values, deterministic bytes), checked by openpyxl. `.docx` not started_
-- [ ] Import fidelity report (what was dropped/approximated) — _report type and text form done (`tpt-codex-interop`); no importer uses it yet_
-- [ ] Corpus-based tests with sample real-world files
-- [ ] Verify no new Apache-only transitive deps arrive via interop
+- [x] `.pptx` import (data only, no animations) — _in-house `pptx` reader: each slide becomes a level-2 heading (its title placeholder, or `Slide N`) and its text. Pictures, tables, speaker notes and formatting are reported. Tested on a python-pptx file_
+- [ ] Export adapters: `.docx`, `.xlsx` — _`.xlsx` export of the first sheet (formulas with cached values, deterministic bytes), checked by openpyxl. `.docx` export (headings, bold and italic, breaks, title and author; other blocks written as their nearest paragraph and reported), checked by python-docx and by our reader_
+- [x] Import fidelity report (what was dropped/approximated) — _`FidelityReport` in `tpt-codex-interop` with a text form; the docx, pptx and xlsx importers all fill it_
+- [ ] Corpus-based tests with sample real-world files — _partial: files written by openpyxl, python-docx, python-pptx and Python's zipfile (`fixtures/office/`). No real-world corpus yet_
+- [x] Verify no new Apache-only transitive deps arrive via interop — _the license gate runs on the resolved closure, which includes interop, and passes_
 
 **Milestone 5:** Open a real `.docx`/`.xlsx` and get a usable editable document.
 
@@ -196,9 +196,9 @@ Legend: `[ ]` todo · `[x]` done
 
 - [ ] Golden/byte-identical render tests: native vs WASM vs PDF — _partial: golden JSON compared across OSes in CI; no WASM or PDF comparison_
 - [x] Determinism CI job (run on Linux/Windows/macOS and compare hashes) — _in `.github/workflows/ci.yml`; not yet run on GitHub_
-- [x] Property tests for CRDT convergence — _text RGA: three replicas, random edits and reordered delivery, 200 rounds in the test suite (20,000 ran clean). The block tree is not a CRDT yet, so it is not covered_
+- [x] Property tests for CRDT convergence — _text RGA (three replicas, 200 rounds; 20,000 ran clean) and block tree (150 rounds; 5,000 ran clean), with random edits, out-of-order delivery, and an acyclicity check after every step_
 - [ ] Fuzzing: Markdown/.cdx parser, math parser, deserializer — _seeded mutation tests for all three: Markdown (`tpt-codex-markdown/tests/mutation.rs`), math (`tpt-typeset/tests/mutation.rs`) and document JSON (`tpt-codex-core/tests/json_mutation.rs`). Default runs are 4k, 20k and 5k inputs; 300k, 300k and 200k ran clean. No cargo-fuzz harness yet_
-- [ ] Benchmarks: layout, eval, large documents — _partial: layout and pagination benchmark (`examples/bench_layout.rs`); no eval benchmark_
+- [x] Benchmarks: layout, eval, large documents — _`tpt-codex-views/examples/bench_layout.rs` (layout and pagination) and `tpt-codex-grid/examples/bench_eval.rs` (full and incremental evaluation; 1,000 rows: 6.4 ms full, 0.9 ms after one input)_
 - [x] Test fixtures / sample documents repo dir — _`fixtures/` with a sample and its golden JSON_
 - [ ] Per-phase milestone acceptance tests — _partial: Milestone 0 covered; Milestone 1's headless path (typing with a caret, undo, equation block, save and reload) covered; its UI and Milestones 2 to 5 blocked_
 

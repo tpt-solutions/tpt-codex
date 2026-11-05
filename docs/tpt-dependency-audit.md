@@ -94,6 +94,19 @@ has its own ZIP container code (`archive`) and an xlsx reader and writer (`xlsx`
 resolved closure (`zip` and `zopfli` are not in `Cargo.lock`). The `tpt-doc-word` and `-spreadsheet` crates are
 still blocked by their own `zip` features. The same `archive` module could read `.docx` parts.
 
+## Update 2026-11-05: tpt-doc, and a small docx reader
+
+- **tpt-doc, `zip` feature.** `zip` 9's `deflate` feature enables `zopfli` (Apache-2.0 only) and `zlib-rs`.
+  Switching the workspace to `deflate-flate2` passes the gate for `tpt-doc-word`, `-core`, `-pdf` and
+  `-convert`. The change is one line, committed on branch `gate-zip-deflate-flate2` in `tpt-solutions/tpt-doc`
+  (not `master`). The push was refused: this account has no write access to that repository. Someone with access
+  needs to push the branch, or apply the patch. Until then the crate cannot be pinned.
+- **tpt-doc-spreadsheet** also fails on `ryu` (`Apache-2.0 OR BSL-1.0`), which comes in through `csv`, unconditionally.
+  It is not needed, because xlsx is covered in-house.
+- **docx.** We need text, headings and basic formatting from `.docx`, and `tpt-doc-word` is not needed for that.
+  A small reader on our own `archive` module covers it, so we don't depend on `tpt-doc-word`. Its loss items are
+  recorded in the fidelity report.
+
 ## Next steps
 
 - No licensing decisions are open.
