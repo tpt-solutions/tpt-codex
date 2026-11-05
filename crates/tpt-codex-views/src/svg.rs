@@ -6,7 +6,7 @@ use alloc::format;
 use alloc::string::String;
 use core::fmt::Write;
 
-use tpt_codex_core::{Block, Document};
+use tpt_codex_core::{Block, Document, MediaSource};
 
 use crate::canvas::{CanvasError, layout_canvas};
 use crate::flow::wrap;
@@ -58,6 +58,24 @@ pub fn render_slide_svg(
                     );
                 }
             }
+            Some(Block::Media {
+                source: MediaSource::Svg { markup },
+                alt_text,
+            }) => {
+                // An SVG is drawn as an image, so any script inside it cannot run.
+                let href =
+                    alloc::format!("data:image/svg+xml;base64,{}", base64(markup.as_bytes()));
+                let _ = write!(
+                    out,
+                    r#"<image x="{}" y="{}" width="{}" height="{}" href="{}" preserveAspectRatio="xMidYMid meet"><title>{}</title></image>"#,
+                    frame.x,
+                    frame.y,
+                    frame.width,
+                    frame.height,
+                    href,
+                    escape(alt_text.as_deref().unwrap_or("image"))
+                );
+            }
             other => {
                 let label = match other {
                     Some(Block::Grid { .. }) => "grid",
@@ -80,6 +98,28 @@ pub fn render_slide_svg(
     }
     out.push_str("</svg>");
     Ok(out)
+}
+
+/// Standard base64 with padding.
+pub(crate) fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for k in 0..4 {
+            if k <= chunk.len() {
+                out.push(TABLE[((n >> (18 - 6 * k)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// Escapes text for XML element content and attribute values.

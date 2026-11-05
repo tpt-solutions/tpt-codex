@@ -22,12 +22,14 @@ const SEEDS: &[&str] = &[
     "- one\n- two\n\n3) three\n4) four\n",
     "```rust\nfn main() {}\n```\n\n~~~\nplain\n~~~\n",
     "![alt](pic.png)\n\n***\n\n$$\nx^2 + y\n$$\n\n$$ a = b $$\n",
+    "Cite [@smith2020] and [Jones](@jones), see [the part](#part).\n\nA note[^n1] and [^n2].\n\n[^n1]: A note with *emphasis*.\n",
+    "Some **bold** and *italic* with [a link](https://example.test) and \\* escapes.\n",
 ];
 
 /// Characters that matter to the reader: block markers, delimiters, escapes and line breaks.
 const ALPHABET: &[char] = &[
     '#', '-', '*', '+', '.', ')', '1', '9', ' ', '\n', '\r', '\t', '`', '~', '$', '!', '[', ']',
-    '(', ')', '\\', ':', '<', '>', '|', '&', '_', '"', 'a', 'é',
+    '(', ')', '\\', ':', '<', '>', '|', '&', '_', '"', 'a', 'é', '@', '^',
 ];
 
 struct Rng(u64);

@@ -5,7 +5,7 @@
 //! go into the document properties. Blocks the format cannot represent exactly are written as the
 //! nearest paragraph, and the [`FidelityReport`] records each one.
 
-use tpt_codex_core::{Block, BlockId, Document, MediaSource, Metadata};
+use tpt_codex_core::{Block, BlockId, Document, MediaSource, Metadata, TextStyle};
 
 use crate::archive::ArchiveWriter;
 use crate::docx::DocxError;
@@ -36,18 +36,21 @@ pub fn export_docx(doc: &Document) -> Result<DocxExport, DocxError> {
 
     let mut visit = |block: &Block| match block {
         Block::Text { content, style } => {
-            body.push_str(&paragraph(
-                content,
-                style.heading_level,
-                style.bold,
-                style.italic,
-            ));
+            counts.links += style.runs.iter().filter(|r| r.link.is_some()).count();
+            body.push_str(&paragraph_styled(content, style));
         }
         Block::List { items, .. } => {
             counts.lists += 1;
             for item in items {
                 if let Some(Block::Text { content, style }) = doc.get(*item) {
-                    body.push_str(&paragraph(content, None, style.bold, style.italic));
+                    counts.links += style.runs.iter().filter(|r| r.link.is_some()).count();
+                    body.push_str(&paragraph_styled(
+                        content,
+                        &TextStyle {
+                            heading_level: None,
+                            ..style.clone()
+                        },
+                    ));
                 }
             }
         }
@@ -103,10 +106,21 @@ struct Counts {
     rules: usize,
     images: usize,
     live: usize,
+    links: usize,
 }
 
 impl Counts {
     fn report(&self, report: &mut FidelityReport) {
+        if self.links > 0 {
+            report.approximated(
+                "document",
+                "links",
+                format!(
+                    "{} link(s) written as their text; the addresses are not kept",
+                    self.links
+                ),
+            );
+        }
         if self.lists > 0 {
             report.approximated(
                 "document",
@@ -181,6 +195,78 @@ fn walk(
 }
 
 /// One paragraph. Line breaks and tabs become `w:br` and `w:tab`, each in its own run.
+/// A paragraph with each character's marks: the paragraph's own flags, plus its inline runs.
+/// Links are written as their text.
+fn paragraph_styled(content: &str, style: &TextStyle) -> String {
+    let mut out = String::from("<w:p>");
+    if let Some(level) = style.heading_level.filter(|l| (1..=6).contains(l)) {
+        out.push_str(&format!(
+            "<w:pPr><w:pStyle w:val=\"Heading{level}\"/></w:pPr>"
+        ));
+    }
+    let marks: Vec<(bool, bool)> = content
+        .chars()
+        .enumerate()
+        .map(|(i, _)| {
+            let (mut bold, mut italic) = (style.bold, style.italic);
+            for run in style.runs.iter().filter(|r| i >= r.start && i < r.end) {
+                bold |= run.bold;
+                italic |= run.italic;
+            }
+            (bold, italic)
+        })
+        .collect();
+    let mut run = String::new();
+    let mut current: Option<(bool, bool)> = None;
+    for (c, mark) in content.chars().zip(marks) {
+        if current != Some(mark) {
+            flush_marked(&mut run, current, &mut out);
+            current = Some(mark);
+        }
+        match c {
+            '\n' => {
+                flush_marked(&mut run, current, &mut out);
+                out.push_str(&format!("<w:r>{}<w:br/></w:r>", rpr_for(current)));
+            }
+            '\t' => {
+                flush_marked(&mut run, current, &mut out);
+                out.push_str(&format!("<w:r>{}<w:tab/></w:r>", rpr_for(current)));
+            }
+            c => run.push_str(&escape_char(c)),
+        }
+    }
+    flush_marked(&mut run, current, &mut out);
+    out.push_str("</w:p>");
+    out
+}
+
+fn rpr_for(mark: Option<(bool, bool)>) -> String {
+    let (bold, italic) = mark.unwrap_or((false, false));
+    let mut props = String::new();
+    if bold {
+        props.push_str("<w:b/>");
+    }
+    if italic {
+        props.push_str("<w:i/>");
+    }
+    if props.is_empty() {
+        String::new()
+    } else {
+        format!("<w:rPr>{props}</w:rPr>")
+    }
+}
+
+fn flush_marked(run: &mut String, mark: Option<(bool, bool)>, out: &mut String) {
+    if !run.is_empty() {
+        out.push_str(&format!(
+            "<w:r>{}<w:t xml:space=\"preserve\">{}</w:t></w:r>",
+            rpr_for(mark),
+            run
+        ));
+        run.clear();
+    }
+}
+
 fn paragraph(text: &str, heading: Option<u8>, bold: bool, italic: bool) -> String {
     let mut out = String::from("<w:p>");
     if let Some(level) = heading.filter(|l| (1..=6).contains(l)) {

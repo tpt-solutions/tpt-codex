@@ -81,3 +81,61 @@ fn diff_names_changed_added_and_removed_blocks() {
     assert!(log.diff(0, 0).unwrap().is_empty());
     assert!(log.diff(0, 9).is_none());
 }
+
+#[test]
+fn word_diff_marks_only_the_changed_words() {
+    use tpt_codex_core::{TextChange, diff_text};
+    let changes = diff_text("the quick fox", "the slow fox");
+    assert_eq!(
+        changes,
+        vec![
+            TextChange::Same("the ".into()),
+            TextChange::Removed("quick".into()),
+            TextChange::Added("slow".into()),
+            TextChange::Same(" fox".into()),
+        ]
+    );
+}
+
+#[test]
+fn word_diff_pieces_join_back_into_both_texts() {
+    use tpt_codex_core::{TextChange, diff_text};
+    let a = "one  two\nthree four";
+    let b = "two three five";
+    let changes = diff_text(a, b);
+    let old: String = changes
+        .iter()
+        .filter_map(|c| match c {
+            TextChange::Same(t) | TextChange::Removed(t) => Some(t.as_str()),
+            TextChange::Added(_) => None,
+        })
+        .collect();
+    let new: String = changes
+        .iter()
+        .filter_map(|c| match c {
+            TextChange::Same(t) | TextChange::Added(t) => Some(t.as_str()),
+            TextChange::Removed(_) => None,
+        })
+        .collect();
+    assert_eq!(old, a);
+    assert_eq!(new, b);
+    assert!(diff_text("", "").is_empty());
+}
+
+#[test]
+fn the_log_diffs_one_text_block_and_refuses_others() {
+    let mut log = VersionLog::new();
+    let mut d = doc();
+    log.save("a", &d);
+    let mut h = History::new();
+    edit_text(&mut d, &mut h, BlockId(1), 3, 3, " big").unwrap();
+    log.save("b", &d);
+    let changes = log.text_diff(0, 1, BlockId(1)).unwrap();
+    assert!(
+        changes
+            .iter()
+            .any(|c| matches!(c, tpt_codex_core::TextChange::Added(t) if t.contains("big")))
+    );
+    // Block 0 is the container, not text.
+    assert!(log.text_diff(0, 1, BlockId(0)).is_none());
+}

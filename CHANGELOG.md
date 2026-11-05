@@ -55,6 +55,18 @@ All notable changes to this project are documented here. The format follows
 - Footnotes: `Document.footnotes`, `[^label]` references and `[^label]: text` definitions in
   Markdown, with numbering in reading order and checks for unmatched references and unused
   definitions.
+- Editor: `MoveSlide` reorders slides, as one undoable step. `SetFullscreen` marks the presenter
+  stage for the host's full-screen call.
+- The paginated view uses the page size and margins of the document's class, and draws headers and
+  page-numbered footers.
+- `render_slide_svg` draws embedded SVG as an image, so a script inside it cannot run. A golden
+  file checks the slide's bytes.
+- Word-level text diff (`diff_text`, `VersionLog::text_diff`).
+- `.docx`: per-run bold and italic are written and read back. Mixed formatting in a paragraph is
+  kept, not reported as lost. Links are written as their text, and the report says so.
+- Acceptance tests for milestones 2 (up to the PDF), 4 (collaboration with live grids over the
+  relay) and 5 (a real `.docx` and `.xlsx` opened, edited and written back).
+- Mutation tests now cover citations, footnotes and the CSL-JSON reader.
 - `Block::Query` source is editable in the editor (`EditQuery`); a source that does not run is
   rejected.
 - `tpt-codex-core` caret and selection model (`Selection`): caret movement, insert over a range,

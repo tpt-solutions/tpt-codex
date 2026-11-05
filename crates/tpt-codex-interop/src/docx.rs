@@ -12,7 +12,7 @@ use std::fmt;
 
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
-use tpt_codex_core::{Block, BlockId, Document, LayoutMode, Metadata, TextStyle};
+use tpt_codex_core::{Block, BlockId, Document, InlineRun, LayoutMode, Metadata, TextStyle};
 
 use crate::archive::{Archive, ZipError};
 use crate::fidelity::FidelityReport;
@@ -65,16 +65,6 @@ pub fn import_docx(bytes: &[u8]) -> Result<DocxImport, DocxError> {
             format!(
                 "{} list item(s) kept as plain paragraphs; list markers are not kept",
                 parsed.list_items
-            ),
-        );
-    }
-    if parsed.mixed_runs > 0 {
-        report.approximated(
-            "document",
-            "inline formatting",
-            format!(
-                "{} paragraph(s) mix bold or italic with plain text; the formatting is dropped",
-                parsed.mixed_runs
             ),
         );
     }
@@ -153,7 +143,6 @@ struct Parsed {
     blocks: Vec<Block>,
     tables: usize,
     list_items: usize,
-    mixed_runs: usize,
     images: usize,
 }
 
@@ -303,22 +292,49 @@ fn apply_run_flag(e: &BytesStart<'_>, run: Option<&mut Run>) -> Result<(), DocxE
 }
 
 fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
-    let text: String = p.runs.iter().map(|r| r.text.as_str()).collect();
-    let text = text.trim();
-    if text.is_empty() {
-        return;
-    }
-    let has_text_runs: Vec<&Run> = p
+    // Each character with its marks. Whitespace at the ends is trimmed, as before.
+    let chars: Vec<(char, bool, bool)> = p
         .runs
         .iter()
-        .filter(|r| !r.text.trim().is_empty())
+        .flat_map(|r| r.text.chars().map(move |c| (c, r.bold, r.italic)))
         .collect();
-    let all_bold = has_text_runs.iter().all(|r| r.bold);
-    let any_bold = has_text_runs.iter().any(|r| r.bold);
-    let all_italic = has_text_runs.iter().all(|r| r.italic);
-    let any_italic = has_text_runs.iter().any(|r| r.italic);
-    if (any_bold && !all_bold) || (any_italic && !all_italic) {
-        out.mixed_runs += 1;
+    let visible: Vec<usize> = chars
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !c.0.is_whitespace())
+        .map(|(i, _)| i)
+        .collect();
+    let (Some(&first), Some(&last)) = (visible.first(), visible.last()) else {
+        return;
+    };
+    let chars = &chars[first..=last];
+    let text: String = chars.iter().map(|c| c.0).collect();
+
+    // Formatting that covers the whole paragraph is the paragraph's flag. The rest is runs.
+    let all_bold = chars.iter().filter(|c| !c.0.is_whitespace()).all(|c| c.1);
+    let all_italic = chars.iter().filter(|c| !c.0.is_whitespace()).all(|c| c.2);
+    let mut runs: Vec<InlineRun> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let bold = chars[i].1 && !all_bold;
+        let italic = chars[i].2 && !all_italic;
+        let mut j = i + 1;
+        while j < chars.len()
+            && (chars[j].1 && !all_bold) == bold
+            && (chars[j].2 && !all_italic) == italic
+        {
+            j += 1;
+        }
+        if bold || italic {
+            runs.push(InlineRun {
+                start: i,
+                end: j,
+                bold,
+                italic,
+                link: None,
+            });
+        }
+        i = j;
     }
 
     let style = p.style.as_deref();
@@ -327,12 +343,12 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
         out.list_items += 1;
     }
     out.blocks.push(Block::Text {
-        content: text.to_string(),
+        content: text,
         style: TextStyle {
             bold: all_bold,
             italic: all_italic,
             heading_level: heading,
-            runs: Vec::new(),
+            runs,
         },
     });
 }

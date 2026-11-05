@@ -13,7 +13,10 @@ use tpt_codex_core::{
     edit_text, insert_text, is_valid_address,
 };
 use tpt_codex_grid::{CellResult, evaluate_sheet};
-use tpt_codex_views::{FlowKind, FlowOptions, PageGeometry, TextMeasure, layout_flow, paginate};
+use tpt_codex_views::{
+    FlowKind, FlowOptions, PageChrome, PageGeometry, TextMeasure, layout_flow, paginate,
+    render_chrome,
+};
 use tpt_typeset::{document_entities, run_query};
 
 /// Something the user did.
@@ -71,6 +74,12 @@ pub enum Msg {
     },
     /// Leave presenter mode and show the whole document.
     StopPresenting,
+    /// Mark the presenter stage as full screen. The host makes the browser go full screen when
+    /// this changes; the editor only records it, and draws the stage with a `fullscreen` class.
+    SetFullscreen {
+        /// Whether the stage is full screen.
+        on: bool,
+    },
     /// Show the next slide in presenter mode. The last slide stays on screen.
     NextSlide,
     /// Show the previous slide in presenter mode. The first slide stays on screen.
@@ -128,6 +137,14 @@ pub enum Msg {
         /// The text the field must equal.
         value: String,
     },
+    /// Move slide `from` (0-based, in slide order) so that it becomes slide `to`. As one undoable
+    /// step.
+    MoveSlide {
+        /// The slide to move.
+        from: usize,
+        /// Its new position among the slides.
+        to: usize,
+    },
     /// Undo the last step.
     Undo,
     /// Redo the last undone step.
@@ -171,6 +188,8 @@ pub struct Editor {
     /// The slide being shown in presenter mode, as an index into the slides. `None` shows the
     /// whole document.
     presenting: Option<usize>,
+    /// Whether the presenter stage is full screen.
+    fullscreen: bool,
     /// Other people's carets, drawn in their paragraphs.
     remote_cursors: Vec<RemoteCursor>,
 }
@@ -197,6 +216,7 @@ impl Editor {
             status: None,
             table_size: (3, 3),
             presenting: None,
+            fullscreen: false,
             remote_cursors: Vec::new(),
         }
     }
@@ -271,13 +291,23 @@ impl Editor {
             }
             Msg::StopPresenting => {
                 self.presenting = None;
+                self.fullscreen = false;
                 Ok(())
+            }
+            Msg::SetFullscreen { on } => {
+                if self.presenting.is_none() && on {
+                    Err("start presenting before going full screen".to_string())
+                } else {
+                    self.fullscreen = on;
+                    Ok(())
+                }
             }
             Msg::NextSlide => self.move_slide(1),
             Msg::PreviousSlide => self.move_slide(-1),
             Msg::ReplaceText { block, text } => self.replace_text(block, &text),
             Msg::PlaceBlock { block, frame } => self.place_block(block, frame),
             Msg::MoveBlock { block, dx, dy } => self.move_block(block, dx, dy),
+            Msg::MoveSlide { from, to } => self.move_slide_to(from, to),
             Msg::FilterQuery {
                 block,
                 field,
@@ -441,6 +471,50 @@ impl Editor {
     /// The slide being presented, if presenter mode is on.
     pub fn presenting(&self) -> Option<usize> {
         self.presenting
+    }
+
+    fn move_slide_to(&mut self, from: usize, to: usize) -> Result<(), String> {
+        let slides = self.slide_ids();
+        if from >= slides.len() || to >= slides.len() {
+            return Err(format!("there are {} slides", slides.len()));
+        }
+        let root = self.doc.root;
+        let Some(Block::Container { children, .. }) = self.doc.get(root) else {
+            return Err("the document root cannot hold slides".to_string());
+        };
+        let moved = slides[from];
+        let from_index = children
+            .iter()
+            .position(|c| *c == moved)
+            .ok_or_else(|| "slide is not in the document root".to_string())?;
+        // Without the moved slide, insert it straight after the slide that should precede it.
+        let mut reduced = children.clone();
+        reduced.remove(from_index);
+        let slide_positions: Vec<usize> = reduced
+            .iter()
+            .enumerate()
+            .filter(|(_, id)| slides.contains(id) && **id != moved)
+            .map(|(i, _)| i)
+            .collect();
+        let to_index = if to == 0 {
+            0
+        } else {
+            slide_positions[to - 1] + 1
+        };
+        if from_index == to_index || (from == to) {
+            return Ok(());
+        }
+        self.history
+            .commit(
+                &mut self.doc,
+                vec![Op::MoveChild {
+                    from_parent: root,
+                    from_index,
+                    to_parent: root,
+                    to_index,
+                }],
+            )
+            .map_err(|e| e.to_string())
     }
 
     fn move_slide(&mut self, step: isize) -> Result<(), String> {
@@ -645,6 +719,25 @@ impl Editor {
     }
 
     /// Builds the UI tree for the current state.
+    /// The document as pages, cut to the page size and margins of its document class (A4 when it
+    /// has none).
+    pub fn paginated_view_for_class(
+        &self,
+        measure: &dyn TextMeasure,
+        flow: FlowOptions,
+    ) -> Result<UITree<Msg>, String> {
+        let spec = tpt_typeset::class_of(&self.doc)
+            .unwrap_or(tpt_typeset::DocumentClass::Article)
+            .spec();
+        let geometry = PageGeometry {
+            height: spec.page_height,
+            margin_top: spec.margin,
+            margin_bottom: spec.margin,
+            min_lines: spec.min_lines,
+        };
+        self.paginated_view(measure, flow, geometry)
+    }
+
     /// The document as pages. Each page is a container, with its lines, boxes and grid rows in
     /// order. Layout uses `measure` and `flow`, and pages are cut to `geometry`.
     pub fn paginated_view(
@@ -653,11 +746,31 @@ impl Editor {
         flow: FlowOptions,
         geometry: PageGeometry,
     ) -> Result<UITree<Msg>, String> {
+        let chrome = PageChrome {
+            header: None,
+            footer: Some("Page {page} of {pages}".to_string()),
+        };
+        self.paginated_view_with(measure, flow, geometry, &chrome)
+    }
+
+    /// The paginated view with headers and footers. `{page}` and `{pages}` in them are the page
+    /// number and the page count.
+    pub fn paginated_view_with(
+        &self,
+        measure: &dyn TextMeasure,
+        flow: FlowOptions,
+        geometry: PageGeometry,
+        chrome: &PageChrome,
+    ) -> Result<UITree<Msg>, String> {
         let layout = layout_flow(&self.doc, measure, flow).map_err(|e| e.to_string())?;
         let pages = paginate(&layout, geometry).map_err(|e| e.to_string())?;
+        let rendered = render_chrome(&pages, chrome);
         Ok(UITree::container(|c| {
-            for page in &pages {
+            for (page, marks) in pages.iter().zip(&rendered) {
                 c.container(|p| {
+                    if let Some(header) = &marks.header {
+                        p.text(header.clone()).class("page-header");
+                    }
                     p.heading(3, format!("Page {}", page.number))
                         .class("page-number");
                     for item in &page.items {
@@ -675,6 +788,9 @@ impl Editor {
                                 p.text(format!("row {row}")).class(class);
                             }
                         }
+                    }
+                    if let Some(footer) = &marks.footer {
+                        p.text(footer.clone()).class("page-footer");
                     }
                 })
                 .class("page");
@@ -829,7 +945,11 @@ impl Editor {
             match slides.get(index) {
                 Some(&slide) => {
                     c.container(|stage| self.view_block(stage, slide))
-                        .class("presenter");
+                        .class(if self.fullscreen {
+                            "presenter fullscreen"
+                        } else {
+                            "presenter"
+                        });
                     c.text(format!("slide {} of {}", index + 1, slides.len()))
                         .class("presenter-count");
                 }

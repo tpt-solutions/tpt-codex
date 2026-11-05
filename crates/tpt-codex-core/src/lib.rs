@@ -49,4 +49,6 @@ pub use text_crdt::{Stamp, TextCrdt, TextCrdtError, TextOp, materialize};
 pub use tree_crdt::{
     NodeId, ROOT, TRASH, TreeCrdt, TreeError, TreeOp, key_between, project_document,
 };
-pub use versions::{BlockChange, ChangeKind, Version, VersionLog, diff_documents};
+pub use versions::{
+    BlockChange, ChangeKind, TextChange, Version, VersionLog, diff_documents, diff_text,
+};

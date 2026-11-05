@@ -36,7 +36,7 @@ mod references;
 pub use citations::{
     CitationCheck, CslError, Library, Name, Reference, author_year, bibliography, check_citations,
 };
-pub use class::{ClassSpec, DocumentClass, UnknownClass};
+pub use class::{ClassSpec, DocumentClass, UnknownClass, class_of};
 pub use footnotes::{
     FootnoteRef, check_footnotes, footnote_numbers, reading_order, unreferenced_footnotes,
 };

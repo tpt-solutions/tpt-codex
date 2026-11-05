@@ -80,7 +80,8 @@ fn the_report_counts_what_was_flattened_or_dropped() {
     assert!(find("tables").note.starts_with("1 table"));
     assert_eq!(find("lists").outcome, Fidelity::Approximated);
     assert!(find("lists").note.starts_with("2 list item"));
-    assert_eq!(find("inline formatting").outcome, Fidelity::Approximated);
+    // Mixed bold and italic are kept as runs now, so they are not reported as lost.
+    assert!(items.iter().all(|i| i.feature != "inline formatting"));
     assert_eq!(find("images").outcome, Fidelity::Dropped);
     assert!(find("images").note.starts_with("1 image"));
     assert!(!import.report.is_lossless());

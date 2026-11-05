@@ -13,7 +13,7 @@ pub enum DocumentClass {
 }
 
 /// The declarative rules a class applies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClassSpec {
     /// Front matter name of the class.
     pub name: &'static str,
@@ -21,6 +21,12 @@ pub struct ClassSpec {
     pub numbered_depth: u8,
     /// Deepest heading level shown in the table of contents.
     pub toc_depth: u8,
+    /// Page height in points (A4).
+    pub page_height: f64,
+    /// Margin above and below the content, in points.
+    pub margin: f64,
+    /// Fewest lines of a paragraph kept together at a page break.
+    pub min_lines: usize,
 }
 
 impl DocumentClass {
@@ -34,11 +40,17 @@ impl DocumentClass {
                 name: "article",
                 numbered_depth: 3,
                 toc_depth: 2,
+                page_height: 842.0,
+                margin: 72.0,
+                min_lines: 2,
             },
             DocumentClass::Report => ClassSpec {
                 name: "report",
                 numbered_depth: 3,
                 toc_depth: 3,
+                page_height: 842.0,
+                margin: 90.0,
+                min_lines: 3,
             },
         }
     }
@@ -67,3 +79,11 @@ impl fmt::Display for UnknownClass {
 }
 
 impl core::error::Error for UnknownClass {}
+
+/// The class a document declares in its front matter, if it declares a known one.
+pub fn class_of(doc: &tpt_codex_core::Document) -> Option<DocumentClass> {
+    doc.metadata
+        .class
+        .as_deref()
+        .and_then(|name| DocumentClass::parse(name).ok())
+}

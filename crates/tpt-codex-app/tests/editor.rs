@@ -827,3 +827,119 @@ fn the_paginated_view_cuts_the_document_into_pages() {
     assert!(html.contains("Page 2"), "{html}");
     assert!(html.contains("page-line"), "{html}");
 }
+
+#[test]
+fn slides_can_be_reordered_and_the_move_undoes() {
+    let mut e = Editor::new(doc());
+    for _ in 0..3 {
+        e.update(Msg::InsertSlide);
+    }
+    let before = e.slide_ids();
+    assert_eq!(before.len(), 3);
+
+    e.update(Msg::MoveSlide { from: 0, to: 2 });
+    assert_eq!(e.status(), None);
+    assert_eq!(e.slide_ids(), vec![before[1], before[2], before[0]]);
+
+    e.update(Msg::MoveSlide { from: 2, to: 0 });
+    assert_eq!(e.slide_ids(), vec![before[0], before[1], before[2]]);
+
+    // Bad indices are refused and change nothing.
+    e.update(Msg::MoveSlide { from: 0, to: 7 });
+    assert!(e.status().is_some());
+    assert_eq!(e.slide_ids(), before);
+
+    e.update(Msg::MoveSlide { from: 1, to: 2 });
+    e.update(Msg::Undo);
+    assert_eq!(e.slide_ids(), before);
+}
+
+#[test]
+fn the_class_sets_the_page_size_of_the_paginated_view() {
+    use tpt_codex_views::{FlowOptions, MonospaceMeasure};
+    let measure = MonospaceMeasure {
+        char_width: 6.0,
+        line_height: 14.0,
+    };
+    let flow = FlowOptions {
+        width: 300.0,
+        block_spacing: 0.0,
+        box_height: 40.0,
+        row_height: 20.0,
+    };
+    let mut d = doc();
+    let mut h = tpt_codex_core::History::new();
+    let long = "word ".repeat(1000);
+    tpt_codex_core::edit_text(&mut d, &mut h, BlockId(2), 4, 4, &long).unwrap();
+    d.metadata.class = Some("article".into());
+    let article = render(
+        &Editor::new(d.clone())
+            .paginated_view_for_class(&measure, flow)
+            .unwrap(),
+    );
+    d.metadata.class = Some("report".into());
+    let report = render(
+        &Editor::new(d.clone())
+            .paginated_view_for_class(&measure, flow)
+            .unwrap(),
+    );
+    assert_ne!(report, article);
+    assert!(report.matches("class=\"page\"").count() >= article.matches("class=\"page\"").count());
+    // Without a class, the default is an article.
+    d.metadata.class = None;
+    let none = render(
+        &Editor::new(d)
+            .paginated_view_for_class(&measure, flow)
+            .unwrap(),
+    );
+    assert_eq!(none, article);
+}
+
+#[test]
+fn fullscreen_needs_presenter_mode_and_stops_with_it() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertSlide);
+    e.update(Msg::SetFullscreen { on: true });
+    assert!(
+        e.status().is_some(),
+        "full screen without presenting is refused"
+    );
+    e.update(Msg::StartPresenting { index: 0 });
+    e.update(Msg::SetFullscreen { on: true });
+    assert!(render(&e.view()).contains("presenter fullscreen"));
+    e.update(Msg::StopPresenting);
+    assert!(!render(&e.view()).contains("fullscreen"));
+}
+
+#[test]
+fn the_paginated_view_shows_headers_and_numbered_footers() {
+    use tpt_codex_views::{FlowOptions, MonospaceMeasure, PageChrome, PageGeometry};
+    let measure = MonospaceMeasure {
+        char_width: 6.0,
+        line_height: 14.0,
+    };
+    let flow = FlowOptions {
+        width: 300.0,
+        block_spacing: 0.0,
+        box_height: 40.0,
+        row_height: 20.0,
+    };
+    let geometry = PageGeometry {
+        height: 20.0,
+        margin_top: 0.0,
+        margin_bottom: 0.0,
+        min_lines: 1,
+    };
+    let chrome = PageChrome {
+        header: Some("Field notes".into()),
+        footer: Some("{page}/{pages}".into()),
+    };
+    let e = Editor::new(doc());
+    let html = render(
+        &e.paginated_view_with(&measure, flow, geometry, &chrome)
+            .unwrap(),
+    );
+    assert!(html.contains("Field notes"), "{html}");
+    assert!(html.contains("1/"), "{html}");
+    assert!(html.contains("page-footer"), "{html}");
+}

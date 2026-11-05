@@ -80,7 +80,7 @@ Legend: `[ ]` todo · `[x]` done
 
 - [x] `tpt-codex-app` shell on `tpt-appfront`, builds to WASM — _editor state and UI tree (`Editor`, `Msg`) render to semantic HTML and are tested natively. `web::mount` mounts the editor with `tpt-appfront-dom`; the app builds for `wasm32-unknown-unknown` and CI checks it. Not yet run in a browser_
 - [ ] Core ⇄ UI reactive wiring (tree change → projection update) — _partial: `History::last_changed` names the blocks each step changed. The editor re-renders from a signal after each message (`web::mount`). No per-block projection cache yet_
-- [ ] **Flow View** in `tpt-codex-views`: shape text via `tpt-text`, lay out via `tpt-layout` (block/inline flow, margin collapsing, typographic hierarchy) — _partial: flow layout with injected `TextMeasure`; `tpt-codex-text` supplies the `tpt-text` measure (tested end to end on the fixture, with pagination). Not yet on `tpt-layout`; no margin collapsing_
+- [ ] **Flow View** in `tpt-codex-views`: shape text via `tpt-text`, lay out via `tpt-layout` (block/inline flow, margin collapsing, typographic hierarchy) — _partial: flow layout with injected `TextMeasure`; `tpt-codex-text` supplies the `tpt-text` measure. Decided, as agreed: keep our own flow engine and do not adopt `tpt-layout`'s. Margin collapsing and typographic hierarchy are still to do_
 - [ ] Text editing: caret, selection, input, undo/redo — _partial: `Selection` (caret movement, insert, backspace, delete, each undoable) in core; `Editor` maps messages to these. `Msg::ReplaceText` turns an input element's new text into the smallest undoable edit. Not yet wired to an input element in the browser, which needs checking there; keyboard and IME are not wired_
 - [ ] `TextStyle` editing (bold/italic/headings/lists etc.) — _partial: bold/italic/heading via `SetBlock`; lists are in the model (`Block::List`) but there are no list-editing commands_
 - [ ] **Grid View**: swap to `tpt-lattice` canvas/WebGL renderer when `Block::Grid` is focused — _partial: the editor shows an editable table (`data_grid` plus one input per cell). No canvas or WebGL renderer_
@@ -128,7 +128,7 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Structured, actionable errors ("Line 42: unclosed environment") — _partial: Markdown and math errors carry line, column and hint_
 - [ ] Incremental compilation / watch mode (via `tpt-layout` incremental relayout) — _partial: `layout_flow_cached` with a `FlowCache` re-wraps only the text blocks that changed (tested by counting measurements). Watch mode and `tpt-layout` relayout are not done_
 - [ ] WASM in-browser live preview
-- [ ] Semantic diff/merge integration via `tpt-version`
+- [ ] Semantic diff/merge integration via `tpt-version` — _partial: word-level diff of text blocks and a block-level diff are in the in-house log. Merging two diverged versions is not done_
 
 **Milestone 2:** A `.cdx` file with Markdown, math, and cross-references exports to a beautifully typeset PDF.
 (Note: depends on the PDF backend in Phase 3 — either reorder, or ship a minimal `tpt-canvas-pdf` hookup here.)
@@ -158,8 +158,8 @@ Legend: `[ ]` todo · `[x]` done
 ### Canvas View (slides)
 - [x] `Container` with `LayoutMode::Absolute` and fixed aspect ratio (16:9 etc.) — _`Document.canvases` holds each slide's size (`Canvas::WIDESCREEN` is 16:9), undoable with `Op::SetCanvas`. `layout_canvas` places the children, and the editor inserts and draws slides_
 - [x] Explicit X/Y positioning of children, render via `tpt-canvas` — _`Document.frames` holds each child's rectangle (`Op::SetFrame`); the editor places blocks on a slide. Drawing goes through the slide's HTML, not `tpt-canvas`_
-- [ ] Slide navigation, presenter/fullscreen mode — _partial: presenter mode in the editor shows one slide at a time, with previous, next and stop. Not yet full-screen_
-- [ ] Slide ordering / sections
+- [ ] Slide navigation, presenter/fullscreen mode — _partial: presenter mode shows one slide at a time, with previous, next and stop; `SetFullscreen` marks the stage, and the host makes the browser full screen_
+- [ ] Slide ordering / sections — _partial: slides can be reordered (`MoveSlide`, undoable). Sections need a model decision: a label per slide_
 - [ ] Select / move / resize of canvas children — _partial: the editor moves and resizes a child of a slide (`MoveBlock`, `ResizeBlock`), clamped to the slide and undoable. Selecting by pointer and dragging in the browser are not wired_
 - [ ] Slides → PDF export — _partial: `render_slide_svg` exports one slide as SVG, with text wrapped by the Flow view's measure. PDF is blocked upstream_
 
@@ -171,7 +171,7 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] Offline-first sync + reconnect — _partial: `Replica` keeps an outbox of unacknowledged operations (`pending`, `acknowledge`), resends are de-duplicated, and out-of-order operations are held. `Relay` (`relay.rs`) keeps one copy of each operation per document and serves late replicas. Not yet tied to a network transport_
 - [ ] Transport layer (WebSocket/WebRTC) behind a trait; sync server decision — _partial: the `Transport` trait is in `tpt-codex-core`, and `Relay` is the server logic for a WebSocket relay, as agreed. Still open: the WebSocket library (a new dependency to approve) and the host for the server_
 - [ ] Presence / cursors — _partial: cursors per replica (`Replica::set_cursor`, `cursor_of`, `cursors_in`), newest update wins, not queued. The editor draws remote carets in their paragraphs (`set_remote_cursors`). Not yet fed from a live session_
-- [ ] Version history via `tpt-version` — _partial: in-house `VersionLog` (labelled snapshots, restore, block-level diff) in `tpt-codex-core`. `tpt-version` itself is not wired in_
+- [x] Version history via `tpt-version` — _in-house, as agreed: `VersionLog` keeps labelled snapshots, restores them, and diffs blocks and words (`text_diff`). `tpt-version` is not used_
 
 **Milestone 4:** Multi-user collaborative editing of a document containing live grids.
 
@@ -183,9 +183,9 @@ Legend: `[ ]` todo · `[x]` done
 - [ ] `.xlsx` import via `tpt-lattice-import-xlsx` → `Block::Grid` — _first worksheet imported into a `Sheet` with a `FidelityReport`. `place_sheet` puts it in the document as a grid block, as one undoable step. Dates and formats come in as plain numbers_
 - [ ] `.pdf` text/structure extraction via `tpt-doc-pdf`
 - [x] `.pptx` import (data only, no animations) — _in-house `pptx` reader: each slide becomes a level-2 heading (its title placeholder, or `Slide N`) and its text. Pictures, tables, speaker notes and formatting are reported. Tested on a python-pptx file_
-- [ ] Export adapters: `.docx`, `.xlsx` — _`.xlsx` export of the first sheet (formulas with cached values, deterministic bytes), checked by openpyxl. `.docx` export (headings, bold and italic, breaks, title and author; other blocks written as their nearest paragraph and reported), checked by python-docx and by our reader_
+- [x] Export adapters: `.docx`, `.xlsx` — _`.xlsx` export of the first sheet (formulas with cached values, deterministic bytes), checked by openpyxl. `.docx` export keeps headings, bold, italic and per-run emphasis; links are written as text and the report says so. Other blocks are written as their nearest paragraph and reported_
 - [x] Import fidelity report (what was dropped/approximated) — _`FidelityReport` in `tpt-codex-interop` with a text form; the docx, pptx and xlsx importers all fill it_
-- [ ] Corpus-based tests with sample real-world files — _partial: files written by openpyxl, python-docx, python-pptx and Python's zipfile (`fixtures/office/`). No real-world corpus yet_
+- [ ] Corpus-based tests with sample real-world files — _partial: files written by openpyxl, python-docx, python-pptx and Python's zipfile (`fixtures/office/`). No real-world corpus yet, since that needs files from you_
 - [x] Verify no new Apache-only transitive deps arrive via interop — _the license gate runs on the resolved closure, which includes interop, and passes_
 
 **Milestone 5:** Open a real `.docx`/`.xlsx` and get a usable editable document.
@@ -194,13 +194,13 @@ Legend: `[ ]` todo · `[x]` done
 
 ## Cross-cutting: Testing & Determinism
 
-- [ ] Golden/byte-identical render tests: native vs WASM vs PDF — _partial: golden JSON compared across OSes in CI; no WASM or PDF comparison_
+- [ ] Golden/byte-identical render tests: native vs WASM vs PDF — _partial: golden JSON compared across OSes in CI; the slide SVG is compared byte for byte with a golden file; no WASM or PDF comparison_
 - [x] Determinism CI job (run on Linux/Windows/macOS and compare hashes) — _in `.github/workflows/ci.yml`; not yet run on GitHub_
 - [x] Property tests for CRDT convergence — _text RGA (three replicas, 200 rounds; 20,000 ran clean) and block tree (150 rounds; 5,000 ran clean), with random edits, out-of-order delivery, and an acyclicity check after every step_
-- [ ] Fuzzing: Markdown/.cdx parser, math parser, deserializer — _seeded mutation tests for all three: Markdown (`tpt-codex-markdown/tests/mutation.rs`), math (`tpt-typeset/tests/mutation.rs`) and document JSON (`tpt-codex-core/tests/json_mutation.rs`). Default runs are 4k, 20k and 5k inputs; 300k, 300k and 200k ran clean. No cargo-fuzz harness yet_
+- [ ] Fuzzing: Markdown/.cdx parser, math parser, deserializer — _seeded mutation tests for Markdown (now including citations and footnotes), math, document JSON, and CSL-JSON (`tpt-typeset/tests/mutation_csl.rs`). No cargo-fuzz harness yet; that needs a nightly toolchain and libFuzzer_
 - [x] Benchmarks: layout, eval, large documents — _`tpt-codex-views/examples/bench_layout.rs` (layout and pagination) and `tpt-codex-grid/examples/bench_eval.rs` (full and incremental evaluation; 1,000 rows: 6.4 ms full, 0.9 ms after one input)_
 - [x] Test fixtures / sample documents repo dir — _`fixtures/` with a sample and its golden JSON_
-- [ ] Per-phase milestone acceptance tests — _partial: Milestone 0 covered; Milestone 1's headless path (typing with a caret, undo, equation block, save and reload) covered; its UI and Milestones 2 to 5 blocked_
+- [ ] Per-phase milestone acceptance tests — _partial: Milestone 0 covered; Milestone 1's headless path covered; Milestone 2 covered up to the page (Markdown, math, cross-references, footnotes, citations; PDF blocked); Milestone 4 covered (two people editing text and live grids through the relay); Milestone 5 covered (a real `.docx` and `.xlsx` opened, edited, written and read back). Milestone 3 is blocked on PDF_
 
 ## Release (minimal)
 - [x] Versioning policy (`0.1.0-spec` → `0.1.0`) — _`docs/versioning.md`_
