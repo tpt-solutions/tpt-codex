@@ -23,6 +23,7 @@ mod selection;
 mod sheet;
 mod text;
 mod text_crdt;
+mod tree_crdt;
 
 pub use block::{Block, Query};
 pub use document::{Document, Metadata, SCHEMA_VERSION};
@@ -38,3 +39,6 @@ pub use sheet::{
 };
 pub use text::{edit_text, replace_chars};
 pub use text_crdt::{Stamp, TextCrdt, TextCrdtError, TextOp, materialize};
+pub use tree_crdt::{
+    NodeId, ROOT, TRASH, TreeCrdt, TreeError, TreeOp, key_between, project_document,
+};
