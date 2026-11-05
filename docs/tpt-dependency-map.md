@@ -16,7 +16,7 @@ unverified against the audit items in [todo.md](../todo.md).
 | `tpt-lattice-import-xlsx`, `-export-xlsx` | Replaced by in-house `archive` and `xlsx` in `tpt-codex-interop`; not used | — | no |
 | `tpt-lattice-parser`, `-crdt`, `-wasm` | Pulled in by the evaluator (parser); the others are not used yet | — | parser: gate only |
 | `tpt-replicate` | Offline-first CRDT sync. Gate clean, but its CRDT types come from its own `stubs` module, so not adopted. Text CRDT written in `tpt-codex-core` instead | core (phase 4) | no |
-| `tpt-appfront-core`, `-html`, `-dom` | UI tree, HTML rendering, and WASM DOM mount. **Wired in** (`tpt-codex-app`, pinned `6146526`) | app | yes (gate) |
+| `tpt-appfront-core`, `-html`, `-dom` | UI tree, HTML rendering, and WASM DOM mount. **Wired in** (`tpt-codex-app`, pinned `5d5dfd6`) | app | yes (gate) |
 | `tpt-appfront-canvas`, `-webview` | Native desktop backends. Fail the gate (GUI stacks) | — | no |
 | `tpt-doc-word`, `-spreadsheet` | Office import. Fail the gate (`zopfli`, and `ryu` for spreadsheet) | — | no |
 | `tpt-doc-core`, `-pdf`, `-convert` | Office document crates. Gate OK, not yet wired in | — | gate only |
