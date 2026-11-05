@@ -29,6 +29,14 @@ pub enum ValidationError {
         /// The text block.
         block: BlockId,
     },
+    /// A frame is recorded for a block that does not exist.
+    FrameOfMissingBlock(BlockId),
+    /// A frame has a non-finite edge or a negative size.
+    InvalidFrame(BlockId),
+    /// A canvas is recorded for a block that is not an absolute container.
+    CanvasNotAbsolute(BlockId),
+    /// A canvas has a non-finite or non-positive size.
+    InvalidCanvas(BlockId),
     /// A `Block::Grid` refers to a sheet that does not exist.
     MissingSheet {
         /// The grid block.
@@ -71,6 +79,20 @@ impl fmt::Display for ValidationError {
                 "text block {} has an inline run outside its text or with no characters",
                 block.0
             ),
+            Self::FrameOfMissingBlock(id) => {
+                write!(
+                    f,
+                    "a frame is recorded for block {} which does not exist",
+                    id.0
+                )
+            }
+            Self::InvalidFrame(id) => write!(f, "block {} has an invalid frame", id.0),
+            Self::CanvasNotAbsolute(id) => write!(
+                f,
+                "block {} has a canvas but is not an absolute container",
+                id.0
+            ),
+            Self::InvalidCanvas(id) => write!(f, "block {} has an invalid canvas size", id.0),
             Self::MissingSheet { block, sheet } => write!(
                 f,
                 "grid block {} refers to missing sheet {}",

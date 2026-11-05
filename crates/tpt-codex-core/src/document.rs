@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::block::Block;
 use crate::error::ValidationError;
 use crate::id::{BlockId, SheetId};
+use crate::primitives::{Canvas, LayoutMode, Rect};
 use crate::sheet::{CellInput, Sheet, is_formula_source, is_valid_address};
 
 /// The schema version written by this build.
@@ -50,6 +51,14 @@ pub struct Document {
     /// Live grids referenced by `Block::Grid`. Absent from the JSON when there are none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sheets: BTreeMap<SheetId, Sheet>,
+    /// Position and size of children inside an absolute container, in points, keyed by the
+    /// child. Absent from the JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub frames: BTreeMap<BlockId, Rect>,
+    /// Canvas sizes of absolute containers (slides), keyed by the container. Absent from the
+    /// JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub canvases: BTreeMap<BlockId, Canvas>,
 }
 
 impl Document {
@@ -63,6 +72,8 @@ impl Document {
             root: root_id,
             blocks,
             sheets: BTreeMap::new(),
+            frames: BTreeMap::new(),
+            canvases: BTreeMap::new(),
         }
     }
 
@@ -132,6 +143,29 @@ impl Document {
                         sheet: *sheet_id,
                     });
                 }
+            }
+        }
+        for (&block, frame) in &self.frames {
+            if !self.blocks.contains_key(&block) {
+                return Err(ValidationError::FrameOfMissingBlock(block));
+            }
+            if !frame.is_valid() {
+                return Err(ValidationError::InvalidFrame(block));
+            }
+        }
+        for (&block, canvas) in &self.canvases {
+            let absolute = matches!(
+                self.blocks.get(&block),
+                Some(Block::Container {
+                    layout_mode: LayoutMode::Absolute,
+                    ..
+                })
+            );
+            if !absolute {
+                return Err(ValidationError::CanvasNotAbsolute(block));
+            }
+            if !canvas.is_valid() {
+                return Err(ValidationError::InvalidCanvas(block));
             }
         }
         for (&block, data) in &self.blocks {

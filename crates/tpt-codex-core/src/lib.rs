@@ -32,7 +32,7 @@ pub use history::History;
 pub use id::{BlockId, SheetId};
 pub use ops::{EditError, Op, apply, changed_blocks};
 pub use platform::{Clock, FixedClock, MemoryStorage, Storage};
-pub use primitives::{InlineRun, LayoutMode, MediaSource, Rect, TextStyle};
+pub use primitives::{Canvas, InlineRun, LayoutMode, MediaSource, Rect, TextStyle};
 pub use selection::{Movement, Selection, delete_backward, delete_forward, insert_text};
 pub use sheet::{
     CellInput, Sheet, address_of, address_position, is_formula_source, is_valid_address,

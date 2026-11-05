@@ -18,6 +18,7 @@ use alloc::string::String;
 use crate::block::Block;
 use crate::document::Document;
 use crate::id::{BlockId, SheetId};
+use crate::primitives::{Canvas, LayoutMode, Rect};
 use crate::sheet::{CellInput, Sheet, is_formula_source, is_valid_address};
 
 /// One change to a document. Child positions are indices into a container's `children`.
@@ -74,6 +75,20 @@ pub enum Op {
         id: SheetId,
         /// The new sheet, or `None` to remove it.
         sheet: Option<Sheet>,
+    },
+    /// Set or clear the frame of a child of an absolute container. `None` clears it.
+    SetFrame {
+        /// The child block.
+        id: BlockId,
+        /// The new frame in points, or `None` to clear it.
+        frame: Option<Rect>,
+    },
+    /// Set or clear the canvas size of an absolute container. `None` clears it.
+    SetCanvas {
+        /// The container.
+        id: BlockId,
+        /// The new canvas size, or `None` to clear it.
+        canvas: Option<Canvas>,
     },
     /// Move a reference from one position to another, possibly in another container.
     MoveChild {
@@ -139,6 +154,13 @@ pub enum EditError {
         /// A grid block that displays it.
         block: BlockId,
     },
+    /// A frame was set on a block that is not a child of an absolute container, or a canvas on a
+    /// container that is not absolute.
+    NotAbsolute(BlockId),
+    /// A frame or canvas has a non-finite edge, or a negative or zero size.
+    InvalidGeometry(BlockId),
+    /// The block has a frame or canvas, so it cannot be removed or changed to another layout.
+    IsPositioned(BlockId),
     /// A character range is outside the text.
     RangeOutOfBounds {
         /// The block being edited.
@@ -178,6 +200,17 @@ impl fmt::Display for EditError {
             Self::SheetReferenced { id, block } => {
                 write!(f, "sheet {} is still displayed by block {}", id.0, block.0)
             }
+            Self::NotAbsolute(id) => write!(
+                f,
+                "block {} is not a child of an absolute container, or not an absolute container",
+                id.0
+            ),
+            Self::InvalidGeometry(id) => write!(f, "block {} has an invalid frame or size", id.0),
+            Self::IsPositioned(id) => write!(
+                f,
+                "block {} has a frame or canvas; clear it before changing the block",
+                id.0
+            ),
             Self::RangeOutOfBounds { id, len } => write!(
                 f,
                 "character range is outside block {} (text length {len})",
@@ -203,6 +236,7 @@ impl Op {
             Op::InsertChild { parent, .. } | Op::RemoveChild { parent, .. } => {
                 alloc::vec![*parent]
             }
+            Op::SetFrame { id, .. } | Op::SetCanvas { id, .. } => alloc::vec![*id],
             Op::SetCell { .. } | Op::SetSheet { .. } => Vec::new(),
             Op::MoveChild {
                 from_parent,
@@ -235,6 +269,9 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
             if *id == doc.root {
                 return Err(EditError::IsRoot(*id));
             }
+            if doc.frames.contains_key(id) || doc.canvases.contains_key(id) {
+                return Err(EditError::IsPositioned(*id));
+            }
             let block = doc
                 .blocks
                 .get(id)
@@ -253,6 +290,9 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
                 .ok_or(EditError::NoSuchBlock(*id))?
                 .clone();
             check_children_exist(doc, block)?;
+            if doc.canvases.contains_key(id) && !is_absolute(block) {
+                return Err(EditError::IsPositioned(*id));
+            }
             for &child in children_of(block) {
                 if reaches(doc, child, *id) {
                     return Err(EditError::WouldCreateCycle { parent: *id, child });
@@ -324,6 +364,44 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
             Ok(Op::SetSheet {
                 id: *id,
                 sheet: previous,
+            })
+        }
+        Op::SetFrame { id, frame } => {
+            if !doc.blocks.contains_key(id) {
+                return Err(EditError::NoSuchBlock(*id));
+            }
+            let parent = referencing_parent(doc, *id).ok_or(EditError::NotAbsolute(*id))?;
+            let absolute = doc.blocks.get(&parent).is_some_and(is_absolute);
+            if !absolute {
+                return Err(EditError::NotAbsolute(*id));
+            }
+            if frame.is_some_and(|f| !f.is_valid()) {
+                return Err(EditError::InvalidGeometry(*id));
+            }
+            let previous = match frame {
+                Some(new) => doc.frames.insert(*id, *new),
+                None => doc.frames.remove(id),
+            };
+            Ok(Op::SetFrame {
+                id: *id,
+                frame: previous,
+            })
+        }
+        Op::SetCanvas { id, canvas } => {
+            let block = doc.blocks.get(id).ok_or(EditError::NoSuchBlock(*id))?;
+            if !is_absolute(block) {
+                return Err(EditError::NotAbsolute(*id));
+            }
+            if canvas.is_some_and(|c| !c.is_valid()) {
+                return Err(EditError::InvalidGeometry(*id));
+            }
+            let previous = match canvas {
+                Some(new) => doc.canvases.insert(*id, *new),
+                None => doc.canvases.remove(id),
+            };
+            Ok(Op::SetCanvas {
+                id: *id,
+                canvas: previous,
             })
         }
         Op::SetCell {
@@ -456,6 +534,17 @@ fn reaches(doc: &Document, from: BlockId, target: BlockId) -> bool {
 }
 
 /// Returns a container that references `id`, if any.
+/// Whether `block` is a container that places its children by explicit position.
+fn is_absolute(block: &Block) -> bool {
+    matches!(
+        block,
+        Block::Container {
+            layout_mode: LayoutMode::Absolute,
+            ..
+        }
+    )
+}
+
 fn referencing_parent(doc: &Document, id: BlockId) -> Option<BlockId> {
     doc.blocks
         .iter()

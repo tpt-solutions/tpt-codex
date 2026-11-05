@@ -16,6 +16,45 @@ pub struct Rect {
     pub height: f64,
 }
 
+impl Rect {
+    /// Whether every edge is finite and the size is non-negative.
+    pub fn is_valid(&self) -> bool {
+        self.x.is_finite()
+            && self.y.is_finite()
+            && self.width.is_finite()
+            && self.height.is_finite()
+            && self.width >= 0.0
+            && self.height >= 0.0
+    }
+}
+
+/// The size of a canvas (a slide) in points. Children of an absolute container are placed on it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Canvas {
+    /// Width (positive).
+    pub width: f64,
+    /// Height (positive).
+    pub height: f64,
+}
+
+impl Canvas {
+    /// A 16:9 canvas, 960 points wide.
+    pub const WIDESCREEN: Canvas = Canvas {
+        width: 960.0,
+        height: 540.0,
+    };
+
+    /// Whether both sides are finite and positive.
+    pub fn is_valid(&self) -> bool {
+        self.width.is_finite() && self.height.is_finite() && self.width > 0.0 && self.height > 0.0
+    }
+
+    /// Width divided by height. A canvas keeps its aspect ratio for as long as it is not resized.
+    pub fn aspect(&self) -> f64 {
+        self.width / self.height
+    }
+}
+
 /// Character and paragraph styling for a `Block::Text`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextStyle {
