@@ -7,6 +7,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `tpt-codex-text` crate: text measurement with the bundled Noto Sans Regular (OFL), shaped by
+  `tpt-text`. It implements the Flow view's `TextMeasure` and `tpt-layout`'s `TextMeasurer`. The
+  Flow view and pagination are tested on the fixture with it.
+- Inline runs: `TextStyle.runs` holds emphasis and links on character ranges. Edits move them with
+  the text. Markdown reads and writes `*em*`, `**strong**`, `[text](address)` and backslash escapes
+  in paragraphs, headings and list items.
+- Canvas and frame model: `Document.canvases` (slide sizes, `Canvas::WIDESCREEN` is 16:9) and
+  `Document.frames` (child rectangles in absolute containers), with undoable `SetCanvas` and
+  `SetFrame` ops and validation.
+- Grid pagination: each grid row is a flow item, so pages break between rows, and
+  `FlowOptions.header_rows` repeats the leading rows on continuation pages.
+- `tpt-codex-core::sync`: `Replica` (tree and text CRDTs with an outbox, acknowledgements,
+  de-duplication and held out-of-order operations), a `Transport` trait, and presence cursors. No
+  network transport or server is included.
+- `Block::Query` source is editable in the editor (`EditQuery`); a source that does not run is
+  rejected.
 - `tpt-codex-core` caret and selection model (`Selection`): caret movement, insert over a range,
   backspace and delete. Each edit is one undoable step. Positions count characters.
 - `History::last_changed` and `changed_blocks`: the blocks a step changed, for rebuilding only the

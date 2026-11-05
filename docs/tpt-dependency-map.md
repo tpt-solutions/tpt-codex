@@ -9,8 +9,8 @@ unverified against the audit items in [todo.md](../todo.md).
 | Crate(s) | Role in tpt-codex | Used by | Verified? |
 | --- | --- | --- | --- |
 | `tpt-model` | Schema and model primitives. **Blocked:** four `*-stub` crates are unconditional normal dependencies (see audit) | core | no |
-| `tpt-text` | Text shaping (self_cell fix on GitHub master, `83bc13c`). Not wired in: needs a font decision | views, typeset | no |
-| `tpt-layout` | Flow layout, pagination, box trees. Not wired in yet | views, typeset | no |
+| `tpt-text` | Text shaping, pinned `83bc13c`. **Wired in** through `tpt-codex-text`, with the bundled Noto Sans Regular (the font decision) | text (measure) | yes (gate) |
+| `tpt-layout` | Box, flow and page layout, pinned `21361d1`. **Wired in** through `tpt-codex-text` (its `TextMeasurer`). The Flow view does not use its engine yet | text | yes (gate) |
 | `tpt-canvas`, `tpt-canvas-pdf` | Drawing commands; the PDF backend lives inside the `tpt-canvas` repo. Not wired in: PDF glyph runs are placeholders upstream | views, typeset, app | no |
 | `tpt-lattice-core`, `-evaluator` | Live grids and LES formulas. **Wired in** (`tpt-codex-grid`, pinned `d723321`). The evaluator is std-only | grid | yes (gate) |
 | `tpt-lattice-import-xlsx`, `-export-xlsx` | Replaced by in-house `archive` and `xlsx` in `tpt-codex-interop`; not used | — | no |
