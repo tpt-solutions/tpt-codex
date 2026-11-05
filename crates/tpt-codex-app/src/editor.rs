@@ -12,6 +12,7 @@ use tpt_codex_core::{
     Sheet, SheetId, delete_backward, delete_forward, insert_text, is_valid_address,
 };
 use tpt_codex_grid::{CellResult, evaluate_sheet};
+use tpt_typeset::{document_entities, run_query};
 
 /// Something the user did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +35,14 @@ pub enum Msg {
         address: String,
         /// The text typed into the cell.
         text: String,
+    },
+    /// Replace the source of a query block. A source that does not parse or run is rejected,
+    /// and the document is unchanged.
+    EditQuery {
+        /// The query block to change.
+        block: BlockId,
+        /// The new query source (JSON).
+        source: String,
     },
     /// Select a grid cell, so that arrow keys move from it. Ignored if the cell is outside
     /// the sheet's extent or the sheet does not exist.
@@ -156,6 +165,7 @@ impl Editor {
                 address,
                 text,
             } => self.edit_cell(sheet, &address, &text),
+            Msg::EditQuery { block, source } => self.edit_query(block, source),
             Msg::InsertTable { rows, cols } => self.insert_table(rows, cols),
             Msg::Undo => {
                 let r = self.history.undo(&mut self.doc).map(|_| ());
@@ -234,6 +244,26 @@ impl Editor {
                     sheet,
                     address: address.to_string(),
                     input,
+                }],
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    fn edit_query(&mut self, block: BlockId, source: String) -> Result<(), String> {
+        if !matches!(self.doc.get(block), Some(Block::Query(_))) {
+            return Err("that block is not a query".to_string());
+        }
+        let query = tpt_codex_core::Query {
+            source: source.clone(),
+        };
+        let entities = document_entities(&self.doc);
+        run_query(&query, &entities).map_err(|e| e.to_string())?;
+        self.history
+            .commit(
+                &mut self.doc,
+                vec![Op::SetBlock {
+                    id: block,
+                    block: Block::Query(query),
                 }],
             )
             .map_err(|e| e.to_string())
@@ -376,10 +406,50 @@ impl Editor {
                     c.text("(missing sheet)").class("grid");
                 }
             },
-            Block::Query(_) => {
-                c.text("(query)").class("query");
-            }
+            Block::Query(query) => self.view_query(c, id, query),
             Block::Container { .. } => {}
+        }
+    }
+
+    /// A query shows one line for each block it matches, or why it could not run. The query runs
+    /// over a snapshot of the document, so it sees the current text.
+    fn view_query(
+        &self,
+        c: &mut ContainerBuilder<Msg>,
+        id: BlockId,
+        query: &tpt_codex_core::Query,
+    ) {
+        let source = query.source.clone();
+        c.input(source)
+            .aria("label", "query source")
+            .on_input(move |source| Msg::EditQuery { block: id, source })
+            .class("query-source");
+        let entities = document_entities(&self.doc);
+        let json = match run_query(query, &entities) {
+            Ok(json) => json,
+            Err(e) => {
+                c.text(e.to_string()).class("query query-error");
+                return;
+            }
+        };
+        let rows: Vec<serde_json::Value> = match serde_json::from_str(&json) {
+            Ok(rows) => rows,
+            Err(e) => {
+                c.text(format!("query result is not a list of rows: {e}"))
+                    .class("query query-error");
+                return;
+            }
+        };
+        if rows.is_empty() {
+            c.text("(no matching blocks)").class("query");
+            return;
+        }
+        for row in rows {
+            let id = row.get("id").and_then(serde_json::Value::as_u64);
+            let line = id
+                .and_then(|id| self.doc.get(BlockId(id)))
+                .map_or_else(|| "(unknown block)".to_string(), block_text);
+            c.text(line).class("query query-row");
         }
     }
 
@@ -500,6 +570,21 @@ fn raw_text(input: &CellInput) -> String {
         CellInput::Text { value } => value.clone(),
         CellInput::Boolean { value } => if *value { "TRUE" } else { "FALSE" }.to_string(),
         CellInput::Formula { source } => source.clone(),
+    }
+}
+
+/// The text a block shows when a query lists it.
+fn block_text(block: &Block) -> String {
+    match block {
+        Block::Text { content, .. } => content.clone(),
+        Block::Code { code, .. } => code.clone(),
+        Block::Math { source } => format!("$$ {source} $$"),
+        Block::List { .. } => "(list)".to_string(),
+        Block::Grid { .. } => "(grid)".to_string(),
+        Block::Media { .. } => "(media)".to_string(),
+        Block::Query(_) => "(query)".to_string(),
+        Block::ThematicBreak => "—————".to_string(),
+        Block::Container { .. } => "(container)".to_string(),
     }
 }
 

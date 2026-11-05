@@ -416,9 +416,128 @@ fn grid_cells_select_themselves_and_arrows_move_the_selection() {
     // Arrow keys become movement messages; other keys are left to the browser.
     let on_keydown = b2.meta.on_keydown.as_ref().expect("keydown handler");
     assert_eq!(on_keydown(key("ArrowUp")), Some(Msg::MoveCell(Arrow::Up)));
-    assert_eq!(on_keydown(key("ArrowLeft")), Some(Msg::MoveCell(Arrow::Left)));
+    assert_eq!(
+        on_keydown(key("ArrowLeft")),
+        Some(Msg::MoveCell(Arrow::Left))
+    );
     assert_eq!(on_keydown(key("a")), None);
 
     e.update(Msg::MoveCell(Arrow::Up));
     assert_eq!(e.cell().map(|c| (c.col, c.row)), Some((2, 1)));
+}
+
+fn query_doc(source: &str) -> Document {
+    let mut d = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: vec![BlockId(1), BlockId(2), BlockId(3)],
+        },
+    );
+    d.insert(
+        BlockId(1),
+        Block::Text {
+            content: "Alpha".into(),
+            style: TextStyle::default(),
+        },
+    );
+    d.insert(
+        BlockId(2),
+        Block::Text {
+            content: "Title".into(),
+            style: TextStyle {
+                bold: false,
+                italic: false,
+                heading_level: Some(1),
+                runs: Vec::new(),
+            },
+        },
+    );
+    d.insert(
+        BlockId(3),
+        Block::Query(tpt_codex_core::Query {
+            source: source.into(),
+        }),
+    );
+    d
+}
+
+#[test]
+fn query_blocks_show_the_blocks_they_match() {
+    // Entity type 1 is a paragraph, so only "Alpha" matches.
+    let e = Editor::new(query_doc(
+        r#"{"source":1,"filters":[{"Eq":{"field":"kind","value":"paragraph"}}]}"#,
+    ));
+    let html = render(&e.view());
+    assert!(html.contains("query-row"), "{html}");
+    assert!(html.contains("Alpha"), "{html}");
+    // "Title" is in the document as a heading, but the query must not list it.
+    assert!(!html.contains(r#"query-row">Title"#), "{html}");
+}
+
+#[test]
+fn query_blocks_show_why_they_cannot_run() {
+    let e = Editor::new(query_doc("not a query"));
+    let html = render(&e.view());
+    assert!(html.contains("query-error"), "{html}");
+    assert!(html.contains("not valid JSON"), "{html}");
+}
+
+#[test]
+fn query_with_no_matches_says_so() {
+    let e = Editor::new(query_doc(
+        r#"{"source":6,"filters":[{"Eq":{"field":"kind","value":"paragraph"}}]}"#,
+    ));
+    let html = render(&e.view());
+    assert!(html.contains("no matching blocks"), "{html}");
+}
+
+const PARAGRAPHS_ONLY: &str =
+    r#"{"source":1,"filters":[{"Eq":{"field":"kind","value":"paragraph"}}]}"#;
+
+#[test]
+fn a_valid_query_edit_is_applied_and_undoable() {
+    let mut e = Editor::new(query_doc("not a query"));
+    e.update(Msg::EditQuery {
+        block: BlockId(3),
+        source: PARAGRAPHS_ONLY.into(),
+    });
+    assert_eq!(e.status(), None);
+    let html = render(&e.view());
+    assert!(html.contains("query-row"), "{html}");
+    assert!(html.contains("Alpha"), "{html}");
+
+    e.update(Msg::Undo);
+    let html = render(&e.view());
+    assert!(html.contains("query-error"), "{html}");
+}
+
+#[test]
+fn a_bad_query_edit_is_rejected_and_changes_nothing() {
+    let mut e = Editor::new(query_doc(PARAGRAPHS_ONLY));
+    e.update(Msg::EditQuery {
+        block: BlockId(3),
+        source: "{".into(),
+    });
+    assert!(e.status().is_some());
+    let html = render(&e.view());
+    assert!(html.contains("Alpha"), "{html}");
+    assert!(!html.contains("query-error"), "{html}");
+}
+
+#[test]
+fn query_edits_only_target_query_blocks() {
+    let mut e = Editor::new(query_doc(PARAGRAPHS_ONLY));
+    e.update(Msg::EditQuery {
+        block: BlockId(1),
+        source: PARAGRAPHS_ONLY.into(),
+    });
+    assert_eq!(e.status(), Some("that block is not a query"));
+}
+
+#[test]
+fn query_source_is_shown_in_an_editable_input() {
+    let e = Editor::new(query_doc(PARAGRAPHS_ONLY));
+    let html = render(&e.view());
+    assert!(html.contains("query-source"), "{html}");
 }
