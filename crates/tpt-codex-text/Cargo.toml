@@ -1,0 +1,21 @@
+[package]
+name = "tpt-codex-text"
+description = "Font-backed text measurement for tpt-codex: bundled fonts, shaped by tpt-text (std)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tpt-codex-core.workspace = true
+tpt-codex-views.workspace = true
+tpt-text.workspace = true
+tpt-layout.workspace = true
+
+[dev-dependencies]
+tpt-codex-markdown.workspace = true
+
+[lints]
+workspace = true
