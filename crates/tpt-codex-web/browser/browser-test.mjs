@@ -128,6 +128,26 @@ await page.getByRole("button", { name: "Stop presenting" }).click();
 await page.waitForTimeout(150);
 check("stop returns to the document", (await page.locator(".presenter").count()) === 0);
 
+// Selecting a word with the keyboard and typing replaces it.
+await page.locator(".para, textarea.paragraph-input").first().click();
+const para2 = page.getByRole("textbox", { name: "paragraph" });
+await para2.click();
+await page.keyboard.press("Home");
+for (let i = 0; i < 7; i++) await page.keyboard.press("ArrowRight"); // before "bold"
+for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight"); // select "bold"
+await page.keyboard.type("BOLD");
+await page.waitForTimeout(200);
+const replaced = await page.getByRole("textbox", { name: "paragraph" }).inputValue().catch(() => "");
+check("typing over a keyboard selection replaces it", replaced.startsWith("Plain, BOLD, and a link."), `value=${JSON.stringify(replaced)}`);
+
+// The pages view shows the document as pages, and goes back to editing.
+await page.getByRole("button", { name: "Pages" }).click();
+await page.waitForTimeout(150);
+check("pages view draws pages", (await page.locator(".page").count()) >= 1);
+await page.getByRole("button", { name: "Back to editing" }).click();
+await page.waitForTimeout(150);
+check("back to editing restores the editor", (await page.locator(".page").count()) === 0 && (await page.getByRole("button", { name: "Insert table" }).count()) === 1);
+
 check("no page errors", errors.length === 0, errors.join(" | "));
 await browser.close();
 

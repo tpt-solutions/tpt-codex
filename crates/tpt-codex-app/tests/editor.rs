@@ -988,3 +988,17 @@ fn inline_math_runs_are_drawn_as_math() {
     let html = render(&Editor::new(d).view());
     assert!(html.contains("math-inline"), "{html}");
 }
+
+#[test]
+fn the_pages_view_is_a_switch_from_editing() {
+    let mut e = Editor::new(doc());
+    let html = render(&e.view());
+    assert!(html.contains("Pages"), "{html}");
+    assert!(!html.contains("class=\"page\""), "{html}");
+    e.update(Msg::SetPaginated { on: true });
+    let pages = render(&e.view());
+    assert!(pages.contains("class=\"page\""), "{pages}");
+    assert!(pages.contains("Back to editing"), "{pages}");
+    e.update(Msg::SetPaginated { on: false });
+    assert!(!render(&e.view()).contains("class=\"page\""));
+}

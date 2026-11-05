@@ -74,6 +74,11 @@ pub enum Msg {
     },
     /// Leave presenter mode and show the whole document.
     StopPresenting,
+    /// Show the document as pages (`true`) or as the editable flow (`false`).
+    SetPaginated {
+        /// Whether to show pages.
+        on: bool,
+    },
     /// Mark the presenter stage as full screen. The host makes the browser go full screen when
     /// this changes; the editor only records it, and draws the stage with a `fullscreen` class.
     SetFullscreen {
@@ -195,6 +200,8 @@ pub struct Editor {
     /// The slide being shown in presenter mode, as an index into the slides. `None` shows the
     /// whole document.
     presenting: Option<usize>,
+    /// Whether the document is shown as pages rather than as the editable flow.
+    paginated: bool,
     /// Whether the presenter stage is full screen.
     fullscreen: bool,
     /// Other people's carets, drawn in their paragraphs.
@@ -223,6 +230,7 @@ impl Editor {
             status: None,
             table_size: (3, 3),
             presenting: None,
+            paginated: false,
             fullscreen: false,
             remote_cursors: Vec::new(),
         }
@@ -295,6 +303,10 @@ impl Editor {
                     self.presenting = Some(index.min(count - 1));
                     Ok(())
                 }
+            }
+            Msg::SetPaginated { on } => {
+                self.paginated = on;
+                Ok(())
             }
             Msg::StopPresenting => {
                 self.presenting = None;
@@ -822,6 +834,31 @@ impl Editor {
         if let Some(index) = self.presenting {
             return self.view_presenter(index);
         }
+        if self.paginated {
+            // A4-like page of 450 points of text width, with 20-point rows and a footer.
+            let measure = tpt_codex_views::MonospaceMeasure {
+                char_width: 6.0,
+                line_height: 14.0,
+            };
+            let flow = FlowOptions {
+                width: 450.0,
+                block_spacing: 8.0,
+                box_height: 40.0,
+                row_height: 20.0,
+            };
+            return match self.paginated_view_for_class(&measure, flow) {
+                Ok(pages) => UITree::container(|c| {
+                    c.button("Back to editing")
+                        .on_click(Msg::SetPaginated { on: false });
+                    c.with(pages);
+                }),
+                Err(message) => UITree::container(|c| {
+                    c.button("Back to editing")
+                        .on_click(Msg::SetPaginated { on: false });
+                    styled_text(c, message, "status");
+                }),
+            };
+        }
         let children = match self.doc.get(self.doc.root) {
             Some(Block::Container { children, .. }) => children.clone(),
             _ => Vec::new(),
@@ -850,6 +887,7 @@ impl Editor {
             c.button("Insert table")
                 .on_click(Msg::InsertTable { rows, cols });
             c.button("Insert slide").on_click(Msg::InsertSlide);
+            c.button("Pages").on_click(Msg::SetPaginated { on: true });
             c.button("Present slides")
                 .on_click(Msg::StartPresenting { index: 0 });
             if let Some(status) = &self.status {
