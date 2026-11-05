@@ -423,8 +423,16 @@ fn writer_refuses_code_and_image_it_cannot_write_back_exactly() {
 #[test]
 fn list_item_text_in_a_paragraph_line_is_refused() {
     assert!(to_markdown(&doc_of(vec![para("intro\n1. x")])).is_err());
-    assert!(to_markdown(&doc_of(vec![para("intro\n***")])).is_err());
-    assert!(to_markdown(&doc_of(vec![para("intro\n![a](b)")])).is_err());
+}
+
+#[test]
+fn syntax_characters_in_paragraph_text_are_escaped_and_read_back() {
+    // Text that would read as a rule or an image is escaped, so it is written and read back as text.
+    for text in ["intro\n***", "a * b", "[x] and \\y", "intro\n![a](b)"] {
+        let doc = doc_of(vec![para(text)]);
+        let md = to_markdown(&doc).unwrap();
+        assert_eq!(from_markdown(&md).unwrap(), doc, "{md}");
+    }
 }
 
 #[test]
@@ -886,4 +894,31 @@ fn writer_refuses_math_that_would_not_read_back() {
 fn writer_refuses_paragraph_text_that_starts_math() {
     let doc = flow_of(vec![para("$$ not math")]);
     assert!(to_markdown(&doc).is_err());
+}
+
+#[test]
+fn inline_emphasis_and_links_read_into_runs_and_write_back() {
+    let md = "See *this* and **that**, or [the docs](https://example.test/docs).\n";
+    let doc = from_markdown(md).unwrap();
+    match doc.get(tpt_codex_core::BlockId(1)) {
+        Some(Block::Text { content, style }) => {
+            assert_eq!(content, "See this and that, or the docs.");
+            assert_eq!(style.runs.len(), 3);
+            assert!(style.runs[0].italic);
+            assert!(style.runs[1].bold);
+            assert_eq!(
+                style.runs[2].link.as_deref(),
+                Some("https://example.test/docs")
+            );
+        }
+        other => panic!("expected a paragraph, got {other:?}"),
+    }
+    assert_eq!(to_markdown(&doc).unwrap(), md);
+}
+
+#[test]
+fn an_unclosed_emphasis_marker_is_an_error_on_its_line() {
+    let err = from_markdown("first\n\nsecond *open\n").unwrap_err();
+    assert_eq!(err.line, 3);
+    assert!(err.suggestion.is_some());
 }

@@ -27,6 +27,7 @@
 extern crate alloc;
 
 mod error;
+mod inline;
 mod read;
 mod syntax;
 mod write;

@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use tpt_codex_core::{Block, BlockId, Document, LayoutMode, Metadata, TextStyle};
 
 use crate::error::ParseError;
+use crate::inline::parse_inline;
 use crate::syntax::{
     ListMarker, MathOpen, fence_closes, fence_open, heading, image_line, list_item, math_closes,
     math_open, thematic_break, unsupported,
@@ -68,7 +69,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
         }
 
         if line.trim().is_empty() {
-            open.close_paragraph(&mut b);
+            open.close_paragraph(&mut b)?;
             open.after_image = false;
             if open.list.is_some() {
                 open.list_blank = true;
@@ -94,7 +95,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                             "remove the blank lines between the items",
                         ));
                     }
-                    list.items.push(b.alloc(text_block(item.text)));
+                    list.items.push(b.alloc(text_block(item.text, lineno)?));
                     continue;
                 }
             }
@@ -105,9 +106,9 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "start the list at 1, or put a blank line before it",
                 ));
             }
-            open.close_paragraph(&mut b);
+            open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
-            open.list = Some(OpenList::start(&mut b, item));
+            open.list = Some(OpenList::start(&mut b, item, lineno)?);
             open.list_blank = false;
             continue;
         }
@@ -120,7 +121,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "use a plain language name such as rust",
                 ));
             }
-            open.close_paragraph(&mut b);
+            open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
             open.code = Some(OpenCode {
                 ch: fence.ch,
@@ -140,7 +141,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "write the math as $$, then the source lines, then $$",
                 )
             })?;
-            open.close_paragraph(&mut b);
+            open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
             match opener {
                 MathOpen::Single(source) => b.push_root(Block::Math {
@@ -159,14 +160,14 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "put a blank line between the text and the dashes, or use *** for a rule",
                 ));
             }
-            open.close_paragraph(&mut b);
+            open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
             b.push_root(Block::ThematicBreak);
             continue;
         }
 
         if let Some((level, text)) = heading(line) {
-            open.close_paragraph(&mut b);
+            open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
             if text.is_empty() {
                 return Err(error(
@@ -175,15 +176,17 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "add text after the hashes, or write a paragraph instead",
                 ));
             }
-            b.push_root(Block::Text {
-                content: String::from(text),
-                style: TextStyle {
+            let block = text_block_styled(
+                text,
+                lineno,
+                TextStyle {
                     bold: false,
                     italic: false,
                     heading_level: Some(level),
                     runs: Vec::new(),
                 },
-            });
+            )?;
+            b.push_root(block);
             continue;
         }
 
@@ -238,7 +241,10 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                 text.push('\n');
                 text.push_str(line);
             }
-            None => open.para = Some(String::from(*line)),
+            None => {
+                open.para = Some(String::from(*line));
+                open.para_line = lineno;
+            }
         }
     }
 
@@ -256,7 +262,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
             "close the block with a line containing only $$",
         ));
     }
-    open.close_paragraph(&mut b);
+    open.close_paragraph(&mut b)?;
     open.close_list(&mut b);
 
     let mut doc = Document::new(
@@ -282,11 +288,20 @@ fn error(line: usize, message: &str, suggestion: &'static str) -> ParseError {
     }
 }
 
-fn text_block(content: &str) -> Block {
-    Block::Text {
-        content: String::from(content),
-        style: TextStyle::default(),
-    }
+/// A text block read from the source line `line`. Inline marks are read here.
+fn text_block(content: &str, line: usize) -> Result<Block, ParseError> {
+    text_block_styled(content, line, TextStyle::default())
+}
+
+fn text_block_styled(content: &str, line: usize, style: TextStyle) -> Result<Block, ParseError> {
+    let inline = parse_inline(content).map_err(|e| error(line, e.message, e.suggestion))?;
+    Ok(Block::Text {
+        content: inline.text,
+        style: TextStyle {
+            runs: inline.runs,
+            ..style
+        },
+    })
 }
 
 /// Block ids are allocated in the order blocks are created. The root is `BlockId(0)`.
@@ -312,6 +327,8 @@ impl Builder {
 #[derive(Default)]
 struct Open {
     para: Option<String>,
+    /// The 1-based line where the open paragraph starts.
+    para_line: usize,
     list: Option<OpenList>,
     /// A blank line has been seen since the list's last item.
     list_blank: bool,
@@ -323,10 +340,12 @@ struct Open {
 }
 
 impl Open {
-    fn close_paragraph(&mut self, b: &mut Builder) {
+    fn close_paragraph(&mut self, b: &mut Builder) -> Result<(), ParseError> {
         if let Some(content) = self.para.take() {
-            b.push_root(text_block(&content));
+            let block = text_block(&content, self.para_line)?;
+            b.push_root(block);
         }
+        Ok(())
     }
 
     fn close_list(&mut self, b: &mut Builder) {
@@ -348,13 +367,13 @@ struct OpenList {
 }
 
 impl OpenList {
-    fn start(b: &mut Builder, item: ListMarker<'_>) -> Self {
-        let first = b.alloc(text_block(item.text));
-        OpenList {
+    fn start(b: &mut Builder, item: ListMarker<'_>, line: usize) -> Result<Self, ParseError> {
+        let first = b.alloc(text_block(item.text, line)?);
+        Ok(OpenList {
             key: item.key(),
             start: item.number,
             items: alloc::vec![first],
-        }
+        })
     }
 }
 

@@ -7,9 +7,8 @@ extensions (grids, canvases, math, citations) are not in this subset yet.
 The reader and the writer share the same line predicates (`src/syntax.rs`). A document the writer
 accepts reads back as the same document. The tests check this on a fixed fixture and on random input.
 
-The subset follows CommonMark for the constructs it reads, with two deliberate differences: inline
-Markdown is kept as literal text, and any construct whose reading would differ from CommonMark is an
-error rather than a silent change.
+The subset follows CommonMark for the constructs it reads. Its inline syntax is smaller than CommonMark's,
+and any construct whose reading would differ from CommonMark is an error rather than a silent change.
 
 ## Notation
 
@@ -61,8 +60,31 @@ para-line    = text-line ;                     (* must not start any block synta
 ```
 
 Lines in a paragraph and list items are kept exactly as written, apart from the trimming
-described below. Inline Markdown (`*emphasis*`, `[links](…)`, backticks) is kept as literal text.
-It is not parsed.
+described below. Inline Markdown is read in paragraphs, headings and list items (see Inline below).
+Other text is kept as written.
+
+### Inline
+
+```ebnf
+inline       = { plain | escape | emphasis | strong | link } ;
+escape       = "\" ASCII-punctuation ;      (* the punctuation character, literally *)
+emphasis     = "*" text-no-edge-space "*" ;  (* closes with one star *)
+strong       = "**" text-no-edge-space "**" ; (* closes with two stars *)
+link         = "[" link-text "](" address ")" ;
+link-text    = { plain | escape } ;          (* not empty; no unescaped * [ ] *)
+address      = text without spaces, parentheses, angle brackets or backslashes ;
+```
+
+- A `*` or `**` opens emphasis when the next character is not a space. It closes when the text
+  before it is not a space. An opening `**` is strong, and a `*` run of three after strong text
+  closes strong and opens emphasis, so `**a***b*` reads as strong `a` then emphasis `b`.
+- Emphasis does not nest, and a link cannot start inside emphasis. Bold together with italic on the
+  same text is not written yet.
+- A backslash before ASCII punctuation is an escape. Any other backslash is literal.
+- A lone `*` or `[` that the subset cannot close is an error, with the fix "escape it with a
+  backslash". It is never silently literal.
+- The writer escapes `*`, `[`, `]` and `\` where they would start syntax. It refuses what the
+  subset cannot express, such as a link inside emphasis or two addresses on one character.
 
 ### Lists
 
@@ -157,6 +179,6 @@ document already used that numbering.
 
 ## Not yet in the grammar
 
-Links, emphasis runs, block quotes, nested lists, loose lists, setext headings, tables,
-`::: grid`, `::: canvas`, inline math, citations, `[#ref]` cross-references, `{#fig:id}` attributes and
-footnotes. Emphasis and links need inline run support in the model first (see `todo.md`, Phase 2).
+Block quotes, nested lists, loose lists, setext headings, tables, `::: grid`, `::: canvas`, inline
+math, citations, `[#ref]` cross-references, `{#fig:id}` attributes, footnotes, and emphasis nested in
+links, links with titles, and bold combined with italic.

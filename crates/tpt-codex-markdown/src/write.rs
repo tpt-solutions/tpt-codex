@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 use tpt_codex_core::{Block, BlockId, Document, LayoutMode, MediaSource, Metadata, TextStyle};
 
 use crate::error::SerializeError;
+use crate::inline::write_inline;
 use crate::syntax::{MAX_LIST_NUMBER, image_line, list_item, math_closes, starts_block};
 
 /// Writes a [`Document`] as Markdown in the supported subset.
@@ -125,6 +126,7 @@ fn write_text(index: usize, content: &str, style: &TextStyle) -> Result<String, 
     if content.trim() != content {
         return Err(fail("leading or trailing spaces would be lost"));
     }
+    let escaped = write_inline(content, &style.runs).map_err(fail)?;
 
     if let Some(level) = style.heading_level {
         if !(1..=6).contains(&level) {
@@ -133,10 +135,10 @@ fn write_text(index: usize, content: &str, style: &TextStyle) -> Result<String, 
         if content.contains('\n') {
             return Err(fail("headings must be a single line"));
         }
-        return Ok(format!("{} {}", "#".repeat(level as usize), content));
+        return Ok(format!("{} {}", "#".repeat(level as usize), escaped));
     }
 
-    for line in content.split('\n') {
+    for line in escaped.split('\n') {
         if line.trim().is_empty() {
             return Err(fail("paragraphs cannot contain blank lines"));
         }
@@ -144,7 +146,7 @@ fn write_text(index: usize, content: &str, style: &TextStyle) -> Result<String, 
             return Err(fail("paragraph line would read back as other syntax"));
         }
     }
-    Ok(content.into())
+    Ok(escaped)
 }
 
 fn write_list(
@@ -195,11 +197,15 @@ fn write_list(
             index: Some(index),
             reason: format!("list item {} is missing", id.0),
         })?;
-        let content = match item {
-            Block::Text { content, style } if *style == TextStyle::default() => content,
-            _ => return Err(fail("list items must be plain text")),
+        let (text, style) = match item {
+            Block::Text { content, style } => (content, style),
+            _ => return Err(fail("list items must be text")),
         };
-        if content.is_empty() || content.trim() != content.as_str() {
+        if style.bold || style.italic || style.heading_level.is_some() {
+            return Err(fail("list items must be plain text"));
+        }
+        let content = text.as_str();
+        if content.is_empty() || content.trim() != content {
             return Err(fail(
                 "list items must be non-empty, without leading or trailing spaces",
             ));
@@ -207,8 +213,9 @@ fn write_list(
         if content.contains(['\n', '\r']) {
             return Err(fail("list items must be single lines"));
         }
+        let escaped = write_inline(content, &style.runs).map_err(fail)?;
         // "- - -" would read back as a thematic break, not as an item.
-        if content
+        if escaped
             .bytes()
             .all(|b| matches!(b, b'-' | b'*' | b'_' | b' '))
         {
@@ -217,12 +224,12 @@ fn write_list(
             ));
         }
         let line = if ordered {
-            format!("{}. {}", start + i as u32, content)
+            format!("{}. {}", start + i as u32, escaped)
         } else {
-            format!("- {content}")
+            format!("- {escaped}")
         };
         match list_item(&line) {
-            Some(marker) if marker.text == content.as_str() && marker.ordered == ordered => {}
+            Some(marker) if marker.text == escaped.as_str() && marker.ordered == ordered => {}
             _ => return Err(fail("list item would read back as other syntax")),
         }
         lines.push(line);
