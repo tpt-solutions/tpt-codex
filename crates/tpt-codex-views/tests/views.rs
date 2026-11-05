@@ -15,6 +15,8 @@ fn opts(width: f64) -> FlowOptions {
         width,
         block_spacing: 0.0,
         box_height: 50.0,
+        row_height: 20.0,
+        header_rows: 0,
     }
 }
 
@@ -51,7 +53,7 @@ fn lines_of(layout: &FlowLayout) -> Vec<String> {
         .iter()
         .filter_map(|item| match &item.kind {
             FlowKind::Line { text, .. } => Some(text.clone()),
-            FlowKind::Box => None,
+            FlowKind::Box | FlowKind::GridRow { .. } => None,
         })
         .collect()
 }

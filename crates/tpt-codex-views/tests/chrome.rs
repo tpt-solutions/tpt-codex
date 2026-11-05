@@ -46,6 +46,8 @@ fn chrome_is_rendered_for_every_page() {
             width: 10.0,
             block_spacing: 0.0,
             box_height: 0.0,
+            row_height: 20.0,
+            header_rows: 0,
         },
     )
     .unwrap();

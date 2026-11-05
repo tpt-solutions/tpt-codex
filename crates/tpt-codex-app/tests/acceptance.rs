@@ -54,6 +54,8 @@ fn markdown_to_pages_and_back() {
             width: 240.0,
             block_spacing: 8.0,
             box_height: 40.0,
+            row_height: 20.0,
+            header_rows: 0,
         },
     )
     .unwrap();

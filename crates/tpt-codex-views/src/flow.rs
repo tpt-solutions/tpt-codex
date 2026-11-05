@@ -4,7 +4,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use tpt_codex_core::{Block, BlockId, Document, LayoutMode, TextStyle};
+use tpt_codex_core::{Block, BlockId, Document, LayoutMode, SheetId, TextStyle};
 
 use crate::measure::TextMeasure;
 
@@ -15,8 +15,14 @@ pub struct FlowOptions {
     pub width: f64,
     /// Space added after each block, in points.
     pub block_spacing: f64,
-    /// Height of a placeholder for blocks that are not text (grids, media, queries).
+    /// Height of a placeholder for blocks that are not text (media, queries, grids whose sheet
+    /// is missing).
     pub box_height: f64,
+    /// Height of one grid row, in points.
+    pub row_height: f64,
+    /// Number of leading grid rows that are headers. Pagination repeats them at the top of each
+    /// page that a grid continues onto.
+    pub header_rows: u32,
 }
 
 /// What a flow item draws.
@@ -31,6 +37,15 @@ pub enum FlowKind {
     },
     /// A non-text block, reserved as an opaque box.
     Box,
+    /// One row of a grid sheet. The cell values are the host's to draw.
+    GridRow {
+        /// The sheet the row belongs to.
+        sheet: SheetId,
+        /// 1-based row number.
+        row: u32,
+        /// Whether the row is a header, repeated on continuation pages.
+        header: bool,
+    },
 }
 
 /// A positioned piece of the flow.
@@ -137,6 +152,23 @@ fn flow_children(
                 ..
             } => {
                 flow_children(doc, id, measure, options, out)?;
+            }
+            Block::Grid { sheet_id, .. } if doc.sheets.contains_key(sheet_id) => {
+                let (rows, _) = doc.sheets[sheet_id].extent();
+                for row in 1..=rows {
+                    out.items.push(FlowItem {
+                        block: id,
+                        y: out.height,
+                        height: options.row_height,
+                        kind: FlowKind::GridRow {
+                            sheet: *sheet_id,
+                            row,
+                            header: row <= options.header_rows,
+                        },
+                    });
+                    out.height += options.row_height;
+                }
+                out.height += options.block_spacing;
             }
             _ => {
                 out.items.push(FlowItem {

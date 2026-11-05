@@ -40,6 +40,8 @@ fn main() {
         width: 468.0,
         block_spacing: 6.0,
         box_height: 40.0,
+        row_height: 20.0,
+        header_rows: 0,
     };
     let geometry = PageGeometry {
         height: 792.0,

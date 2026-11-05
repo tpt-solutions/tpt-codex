@@ -11,6 +11,14 @@ use alloc::vec::Vec;
 
 use crate::flow::{FlowItem, FlowKind, FlowLayout};
 
+/// The header rows of the grid that `block` belongs to, in order.
+fn header_rows_of(items: &[FlowItem], block: tpt_codex_core::BlockId) -> Vec<&FlowItem> {
+    items
+        .iter()
+        .filter(|it| it.block == block && matches!(it.kind, FlowKind::GridRow { header: true, .. }))
+        .collect()
+}
+
 /// Page size and margins, in points.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PageGeometry {
@@ -79,6 +87,21 @@ pub fn paginate(flow: &FlowLayout, geometry: PageGeometry) -> Result<Vec<Page>, 
             FlowKind::Box => {
                 if used + item.height > avail && !current.items.is_empty() {
                     push_page(&mut pages, &mut current, &mut used);
+                }
+                place(&mut current, item, used);
+                used += item.height;
+                i += 1;
+            }
+            FlowKind::GridRow { header, .. } => {
+                if used + item.height > avail && !current.items.is_empty() {
+                    push_page(&mut pages, &mut current, &mut used);
+                    // A grid that continues on this page starts with its header rows again.
+                    if !header {
+                        for head in header_rows_of(items, item.block) {
+                            place(&mut current, head, used);
+                            used += head.height;
+                        }
+                    }
                 }
                 place(&mut current, item, used);
                 used += item.height;
