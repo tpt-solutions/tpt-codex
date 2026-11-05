@@ -106,7 +106,7 @@ Legend: `[ ]` todo · `[x]` done
 - [x] CommonMark mapping: headings, paragraphs, lists, code blocks, thematic breaks, images, links and emphasis _(done: inline runs in `TextStyle.runs`; `*em*`, `**strong**`, `[text](address)` and escapes in paragraphs, headings and list items. Other inline syntax is an error. The editor view does not show the marks yet)_
 - [ ] Codex-Flavored Markdown: `::: grid { id="..." }` blocks (table body → lattice sheet)
 - [ ] `::: canvas { ratio="16:9" }` slide containers
-- [ ] `$$ ... $$` math blocks (+ inline math) — _block math done: reader, writer and `Block::Math`; inline math not yet_
+- [x] `$$ ... $$` math blocks (+ inline math) — _display math: reader, writer and `Block::Math`. Inline math: `$…$` is an inline run with its TeX source (`InlineRun.math`), checked by `check_inline_math` and drawn as math in the editor_
 - [ ] Citations `[@key]`, cross-refs `[#id]`, figure attrs `{#fig:id width=80%}` — _partial: `[@key]` and `[#id]`-style cross-refs are done as links (`[text](#anchor)`, `[text](@key)`), as agreed. Figure attributes are not_
 - [x] `.cdx` ("Codex Script") format: front matter (title, author, date, class) — simple `key: value` subset of YAML, not full YAML
 - [x] Define & document the grammar formally (spec examples are not exhaustive) — _`docs/markdown-grammar.md`_
@@ -158,8 +158,8 @@ Legend: `[ ]` todo · `[x]` done
 ### Canvas View (slides)
 - [x] `Container` with `LayoutMode::Absolute` and fixed aspect ratio (16:9 etc.) — _`Document.canvases` holds each slide's size (`Canvas::WIDESCREEN` is 16:9), undoable with `Op::SetCanvas`. `layout_canvas` places the children, and the editor inserts and draws slides_
 - [x] Explicit X/Y positioning of children, render via `tpt-canvas` — _`Document.frames` holds each child's rectangle (`Op::SetFrame`); the editor places blocks on a slide. Drawing goes through the slide's HTML, not `tpt-canvas`_
-- [ ] Slide navigation, presenter/fullscreen mode — _partial: presenter mode shows one slide at a time, with previous, next and stop; `SetFullscreen` marks the stage, and the host makes the browser full screen_
-- [ ] Slide ordering / sections — _partial: slides can be reordered (`MoveSlide`, undoable). Sections need a model decision: a label per slide_
+- [ ] Slide navigation, presenter/fullscreen mode — _partial: presenter mode shows one slide at a time, with previous, next and stop, and the section name. The demo page has a full-screen button that makes the presenter stage full screen. The editor does not yet track the browser's own full-screen state_
+- [x] Slide ordering / sections — _slides can be reordered (`MoveSlide`, undoable). Each slide can be put in a section (`SetSection`, undoable), kept in `Document.sections`. Consecutive slides with the same section form a group (`slide_sections`)_
 - [ ] Select / move / resize of canvas children — _partial: the editor moves and resizes a child of a slide (`MoveBlock`, `ResizeBlock`), clamped to the slide and undoable. Selecting by pointer and dragging in the browser are not wired_
 - [ ] Slides → PDF export — _partial: `render_slide_svg` exports one slide as SVG, with text wrapped by the Flow view's measure. PDF is blocked upstream_
 

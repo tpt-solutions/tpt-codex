@@ -77,6 +77,7 @@ pub fn sample_document() -> Document {
                         bold: true,
                         italic: false,
                         link: None,
+                        math: None,
                     },
                     InlineRun {
                         start: 19,
@@ -84,6 +85,7 @@ pub fn sample_document() -> Document {
                         bold: false,
                         italic: false,
                         link: Some("https://example.test".into()),
+                        math: None,
                     },
                 ],
                 ..TextStyle::default()

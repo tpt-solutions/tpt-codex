@@ -29,6 +29,10 @@ pub enum ValidationError {
         /// The text block.
         block: BlockId,
     },
+    /// A section is recorded for a block that is not a slide.
+    SectionOfNonSlide(BlockId),
+    /// A slide's section has an empty name.
+    EmptySection(BlockId),
     /// A footnote is recorded for a block that does not exist.
     FootnoteOfMissingBlock(BlockId),
     /// A footnote's block is not a text block.
@@ -85,6 +89,10 @@ impl fmt::Display for ValidationError {
                 "text block {} has an inline run outside its text or with no characters",
                 block.0
             ),
+            Self::SectionOfNonSlide(id) => {
+                write!(f, "block {} has a section but is not a slide", id.0)
+            }
+            Self::EmptySection(id) => write!(f, "slide {} has an empty section name", id.0),
             Self::FootnoteOfMissingBlock(id) => {
                 write!(
                     f,

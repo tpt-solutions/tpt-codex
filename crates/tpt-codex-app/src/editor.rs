@@ -145,6 +145,13 @@ pub enum Msg {
         /// Its new position among the slides.
         to: usize,
     },
+    /// Put slide `slide` in section `name`. An empty name takes it out of its section.
+    SetSection {
+        /// The slide.
+        slide: BlockId,
+        /// The section name, or empty for none.
+        name: String,
+    },
     /// Undo the last step.
     Undo,
     /// Redo the last undone step.
@@ -308,6 +315,7 @@ impl Editor {
             Msg::PlaceBlock { block, frame } => self.place_block(block, frame),
             Msg::MoveBlock { block, dx, dy } => self.move_block(block, dx, dy),
             Msg::MoveSlide { from, to } => self.move_slide_to(from, to),
+            Msg::SetSection { slide, name } => self.set_section(slide, &name),
             Msg::FilterQuery {
                 block,
                 field,
@@ -472,6 +480,13 @@ impl Editor {
     /// The slide being presented, if presenter mode is on.
     pub fn presenting(&self) -> Option<usize> {
         self.presenting
+    }
+
+    fn set_section(&mut self, slide: BlockId, name: &str) -> Result<(), String> {
+        let name = (!name.is_empty()).then(|| name.to_string());
+        self.history
+            .commit(&mut self.doc, vec![Op::SetSection { id: slide, name }])
+            .map_err(|e| e.to_string())
     }
 
     fn move_slide_to(&mut self, from: usize, to: usize) -> Result<(), String> {
@@ -988,9 +1003,14 @@ impl Editor {
                         } else {
                             "presenter"
                         });
+                    let section = self
+                        .doc
+                        .sections
+                        .get(&slide)
+                        .map_or(String::new(), |name| format!("{name} · "));
                     styled_text(
                         c,
-                        format!("slide {} of {}", index + 1, slides.len()),
+                        format!("{section}slide {} of {}", index + 1, slides.len()),
                         "presenter-count",
                     );
                 }
@@ -1265,6 +1285,8 @@ struct Segment {
     link: Option<String>,
     /// The marker this segment is, if it is one.
     marker: Option<MarkerKind>,
+    /// Inline math: the text is the formula's source.
+    math: bool,
 }
 
 /// A text line with a class. The browser applies classes to containers, not to text nodes, so the
@@ -1307,20 +1329,21 @@ fn plain_with_markers(content: &str, markers: &[Marker]) -> String {
 
 /// Splits `content` into segments with the same marks, with markers as segments of their own.
 fn inline_segments(content: &str, runs: &[InlineRun], markers: &[Marker]) -> Vec<Segment> {
-    type Char<'a> = (char, bool, bool, Option<&'a str>, Option<MarkerKind>);
+    type Char<'a> = (char, bool, bool, Option<&'a str>, Option<MarkerKind>, bool);
     let mut chars: Vec<Char<'_>> = content
         .chars()
         .enumerate()
         .map(|(i, ch)| {
-            let (mut strong, mut italic, mut link) = (false, false, None);
+            let (mut strong, mut italic, mut link, mut math) = (false, false, None, false);
             for run in runs.iter().filter(|r| i >= r.start && i < r.end) {
                 strong |= run.bold;
                 italic |= run.italic;
+                math |= run.math.is_some();
                 if run.link.is_some() {
                     link = run.link.as_deref();
                 }
             }
-            (ch, strong, italic, link, None)
+            (ch, strong, italic, link, None, math)
         })
         .collect();
     // Insert from the end, so earlier offsets stay valid.
@@ -1329,18 +1352,19 @@ fn inline_segments(content: &str, runs: &[InlineRun], markers: &[Marker]) -> Vec
     for marker in sorted.iter().rev() {
         let at = marker.at.min(chars.len());
         for (k, ch) in marker.text.chars().enumerate() {
-            chars.insert(at + k, (ch, false, false, None, Some(marker.kind)));
+            chars.insert(at + k, (ch, false, false, None, Some(marker.kind), false));
         }
     }
     let mut out: Vec<Segment> = Vec::new();
-    for (ch, strong, italic, link, marker) in chars {
+    for (ch, strong, italic, link, marker, math) in chars {
         let link = link.map(String::from);
         match out.last_mut() {
             Some(seg)
                 if seg.strong == strong
                     && seg.italic == italic
                     && seg.link == link
-                    && seg.marker == marker =>
+                    && seg.marker == marker
+                    && seg.math == math =>
             {
                 seg.text.push(ch);
             }
@@ -1350,6 +1374,7 @@ fn inline_segments(content: &str, runs: &[InlineRun], markers: &[Marker]) -> Vec
                 italic,
                 link,
                 marker,
+                math,
             }),
         }
     }
@@ -1363,6 +1388,8 @@ fn segment_node(p: &mut ContainerBuilder<Msg>, seg: Segment) {
         "caret"
     } else if seg.marker == Some(MarkerKind::Remote) {
         "remote-cursor"
+    } else if seg.math {
+        "math-inline"
     } else {
         match (seg.strong, seg.italic) {
             (true, true) => "strong em",
@@ -1402,6 +1429,7 @@ mod inline_view_tests {
             bold,
             italic,
             link: link.map(String::from),
+            math: None,
         }
     }
 

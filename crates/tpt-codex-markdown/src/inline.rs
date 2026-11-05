@@ -50,6 +50,14 @@ const LINK_IN_EMPHASIS: InlineError = InlineError {
     message: "a link cannot start inside emphasis",
     suggestion: "move the link outside the emphasis markers",
 };
+const DISPLAY_MATH_IN_TEXT: InlineError = InlineError {
+    message: "display math ($$) cannot sit inside a paragraph",
+    suggestion: "put the formula on its own lines between $$ lines, or escape the dollar signs",
+};
+const MATH_UNCLOSED: InlineError = InlineError {
+    message: "inline math is not closed on its line, or is empty",
+    suggestion: "close the formula with $ on the same line, or escape the dollar sign with a backslash",
+};
 const CITATION_KEY: InlineError = InlineError {
     message: "citation key has a character other than letters, digits, - _ : or .",
     suggestion: "use only letters, digits, and - _ : . in a citation key",
@@ -94,6 +102,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                             bold: strong,
                             italic: !strong,
                             link: None,
+                            math: None,
                         });
                         open = None;
                         i += len;
@@ -107,6 +116,32 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                         i += len;
                     }
                 }
+            }
+            '$' => {
+                if chars.get(i + 1) == Some(&'$') {
+                    return Err(DISPLAY_MATH_IN_TEXT);
+                }
+                let close = chars[i + 1..]
+                    .iter()
+                    .position(|&x| x == '$' || x == '\n' || x == '\r')
+                    .map(|p| i + 1 + p)
+                    .filter(|&c| chars[c] == '$')
+                    .ok_or(MATH_UNCLOSED)?;
+                let source: String = chars[i + 1..close].iter().collect();
+                if source.is_empty() {
+                    return Err(MATH_UNCLOSED);
+                }
+                let start = out.len();
+                out.extend(source.chars());
+                runs.push(InlineRun {
+                    start,
+                    end: out.len(),
+                    bold: false,
+                    italic: false,
+                    link: None,
+                    math: Some(source),
+                });
+                i = close + 1;
             }
             '[' => {
                 if open.is_some() {
@@ -129,6 +164,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                             bold: false,
                             italic: false,
                             link: Some(alloc::format!("{prefix}{key}")),
+                            math: None,
                         });
                         i = close + 1;
                         continue;
@@ -154,6 +190,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                     bold: false,
                     italic: false,
                     link: Some(address),
+                    math: None,
                 });
                 i = address_end + 1;
             }
@@ -236,11 +273,21 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
     let mut bold = alloc::vec![false; n];
     let mut italic = alloc::vec![false; n];
     let mut link: Vec<Option<&str>> = alloc::vec![None; n];
+    let mut math: Vec<Option<&str>> = alloc::vec![None; n];
     for run in runs {
         if run.start >= run.end || run.end > n {
             return Err("an inline run is outside its text");
         }
+        if let Some(source) = run.math.as_deref() {
+            if run.bold || run.italic || run.link.is_some() {
+                return Err("inline math cannot also be bold, italic or a link");
+            }
+            if source.contains(['$', '\n', '\r']) || source.is_empty() {
+                return Err("inline math source has a dollar sign or a line break");
+            }
+        }
         for i in run.start..run.end {
+            math[i] = run.math.as_deref().or(math[i]);
             bold[i] |= run.bold;
             italic[i] |= run.italic;
             if let Some(url) = run.link.as_deref() {
@@ -257,13 +304,24 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
     let mut out = String::new();
     let mut i = 0;
     while i < n {
-        let key = (bold[i], italic[i], link[i]);
+        let key = (bold[i], italic[i], link[i], math[i]);
         let mut j = i + 1;
-        while j < n && (bold[j], italic[j], link[j]) == key {
+        while j < n && (bold[j], italic[j], link[j], math[j]) == key {
             j += 1;
         }
         let segment: String = chars[i..j].iter().collect();
-        match key {
+        if let Some(source) = key.3 {
+            // Math is written as $source$. Its text is its source, so the segment is the whole run.
+            if segment != source {
+                return Err("inline math text must be its source");
+            }
+            out.push('$');
+            out.push_str(source);
+            out.push('$');
+            i = j;
+            continue;
+        }
+        match (key.0, key.1, key.2) {
             (false, false, None) => out.push_str(&escape(&segment)),
             (true, true, _) => return Err("bold and italic together are not written yet"),
             (_, _, Some(_)) if key.0 || key.1 => {
@@ -327,7 +385,7 @@ pub(crate) fn escape(text: &str) -> String {
                 }
                 out.push(c);
             }
-            '*' | '[' | ']' => {
+            '*' | '[' | ']' | '$' => {
                 out.push('\\');
                 out.push(c);
             }
@@ -349,6 +407,7 @@ mod tests {
             bold,
             italic,
             link: None,
+            math: None,
         }
     }
 
@@ -412,6 +471,7 @@ mod tests {
                     bold: false,
                     italic: false,
                     link: Some("https://x.test/a".into()),
+                    math: None,
                 }],
             ),
         ];
@@ -438,6 +498,7 @@ mod tests {
             bold: false,
             italic: false,
             link: Some(url.into()),
+            math: None,
         };
         assert!(write_inline("ab", &[link(0, 2, "a b")]).is_err());
         assert!(write_inline("ab", &[link(0, 2, "x"), link(1, 2, "y")]).is_err());

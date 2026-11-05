@@ -92,6 +92,10 @@ pub struct InlineRun {
     /// Link target, or `None` for text that is not a link.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+    /// Inline math: the TeX source of the formula, which is also the run's text. `None` for
+    /// text that is not math. The source has no `$` and no line breaks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub math: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {

@@ -27,11 +27,13 @@ mod class;
 mod footnotes;
 mod math;
 mod math_check;
+mod math_inline;
 mod math_layout;
 mod math_svg;
 mod outline;
 mod query;
 mod references;
+mod sections;
 
 pub use citations::{
     CitationCheck, CslError, Library, Name, Reference, author_year, bibliography, check_citations,
@@ -42,10 +44,12 @@ pub use footnotes::{
 };
 pub use math::{MAX_DEPTH, MathError, MathNode, parse_math, symbol_glyph, to_plain_text};
 pub use math_check::{MathBlockError, check_math_blocks};
+pub use math_inline::{InlineMathCheck, check_inline_math, layout_inline_math};
 pub use math_layout::{MathBox, MathItem, MathMetrics, layout_math};
 pub use math_svg::math_svg;
 pub use outline::{Outline, OutlineEntry, TocLine, number_string, slugify};
 pub use query::{QueryRunError, document_entities, entity_type, run_query};
 pub use references::{ReferenceCheck, check_references};
+pub use sections::{SectionGroup, slide_sections};
 
 pub use tpt_codex_core as core;

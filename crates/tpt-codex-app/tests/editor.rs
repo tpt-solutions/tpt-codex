@@ -949,3 +949,42 @@ fn the_paginated_view_shows_headers_and_numbered_footers() {
     assert!(html.contains("1/"), "{html}");
     assert!(html.contains("page-footer"), "{html}");
 }
+
+#[test]
+fn slides_show_their_section_and_sections_undo() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertSlide);
+    let slide = *e.slide_ids().first().unwrap();
+    e.update(Msg::SetSection {
+        slide,
+        name: "Intro".into(),
+    });
+    assert_eq!(e.status(), None);
+    e.update(Msg::StartPresenting { index: 0 });
+    assert!(render(&e.view()).contains("Intro · slide 1 of 1"));
+    e.update(Msg::Undo);
+    e.update(Msg::StopPresenting);
+    e.update(Msg::StartPresenting { index: 0 });
+    let html = render(&e.view());
+    assert!(
+        html.contains("slide 1 of 1") && !html.contains("Intro"),
+        "{html}"
+    );
+}
+
+#[test]
+fn inline_math_runs_are_drawn_as_math() {
+    let mut d = doc();
+    if let Some(Block::Text { style, .. }) = d.blocks.get_mut(&BlockId(2)) {
+        style.runs.push(tpt_codex_core::InlineRun {
+            start: 0,
+            end: 4,
+            bold: false,
+            italic: false,
+            link: None,
+            math: Some("Body".into()),
+        });
+    }
+    let html = render(&Editor::new(d).view());
+    assert!(html.contains("math-inline"), "{html}");
+}

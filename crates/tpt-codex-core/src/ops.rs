@@ -83,6 +83,13 @@ pub enum Op {
         /// The new frame in points, or `None` to clear it.
         frame: Option<Rect>,
     },
+    /// Set or clear the section of a slide. `None` clears it.
+    SetSection {
+        /// The slide (an absolute container).
+        id: BlockId,
+        /// The section name, or `None` to clear it.
+        name: Option<String>,
+    },
     /// Set or clear the canvas size of an absolute container. `None` clears it.
     SetCanvas {
         /// The container.
@@ -236,7 +243,9 @@ impl Op {
             Op::InsertChild { parent, .. } | Op::RemoveChild { parent, .. } => {
                 alloc::vec![*parent]
             }
-            Op::SetFrame { id, .. } | Op::SetCanvas { id, .. } => alloc::vec![*id],
+            Op::SetFrame { id, .. } | Op::SetCanvas { id, .. } | Op::SetSection { id, .. } => {
+                alloc::vec![*id]
+            }
             Op::SetCell { .. } | Op::SetSheet { .. } => Vec::new(),
             Op::MoveChild {
                 from_parent,
@@ -385,6 +394,23 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
             Ok(Op::SetFrame {
                 id: *id,
                 frame: previous,
+            })
+        }
+        Op::SetSection { id, name } => {
+            let block = doc.blocks.get(id).ok_or(EditError::NoSuchBlock(*id))?;
+            if !is_absolute(block) {
+                return Err(EditError::NotAbsolute(*id));
+            }
+            if name.as_deref().is_some_and(str::is_empty) {
+                return Err(EditError::InvalidGeometry(*id));
+            }
+            let previous = match name {
+                Some(new) => doc.sections.insert(*id, new.clone()),
+                None => doc.sections.remove(id),
+            };
+            Ok(Op::SetSection {
+                id: *id,
+                name: previous,
             })
         }
         Op::SetCanvas { id, canvas } => {

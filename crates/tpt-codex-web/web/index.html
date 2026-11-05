@@ -20,12 +20,18 @@
     </style>
   </head>
   <body>
+    <!-- The editor marks the presenter stage; this button makes the browser show it full screen. -->
+    <button id="fullscreen" type="button">Full screen</button>
     <main id="app"></main>
     <script type="module">
       // The pkg folder is produced by wasm-bindgen from tpt_codex_web.wasm.
       import init, { mount_sample } from "./pkg/tpt_codex_web.js";
       await init();
       mount_sample("app");
+      document.getElementById("fullscreen").addEventListener("click", () => {
+        const stage = document.querySelector(".presenter");
+        if (stage && stage.requestFullscreen) stage.requestFullscreen().catch(() => {});
+      });
     </script>
   </body>
 </html>

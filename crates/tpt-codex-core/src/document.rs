@@ -63,6 +63,10 @@ pub struct Document {
     /// Absent from the JSON when there are none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub footnotes: BTreeMap<BlockId, String>,
+    /// Sections of slides: the name of the section each slide belongs to. Absent from the JSON
+    /// when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sections: BTreeMap<BlockId, String>,
 }
 
 impl Document {
@@ -79,6 +83,7 @@ impl Document {
             frames: BTreeMap::new(),
             canvases: BTreeMap::new(),
             footnotes: BTreeMap::new(),
+            sections: BTreeMap::new(),
         }
     }
 
@@ -161,6 +166,21 @@ impl Document {
                 Some(_) => return Err(ValidationError::FootnoteNotText(block)),
             }
         }
+        for (&block, name) in &self.sections {
+            let is_slide = matches!(
+                self.blocks.get(&block),
+                Some(Block::Container {
+                    layout_mode: LayoutMode::Absolute,
+                    ..
+                })
+            );
+            if !is_slide {
+                return Err(ValidationError::SectionOfNonSlide(block));
+            }
+            if name.is_empty() {
+                return Err(ValidationError::EmptySection(block));
+            }
+        }
         for (&block, frame) in &self.frames {
             if !self.blocks.contains_key(&block) {
                 return Err(ValidationError::FrameOfMissingBlock(block));
@@ -187,10 +207,23 @@ impl Document {
         for (&block, data) in &self.blocks {
             if let Block::Text { content, style } = data {
                 let len = content.chars().count();
-                let bad = style
-                    .runs
-                    .iter()
-                    .any(|run| run.start >= run.end || run.end > len);
+                let bad = style.runs.iter().any(|run| {
+                    if run.start >= run.end || run.end > len {
+                        return true;
+                    }
+                    // A math run's text is its source: no `$`, no line break, and nothing else.
+                    match run.math.as_deref() {
+                        None => false,
+                        Some(src) => {
+                            let text: String = content
+                                .chars()
+                                .skip(run.start)
+                                .take(run.end - run.start)
+                                .collect();
+                            src.is_empty() || src.contains(['$', '\n', '\r']) || text != src
+                        }
+                    }
+                });
                 if bad {
                     return Err(ValidationError::InvalidRun { block });
                 }

@@ -332,6 +332,7 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
                 bold,
                 italic,
                 link: None,
+                math: None,
             });
         }
         i = j;

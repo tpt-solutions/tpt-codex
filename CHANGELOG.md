@@ -73,6 +73,11 @@ All notable changes to this project are documented here. The format follows
 - Editor: a focused paragraph is a native text area, and each change is a `ReplaceText`. Paragraph
   marks and remote carets are drawn with containers, which the browser can style. Focusing a grid
   cell keeps the paragraph caret, so the cell keeps focus.
+- Inline math: `$…$` in Markdown is an inline run with its TeX source. Checked by
+  `check_inline_math`, drawn as math in the editor, and laid out with the math layout.
+- Slide sections: `Document.sections`, `SetSection` (undoable), `slide_sections`, and the section
+  name in the presenter.
+- Demo page: a full-screen button for the presenter stage.
 - `Block::Query` source is editable in the editor (`EditQuery`); a source that does not run is
   rejected.
 - `tpt-codex-core` caret and selection model (`Selection`): caret movement, insert over a range,

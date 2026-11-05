@@ -890,9 +890,11 @@ fn writer_refuses_math_that_would_not_read_back() {
 }
 
 #[test]
-fn writer_refuses_paragraph_text_that_starts_math() {
+fn writer_escapes_paragraph_text_that_starts_math() {
+    // Dollar signs in plain text are escaped, so the text reads back as text, not as math.
     let doc = flow_of(vec![para("$$ not math")]);
-    assert!(to_markdown(&doc).is_err());
+    let md = to_markdown(&doc).unwrap();
+    assert_eq!(from_markdown(&md).unwrap(), doc, "{md}");
 }
 
 #[test]
@@ -990,4 +992,25 @@ fn a_paragraph_that_looks_like_a_definition_is_escaped_on_write() {
     let md = to_markdown(&doc).unwrap();
     assert_eq!(from_markdown(&md).unwrap(), doc, "{md}");
     assert!(from_markdown(&md).unwrap().footnotes.is_empty());
+}
+
+#[test]
+fn inline_math_reads_and_writes_back() {
+    let md = "The energy $E = mc^2$ holds, and a price of \\$5 is text.\n";
+    let doc = from_markdown(md).unwrap();
+    match doc.get(tpt_codex_core::BlockId(1)) {
+        Some(Block::Text { content, style }) => {
+            assert!(
+                content.starts_with("The energy E = mc^2 holds"),
+                "{content}"
+            );
+            let math: Vec<_> = style.runs.iter().filter(|r| r.math.is_some()).collect();
+            assert_eq!(math.len(), 1);
+            assert_eq!(math[0].math.as_deref(), Some("E = mc^2"));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(to_markdown(&doc).unwrap(), md);
+    assert!(from_markdown("a $$ b\n").is_err());
+    assert!(from_markdown("open $x here\n").is_err());
 }
