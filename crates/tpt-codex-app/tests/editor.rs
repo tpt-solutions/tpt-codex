@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use tpt_appfront_core::{KeyEvent, NodeKind, UITree};
 use tpt_appfront_html::render;
-use tpt_codex_app::{Editor, Msg};
+use tpt_codex_app::{Arrow, Editor, Msg};
 use tpt_codex_core::{
     Block, BlockId, CellInput, Document, LayoutMode, Movement, Sheet, SheetId, TextStyle,
 };
@@ -250,4 +251,173 @@ fn view_renders_to_html_for_the_whole_document() {
     let html = render(&Editor::new(doc()).view());
     assert!(html.contains("Body"), "{html}");
     assert!(html.contains("Undo"), "{html}");
+    assert!(html.contains("Insert table"), "{html}");
+}
+
+fn table_count(e: &Editor) -> usize {
+    e.document()
+        .blocks
+        .values()
+        .filter(|b| matches!(b, Block::Grid { .. }))
+        .count()
+}
+
+#[test]
+fn insert_table_adds_an_empty_grid_and_undo_removes_it() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertTable { rows: 2, cols: 3 });
+    assert!(e.status().is_none(), "{:?}", e.status());
+    assert_eq!(table_count(&e), 1);
+    let html = render(&e.view());
+    assert_eq!(html.matches("class=\"grid-cell\"").count(), 6, "{html}");
+    assert!(!html.contains("(empty grid)"), "{html}");
+
+    e.update(Msg::Undo);
+    assert_eq!(table_count(&e), 0);
+    assert!(e.document().sheets.is_empty());
+    assert!(e.document().validate().is_ok());
+    e.update(Msg::Redo);
+    assert_eq!(table_count(&e), 1);
+}
+
+#[test]
+fn typing_into_an_empty_table_cell_stores_it() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertTable { rows: 2, cols: 2 });
+    let sheet = *e.document().sheets.keys().next().expect("a sheet");
+    e.update(Msg::EditCell {
+        sheet,
+        address: "B2".into(),
+        text: "=2*21".into(),
+    });
+    assert!(e.status().is_none(), "{:?}", e.status());
+    assert_eq!(
+        e.document().sheets[&sheet].cells["B2"],
+        CellInput::Formula {
+            source: "=2*21".into()
+        }
+    );
+    assert!(render(&e.view()).contains("42"));
+}
+
+#[test]
+fn insert_table_rejects_bad_sizes_and_changes_nothing() {
+    let mut e = Editor::new(doc());
+    for (rows, cols) in [(0, 2), (2, 0), (51, 1), (1, 51)] {
+        e.update(Msg::InsertTable { rows, cols });
+        assert!(e.status().unwrap().contains("between 1 and 50"));
+    }
+    assert_eq!(table_count(&e), 0);
+    assert_eq!(e.document().blocks.len(), 4);
+}
+
+#[test]
+fn sheet_size_is_kept_in_the_saved_form() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertTable { rows: 4, cols: 1 });
+    let json = serde_json::to_string(e.document()).expect("serialize");
+    assert!(json.contains("\"rows\":4"), "{json}");
+    let back: Document = serde_json::from_str(&json).expect("parse");
+    assert_eq!(&back, e.document());
+}
+
+#[test]
+fn arrow_keys_move_the_selected_cell_within_the_table() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertTable { rows: 2, cols: 3 });
+    let sheet = *e.document().sheets.keys().next().expect("a sheet");
+
+    e.update(Msg::MoveCell(Arrow::Right));
+    assert!(e.status().unwrap().contains("no cell selected"));
+
+    e.update(Msg::FocusCell {
+        sheet,
+        address: "A1".into(),
+    });
+    e.update(Msg::MoveCell(Arrow::Left));
+    assert_eq!(
+        e.cell().map(|c| (c.col, c.row)),
+        Some((1, 1)),
+        "stays at the edge"
+    );
+    e.update(Msg::MoveCell(Arrow::Right));
+    e.update(Msg::MoveCell(Arrow::Right));
+    e.update(Msg::MoveCell(Arrow::Right));
+    e.update(Msg::MoveCell(Arrow::Down));
+    e.update(Msg::MoveCell(Arrow::Down));
+    assert_eq!(e.cell().map(|c| (c.col, c.row)), Some((3, 2)));
+    e.update(Msg::MoveCell(Arrow::Up));
+    assert_eq!(e.cell().map(|c| (c.col, c.row)), Some((3, 1)));
+    assert!(e.status().is_none());
+    assert!(render(&e.view()).contains("grid-cell selected"));
+}
+
+#[test]
+fn focusing_a_cell_outside_the_table_is_reported() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertTable { rows: 2, cols: 2 });
+    let sheet = *e.document().sheets.keys().next().expect("a sheet");
+    e.update(Msg::FocusCell {
+        sheet,
+        address: "C1".into(),
+    });
+    assert!(e.status().unwrap().contains("outside the table"));
+    assert!(e.cell().is_none());
+    e.update(Msg::FocusCell {
+        sheet,
+        address: "a1".into(),
+    });
+    assert!(e.status().unwrap().contains("not a valid cell address"));
+}
+
+fn all_nodes<'a>(ui: &'a UITree<Msg>, out: &mut Vec<&'a UITree<Msg>>) {
+    out.push(ui);
+    if let NodeKind::Container { children } = &ui.kind {
+        for child in children {
+            all_nodes(child, out);
+        }
+    }
+}
+
+fn key(name: &str) -> KeyEvent {
+    KeyEvent {
+        key: name.into(),
+        ..KeyEvent::default()
+    }
+}
+
+#[test]
+fn grid_cells_select_themselves_and_arrows_move_the_selection() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::InsertTable { rows: 2, cols: 2 });
+    let sheet = *e.document().sheets.keys().next().expect("a sheet");
+
+    // The input for B2 is the one whose focus message names B2.
+    let view = e.view();
+    let mut nodes = Vec::new();
+    all_nodes(&view, &mut nodes);
+    let b2 = nodes
+        .iter()
+        .find(|n| {
+            n.meta.on_focus
+                == Some(Msg::FocusCell {
+                    sheet,
+                    address: "B2".into(),
+                })
+        })
+        .expect("an input for B2 with a focus message");
+
+    // Focusing it dispatches that message, which selects B2.
+    let focus = b2.meta.on_focus.clone().expect("focus");
+    e.update(focus);
+    assert_eq!(e.cell().map(|c| (c.col, c.row)), Some((2, 2)));
+
+    // Arrow keys become movement messages; other keys are left to the browser.
+    let on_keydown = b2.meta.on_keydown.as_ref().expect("keydown handler");
+    assert_eq!(on_keydown(key("ArrowUp")), Some(Msg::MoveCell(Arrow::Up)));
+    assert_eq!(on_keydown(key("ArrowLeft")), Some(Msg::MoveCell(Arrow::Left)));
+    assert_eq!(on_keydown(key("a")), None);
+
+    e.update(Msg::MoveCell(Arrow::Up));
+    assert_eq!(e.cell().map(|c| (c.col, c.row)), Some((2, 1)));
 }

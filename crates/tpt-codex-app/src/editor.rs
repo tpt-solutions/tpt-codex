@@ -9,7 +9,7 @@ use tpt_appfront_core::UITree;
 use tpt_appfront_core::ui_tree::ContainerBuilder;
 use tpt_codex_core::{
     Block, BlockId, CellInput, Document, EditError, History, MediaSource, Movement, Op, Selection,
-    SheetId, delete_backward, delete_forward, insert_text, is_valid_address,
+    Sheet, SheetId, delete_backward, delete_forward, insert_text, is_valid_address,
 };
 use tpt_codex_grid::{CellResult, evaluate_sheet};
 
@@ -35,10 +35,52 @@ pub enum Msg {
         /// The text typed into the cell.
         text: String,
     },
+    /// Select a grid cell, so that arrow keys move from it. Ignored if the cell is outside
+    /// the sheet's extent or the sheet does not exist.
+    FocusCell {
+        /// The sheet holding the cell.
+        sheet: SheetId,
+        /// Canonical A1 address.
+        address: String,
+    },
+    /// Move the selected cell one step. At the edge of the table it stays put.
+    MoveCell(Arrow),
+    /// Add an empty table of `rows` by `cols` cells at the end of the document, as one undoable
+    /// step. Each side must be between 1 and [`MAX_TABLE_SIDE`].
+    InsertTable {
+        /// Number of rows.
+        rows: u32,
+        /// Number of columns.
+        cols: u32,
+    },
     /// Undo the last step.
     Undo,
     /// Redo the last undone step.
     Redo,
+}
+
+/// A direction for [`Msg::MoveCell`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arrow {
+    /// Up one row.
+    Up,
+    /// Down one row.
+    Down,
+    /// Left one column.
+    Left,
+    /// Right one column.
+    Right,
+}
+
+/// The selected grid cell: its sheet, column and row (both 1-based).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellFocus {
+    /// The sheet holding the cell.
+    pub sheet: SheetId,
+    /// Column, 1 is `A`.
+    pub col: u32,
+    /// Row, 1 is the first row.
+    pub row: u32,
 }
 
 /// A document open for editing.
@@ -47,6 +89,7 @@ pub struct Editor {
     doc: Document,
     history: History,
     caret: Option<Selection>,
+    cell: Option<CellFocus>,
     status: Option<String>,
 }
 
@@ -57,6 +100,7 @@ impl Editor {
             doc,
             history: History::new(),
             caret: None,
+            cell: None,
             status: None,
         }
     }
@@ -69,6 +113,11 @@ impl Editor {
     /// The caret, if one is in a text block.
     pub fn caret(&self) -> Option<Selection> {
         self.caret
+    }
+
+    /// The selected grid cell, if any.
+    pub fn cell(&self) -> Option<CellFocus> {
+        self.cell
     }
 
     /// The last message that could not be applied, if any.
@@ -88,8 +137,11 @@ impl Editor {
                     }
                     _ => None,
                 };
+                self.cell = None;
                 Ok(())
             }
+            Msg::FocusCell { sheet, address } => self.focus_cell(sheet, &address),
+            Msg::MoveCell(arrow) => self.move_cell(arrow),
             Msg::Type(text) => self.edit(|doc, h, sel| insert_text(doc, h, sel, &text).map(|_| ())),
             Msg::Backspace => self.edit(|doc, h, sel| delete_backward(doc, h, sel).map(|_| ())),
             Msg::Delete => self.edit(|doc, h, sel| delete_forward(doc, h, sel).map(|_| ())),
@@ -104,6 +156,7 @@ impl Editor {
                 address,
                 text,
             } => self.edit_cell(sheet, &address, &text),
+            Msg::InsertTable { rows, cols } => self.insert_table(rows, cols),
             Msg::Undo => {
                 let r = self.history.undo(&mut self.doc).map(|_| ());
                 self.clamp_caret();
@@ -118,6 +171,43 @@ impl Editor {
         if let Err(message) = result {
             self.status = Some(message);
         }
+    }
+
+    fn focus_cell(&mut self, sheet: SheetId, address: &str) -> Result<(), String> {
+        let (col, row) = tpt_codex_core::address_position(address)
+            .ok_or_else(|| format!("'{address}' is not a valid cell address"))?;
+        let data = self
+            .doc
+            .sheets
+            .get(&sheet)
+            .ok_or_else(|| format!("sheet {} does not exist", sheet.0))?;
+        let (rows, cols) = data.extent();
+        if row > rows || col > cols {
+            return Err(format!("'{address}' is outside the table"));
+        }
+        self.caret = None;
+        self.cell = Some(CellFocus { sheet, col, row });
+        Ok(())
+    }
+
+    fn move_cell(&mut self, arrow: Arrow) -> Result<(), String> {
+        let Some(focus) = self.cell else {
+            return Err("no cell selected: click a grid cell first".to_string());
+        };
+        let (rows, cols) = self
+            .doc
+            .sheets
+            .get(&focus.sheet)
+            .map_or((0, 0), |sheet| sheet.extent());
+        let (mut col, mut row) = (focus.col, focus.row);
+        match arrow {
+            Arrow::Up => row = row.saturating_sub(1).max(1),
+            Arrow::Down => row = (row + 1).min(rows.max(1)),
+            Arrow::Left => col = col.saturating_sub(1).max(1),
+            Arrow::Right => col = (col + 1).min(cols.max(1)),
+        }
+        self.cell = Some(CellFocus { col, row, ..focus });
+        Ok(())
     }
 
     fn edit(
@@ -149,6 +239,56 @@ impl Editor {
             .map_err(|e| e.to_string())
     }
 
+    fn insert_table(&mut self, rows: u32, cols: u32) -> Result<(), String> {
+        if !(1..=MAX_TABLE_SIDE).contains(&rows) || !(1..=MAX_TABLE_SIDE).contains(&cols) {
+            return Err(format!(
+                "a table needs between 1 and {MAX_TABLE_SIDE} rows and columns"
+            ));
+        }
+        let Some(Block::Container { children, .. }) = self.doc.get(self.doc.root) else {
+            return Err("the document root cannot hold a table".to_string());
+        };
+        let index = children.len();
+        let root = self.doc.root;
+        let sheet_id = SheetId(
+            self.doc
+                .sheets
+                .keys()
+                .map(|s| s.0)
+                .max()
+                .map_or(1, |m| m + 1),
+        );
+        let block_id = BlockId(
+            self.doc
+                .blocks
+                .keys()
+                .map(|b| b.0)
+                .max()
+                .map_or(1, |m| m + 1),
+        );
+        let ops = vec![
+            Op::SetSheet {
+                id: sheet_id,
+                sheet: Some(Sheet::with_size(rows, cols)),
+            },
+            Op::AddBlock {
+                id: block_id,
+                block: Block::Grid {
+                    sheet_id,
+                    view_bounds: None,
+                },
+            },
+            Op::InsertChild {
+                parent: root,
+                index,
+                child: block_id,
+            },
+        ];
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())
+    }
+
     /// After undo or redo, the caret may be past the end of its block, or its block may be gone.
     /// Move it back into range, or drop it.
     fn clamp_caret(&mut self) {
@@ -174,6 +314,8 @@ impl Editor {
             }
             c.button("Undo").on_click(Msg::Undo);
             c.button("Redo").on_click(Msg::Redo);
+            c.button("Insert table")
+                .on_click(Msg::InsertTable { rows: 3, cols: 3 });
             if let Some(status) = &self.status {
                 c.text(status.clone()).class("status");
             }
@@ -241,54 +383,85 @@ impl Editor {
         }
     }
 
-    /// A grid shows its computed values as a table, and one editable input per non-empty cell.
+    /// A grid shows its computed values as a table, with an editable input for every cell in
+    /// its extent, so that empty cells can be typed into.
     fn view_grid(
         &self,
         c: &mut ContainerBuilder<Msg>,
         sheet_id: SheetId,
         sheet: &tpt_codex_core::Sheet,
     ) {
-        if sheet.cells.is_empty() {
+        let (rows, cols) = sheet.extent();
+        if rows == 0 || cols == 0 {
             c.text("(empty grid)").class("grid");
             return;
         }
         let results = evaluate_sheet(sheet);
-        let (max_col, max_row) = sheet
-            .cells
-            .keys()
-            .filter_map(|a| split_address(a))
-            .fold((0, 0), |(c, r), (col, row)| (c.max(col), r.max(row)));
 
         let mut columns = vec![String::new()];
-        columns.extend((1..=max_col).map(column_letters));
-        let rows: Vec<Vec<String>> = (1..=max_row)
+        columns.extend((1..=cols).map(|col| column_letters(col as usize)));
+        let table_rows: Vec<Vec<String>> = (1..=rows)
             .map(|row| {
                 let mut line = vec![row.to_string()];
-                for col in 1..=max_col {
-                    let address = format!("{}{row}", column_letters(col));
+                for col in 1..=cols {
+                    let address = tpt_codex_core::address_of(col, row);
                     line.push(results.get(&address).map(show).unwrap_or_default());
                 }
                 line
             })
             .collect();
-        c.data_grid(columns, rows).class("grid-table");
+        c.data_grid(columns, table_rows).class("grid-table");
 
-        for (address, input) in &sheet.cells {
-            let raw = raw_text(input);
-            let address_for_msg = address.clone();
-            c.input(raw)
-                .aria("label", address.clone())
-                .on_input(move |text| Msg::EditCell {
-                    sheet: sheet_id,
-                    address: address_for_msg.clone(),
-                    text,
-                })
-                .class("grid-cell");
+        for row in 1..=rows {
+            for col in 1..=cols {
+                let address = tpt_codex_core::address_of(col, row);
+                let raw = sheet.cells.get(&address).map(raw_text).unwrap_or_default();
+                let address_for_msg = address.clone();
+                let selected = self.cell
+                    == Some(CellFocus {
+                        sheet: sheet_id,
+                        col,
+                        row,
+                    });
+                let address_for_focus = address.clone();
+                c.input(raw)
+                    .aria("label", address.clone())
+                    .on_input(move |text| Msg::EditCell {
+                        sheet: sheet_id,
+                        address: address_for_msg.clone(),
+                        text,
+                    })
+                    .on_focus(Msg::FocusCell {
+                        sheet: sheet_id,
+                        address: address_for_focus,
+                    })
+                    .on_keydown(|key| arrow_of(&key.key).map(Msg::MoveCell))
+                    .class(if selected {
+                        "grid-cell selected"
+                    } else {
+                        "grid-cell"
+                    });
+            }
         }
     }
 }
 
+/// The largest number of rows or columns that [`Msg::InsertTable`] creates.
+pub const MAX_TABLE_SIDE: u32 = 50;
+
 const NO_CARET: &str = "no caret: click a paragraph first";
+
+/// The arrow key a keydown reports (`ArrowUp` and so on), as a cell movement. Other keys are
+/// left alone, so they still edit the cell.
+pub fn arrow_of(key: &str) -> Option<Arrow> {
+    match key {
+        "ArrowUp" => Some(Arrow::Up),
+        "ArrowDown" => Some(Arrow::Down),
+        "ArrowLeft" => Some(Arrow::Left),
+        "ArrowRight" => Some(Arrow::Right),
+        _ => None,
+    }
+}
 
 /// Turns what the user typed into a cell input.
 ///
@@ -328,19 +501,6 @@ fn raw_text(input: &CellInput) -> String {
         CellInput::Boolean { value } => if *value { "TRUE" } else { "FALSE" }.to_string(),
         CellInput::Formula { source } => source.clone(),
     }
-}
-
-/// Splits a canonical A1 address into `(column, row)`, both 1-based.
-fn split_address(address: &str) -> Option<(usize, usize)> {
-    if !is_valid_address(address) {
-        return None;
-    }
-    let letters = address.bytes().take_while(u8::is_ascii_uppercase).count();
-    let col = address[..letters]
-        .bytes()
-        .fold(0usize, |acc, b| acc * 26 + usize::from(b - b'A' + 1));
-    let row: usize = address[letters..].parse().ok()?;
-    Some((col, row))
 }
 
 /// The column letters for a 1-based column number: 1 is `A`, 27 is `AA`.

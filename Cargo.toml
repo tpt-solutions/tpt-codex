@@ -32,9 +32,9 @@ quick-xml = "0.37"
 tpt-query = { git = "https://github.com/tpt-solutions/tpt-query", rev = "6b06d02c70f273a658e9aefee26473988160bb74" }
 tpt-lattice-core = { git = "https://github.com/tpt-solutions/tpt-lattice", rev = "d72332117c1c5f2074513ce9cd7ce1cf7e423d1f" }
 tpt-lattice-evaluator = { git = "https://github.com/tpt-solutions/tpt-lattice", rev = "d72332117c1c5f2074513ce9cd7ce1cf7e423d1f" }
-tpt-appfront-core = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "61465269be731aaf4babf6cd3ec87ecf664d7397" }
-tpt-appfront-html = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "61465269be731aaf4babf6cd3ec87ecf664d7397" }
-tpt-appfront-dom = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "61465269be731aaf4babf6cd3ec87ecf664d7397" }
+tpt-appfront-core = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67" }
+tpt-appfront-html = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67" }
+tpt-appfront-dom = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
