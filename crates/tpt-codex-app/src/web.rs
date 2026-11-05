@@ -18,7 +18,27 @@ use crate::editor::{Editor, Msg};
 /// Mounts `doc` as an editor inside `container`.
 ///
 /// Keep the returned handle alive for as long as the editor is on the page.
-pub fn mount(container: &Element, doc: Document) -> Result<EffectHandle, JsValue> {
+/// A mounted editor that the page can send messages to. Keep it alive while the editor is shown.
+pub struct Controller {
+    dispatch: Rc<dyn Fn(Msg)>,
+    _effect: EffectHandle,
+}
+
+impl std::fmt::Debug for Controller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Controller")
+    }
+}
+
+impl Controller {
+    /// Sends `msg` to the editor, as if the user had done it.
+    pub fn send(&self, msg: Msg) {
+        (self.dispatch)(msg);
+    }
+}
+
+/// Mounts `doc` as an editor inside `container`, and returns the handle to send it messages.
+pub fn mount_controlled(container: &Element, doc: Document) -> Result<Controller, JsValue> {
     let editor = Rc::new(RefCell::new(Editor::new(doc)));
     // Bumped after each message, so the view depends on it and re-runs.
     let version = Signal::new(0u64);
@@ -31,7 +51,7 @@ pub fn mount(container: &Element, doc: Document) -> Result<EffectHandle, JsValue
             editor.borrow().view()
         })
     };
-    let dispatch = {
+    let dispatch: Rc<dyn Fn(Msg)> = {
         let editor = Rc::clone(&editor);
         let version = version.clone();
         Rc::new(move |msg: Msg| {
@@ -39,7 +59,11 @@ pub fn mount(container: &Element, doc: Document) -> Result<EffectHandle, JsValue
             version.set(version.get() + 1);
         })
     };
-    render(container, view, dispatch)
+    let effect = render(container, view, Rc::clone(&dispatch))?;
+    Ok(Controller {
+        dispatch,
+        _effect: effect,
+    })
 }
 
 /// A small sample document: a heading, a paragraph with emphasis and a link, and a grid with a
@@ -115,7 +139,7 @@ pub fn sample_document() -> Document {
 
 /// Mounts the sample document in the element with id `container_id`. Called from the demo page.
 
-pub fn mount_sample(container_id: &str) -> Result<(), JsValue> {
+pub fn mount_sample(container_id: &str) -> Result<Controller, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
     let document = window
         .document()
@@ -123,8 +147,5 @@ pub fn mount_sample(container_id: &str) -> Result<(), JsValue> {
     let container = document
         .get_element_by_id(container_id)
         .ok_or_else(|| JsValue::from_str("no container element"))?;
-    let handle = mount(&container, sample_document())?;
-    // The page keeps the editor for its whole life.
-    std::mem::forget(handle);
-    Ok(())
+    mount_controlled(&container, sample_document())
 }

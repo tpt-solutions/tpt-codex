@@ -81,6 +81,10 @@ All notable changes to this project are documented here. The format follows
 - Editor: a pages switch shows the document as pages, with a button back to editing. The demo
   page has it too.
 - Browser checks: selecting with the keyboard and typing over the selection, and the pages switch.
+- Grid `view_bounds` is a vertical window onto the sheet, in points from its top. The flow shows the
+  header rows and the rows the window covers.
+- Browser: `EditorHandle` (returned by `mount_sample`) lets the page send messages to the editor.
+  Full screen is tracked both ways.
 - `Block::Query` source is editable in the editor (`EditQuery`); a source that does not run is
   rejected.
 - `tpt-codex-core` caret and selection model (`Selection`): caret movement, insert over a range,

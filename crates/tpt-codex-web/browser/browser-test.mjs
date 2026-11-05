@@ -119,6 +119,7 @@ check("presenter shows the slide", (await page.locator(".presenter-count").textC
 // The full-screen button runs while a presenter is open, without a page error.
 await page.getByRole("button", { name: "Full screen" }).click();
 await page.waitForTimeout(100);
+check("full screen button marks the presenter stage in the editor", (await page.locator(".presenter.fullscreen").count()) === 1);
 // Full screen covers the rest of the page, so leave it before using the controls.
 await page.evaluate(() => document.fullscreenElement && document.exitFullscreen().catch(() => {}));
 await page.waitForTimeout(100);

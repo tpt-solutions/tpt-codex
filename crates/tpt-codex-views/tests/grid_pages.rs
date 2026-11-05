@@ -192,3 +192,28 @@ fn each_grid_repeats_its_own_headers() {
         .count();
     assert!(headers_on_continuations > 0);
 }
+
+#[test]
+fn view_bounds_show_a_window_onto_the_sheet_with_headers_always() {
+    use tpt_codex_core::Rect;
+    // Rows are 20 points high. A window at y = 40 with height 40 covers rows 3 and 4.
+    let mut doc = grid_doc(10, 1);
+    if let Some(Block::Grid { view_bounds, .. }) = doc.blocks.get_mut(&BlockId(1)) {
+        *view_bounds = Some(Rect {
+            x: 0.0,
+            y: 40.0,
+            width: 100.0,
+            height: 40.0,
+        });
+    }
+    let flow = layout_flow(&doc, &MEASURE, options()).unwrap();
+    let rows: Vec<u32> = flow
+        .items
+        .iter()
+        .filter_map(|it| match it.kind {
+            FlowKind::GridRow { row, .. } => Some(row),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rows, vec![1, 3, 4], "header row, then the window");
+}

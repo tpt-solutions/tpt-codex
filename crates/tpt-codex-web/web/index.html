@@ -27,10 +27,16 @@
       // The pkg folder is produced by wasm-bindgen from tpt_codex_web.wasm.
       import init, { mount_sample } from "./pkg/tpt_codex_web.js";
       await init();
-      mount_sample("app");
+      const editor = mount_sample("app");
+      // The button tells the editor (so the stage is drawn as full screen) and asks the browser.
       document.getElementById("fullscreen").addEventListener("click", () => {
+        editor.set_fullscreen(true);
         const stage = document.querySelector(".presenter");
         if (stage && stage.requestFullscreen) stage.requestFullscreen().catch(() => {});
+      });
+      // When the browser leaves full screen (for example with Escape), the editor follows.
+      document.addEventListener("fullscreenchange", () => {
+        if (!document.fullscreenElement) editor.set_fullscreen(false);
       });
     </script>
   </body>

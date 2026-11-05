@@ -228,11 +228,14 @@ fn flow_children(
             } => {
                 flow_children(doc, id, measure, options, cache, out)?;
             }
-            Block::Grid { sheet_id, .. } if doc.sheets.contains_key(sheet_id) => {
+            Block::Grid {
+                sheet_id,
+                view_bounds,
+            } if doc.sheets.contains_key(sheet_id) => {
                 let sheet = &doc.sheets[sheet_id];
                 let (rows, _) = sheet.extent();
                 let header_rows = sheet.header_rows;
-                for row in 1..=rows {
+                for row in grid_rows_shown(rows, header_rows, *view_bounds, options.row_height) {
                     out.items.push(FlowItem {
                         block: id,
                         y: out.height,
@@ -259,6 +262,39 @@ fn flow_children(
         }
     }
     Ok(())
+}
+
+/// The rows of a grid that the flow shows, in order (1-based).
+///
+/// A grid with no view bounds shows every row. With bounds, it is a window onto the sheet: the
+/// rows whose height band meets the window's vertical extent, `[y, y + height)` in points from the
+/// top of the sheet. The header rows are always shown, first. Columns are not laid out in the flow,
+/// so the window is vertical only.
+pub(crate) fn grid_rows_shown(
+    rows: u32,
+    header_rows: u32,
+    view_bounds: Option<tpt_codex_core::Rect>,
+    row_height: f64,
+) -> Vec<u32> {
+    let Some(window) = view_bounds else {
+        return (1..=rows).collect();
+    };
+    let mut shown: alloc::collections::BTreeSet<u32> = (1..=header_rows.min(rows)).collect();
+    if row_height > 0.0 && window.height > 0.0 {
+        // Casts truncate towards zero, which is floor for the non-negative values here.
+        let top = (window.y.max(0.0) / row_height) as u32; // zero-based first row
+        let end = ((window.y + window.height).max(0.0)) / row_height;
+        let whole = end as u32;
+        let bottom = if f64::from(whole) < end {
+            whole + 1
+        } else {
+            whole
+        };
+        for zero_based in top..bottom.min(rows) {
+            shown.insert(zero_based + 1);
+        }
+    }
+    shown.into_iter().collect()
 }
 
 /// Greedy word wrap. Hard line breaks in `content` are kept. Words wider than the
