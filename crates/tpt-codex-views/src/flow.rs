@@ -270,7 +270,7 @@ fn flow_children(
 /// rows whose height band meets the window's vertical extent, `[y, y + height)` in points from the
 /// top of the sheet. The header rows are always shown, first. Columns are not laid out in the flow,
 /// so the window is vertical only.
-pub(crate) fn grid_rows_shown(
+pub fn grid_rows_shown(
     rows: u32,
     header_rows: u32,
     view_bounds: Option<tpt_codex_core::Rect>,

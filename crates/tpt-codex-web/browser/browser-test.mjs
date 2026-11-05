@@ -141,6 +141,18 @@ await page.waitForTimeout(200);
 const replaced = await page.getByRole("textbox", { name: "paragraph" }).inputValue().catch(() => "");
 check("typing over a keyboard selection replaces it", replaced.startsWith("Plain, BOLD, and a link."), `value=${JSON.stringify(replaced)}`);
 
+// An input-method composition (romaji converted to kana/kanji) commits into the paragraph.
+const ime = await page.context().newCDPSession(page);
+await page.getByRole("textbox", { name: "paragraph" }).click();
+await page.keyboard.press("End");
+await ime.send("Input.imeSetComposition", { text: "nihon", selectionStart: 5, selectionEnd: 5 });
+await page.waitForTimeout(100);
+await ime.send("Input.imeSetComposition", { text: "日本", selectionStart: 2, selectionEnd: 2 });
+await ime.send("Input.insertText", { text: "日本" });
+await page.waitForTimeout(250);
+const composed = await page.getByRole("textbox", { name: "paragraph" }).inputValue().catch(() => "");
+check("an IME composition commits into the paragraph", composed.endsWith("日本") && !composed.includes("nihon"), `value=${JSON.stringify(composed)}`);
+
 // The pages view shows the document as pages, and goes back to editing.
 await page.getByRole("button", { name: "Pages" }).click();
 await page.waitForTimeout(150);

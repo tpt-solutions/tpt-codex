@@ -998,8 +998,11 @@ impl Editor {
                     c.image(uri.clone(), alt_text.clone().unwrap_or_default());
                 }
             }
-            Block::Grid { sheet_id, .. } => match self.doc.sheets.get(sheet_id) {
-                Some(sheet) => self.view_grid(c, *sheet_id, sheet),
+            Block::Grid {
+                sheet_id,
+                view_bounds,
+            } => match self.doc.sheets.get(sheet_id) {
+                Some(sheet) => self.view_grid(c, *sheet_id, sheet, *view_bounds),
                 None => {
                     styled_text(c, "(missing sheet)", "grid");
                 }
@@ -1142,6 +1145,7 @@ impl Editor {
         c: &mut ContainerBuilder<Msg>,
         sheet_id: SheetId,
         sheet: &tpt_codex_core::Sheet,
+        view_bounds: Option<tpt_codex_core::Rect>,
     ) {
         let (rows, cols) = sheet.extent();
         if rows == 0 || cols == 0 {
@@ -1149,11 +1153,15 @@ impl Editor {
             return;
         }
         let results = evaluate_sheet(sheet);
+        // The rows shown are the same as in the flow: the header rows, and the window's rows.
+        let shown =
+            tpt_codex_views::grid_rows_shown(rows, sheet.header_rows, view_bounds, GRID_ROW_POINTS);
 
         let mut columns = vec![String::new()];
         columns.extend((1..=cols).map(|col| column_letters(col as usize)));
-        let table_rows: Vec<Vec<String>> = (1..=rows)
-            .map(|row| {
+        let table_rows: Vec<Vec<String>> = shown
+            .iter()
+            .map(|&row| {
                 let mut line = vec![row.to_string()];
                 for col in 1..=cols {
                     let address = tpt_codex_core::address_of(col, row);
@@ -1164,7 +1172,7 @@ impl Editor {
             .collect();
         c.data_grid(columns, table_rows).class("grid-table");
 
-        for row in 1..=rows {
+        for &row in &shown {
             for col in 1..=cols {
                 let address = tpt_codex_core::address_of(col, row);
                 let raw = sheet.cells.get(&address).map(raw_text).unwrap_or_default();
@@ -1336,6 +1344,9 @@ fn styled_text(c: &mut ContainerBuilder<Msg>, text: impl Into<String>, class: &s
     })
     .class(class);
 }
+
+/// The height of one grid row in the flow and the paginated view, in points.
+const GRID_ROW_POINTS: f64 = 20.0;
 
 /// `value` limited to `low..=high`. If the range is empty (`high < low`), the result is `low`.
 fn clamp_to(value: f64, low: f64, high: f64) -> f64 {

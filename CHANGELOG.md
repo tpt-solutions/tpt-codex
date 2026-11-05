@@ -85,6 +85,8 @@ All notable changes to this project are documented here. The format follows
   header rows and the rows the window covers.
 - Browser: `EditorHandle` (returned by `mount_sample`) lets the page send messages to the editor.
   Full screen is tracked both ways.
+- Editor: a grid with a view window shows the same rows as the flow.
+- Browser check: an input-method composition commits into the paragraph (22 checks).
 - `Block::Query` source is editable in the editor (`EditQuery`); a source that does not run is
   rejected.
 - `tpt-codex-core` caret and selection model (`Selection`): caret movement, insert over a range,

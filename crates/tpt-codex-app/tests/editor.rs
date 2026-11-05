@@ -1002,3 +1002,40 @@ fn the_pages_view_is_a_switch_from_editing() {
     e.update(Msg::SetPaginated { on: false });
     assert!(!render(&e.view()).contains("class=\"page\""));
 }
+
+#[test]
+fn a_grid_window_shows_the_same_rows_as_the_flow() {
+    use tpt_codex_core::{CellInput, Rect, Sheet, SheetId};
+    let mut d = doc();
+    let mut sheet = Sheet::with_size(10, 1);
+    sheet.header_rows = 1;
+    for row in 1..=10 {
+        sheet.cells.insert(
+            tpt_codex_core::address_of(1, row),
+            CellInput::Number {
+                value: f64::from(row) * 100.0,
+            },
+        );
+    }
+    d.insert_sheet(SheetId(1), sheet);
+    d.insert(
+        BlockId(9),
+        Block::Grid {
+            sheet_id: SheetId(1),
+            view_bounds: Some(Rect {
+                x: 0.0,
+                y: 40.0,
+                width: 100.0,
+                height: 40.0,
+            }),
+        },
+    );
+    if let Some(Block::Container { children, .. }) = d.blocks.get_mut(&BlockId(0)) {
+        children.push(BlockId(9));
+    }
+    let html = render(&Editor::new(d).view());
+    // Header row 1 and the window's rows 3 and 4 are drawn; row 5 is not.
+    assert!(html.contains(">300<") && html.contains(">400<"), "{html}");
+    assert!(!html.contains(">500<"), "{html}");
+    assert!(html.contains(">100<"), "{html}");
+}
