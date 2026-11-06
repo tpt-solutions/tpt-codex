@@ -53,6 +53,31 @@ impl EditorHandle {
         self.controller.replica() as u32
     }
 
+    /// Opens a file the user chose: `name` is its file name, which says the format (`.cdx`, `.md`,
+    /// `.docx`, `.xlsx`, `.pptx` or `.json`), and `bytes` its contents. The document being edited
+    /// is replaced. Returns what the import dropped or approximated, as text, or an empty string
+    /// when nothing was lost. On an error the document is left as it was.
+    pub fn open_file(&self, name: &str, bytes: &[u8]) -> Result<String, JsValue> {
+        let opened = tpt_codex_files::open(name, bytes).map_err(|e| JsValue::from_str(&e))?;
+        let report = opened
+            .report
+            .as_ref()
+            .filter(|r| !r.is_lossless())
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        self.controller.replace_document(opened.document);
+        Ok(report)
+    }
+
+    /// The document as the bytes of a file called `name`, whose extension says the format
+    /// (`.cdx`, `.md`, `.docx`, `.xlsx`, `.json` or `.pdf`). The page turns them into a download.
+    pub fn save_file(&self, name: &str) -> Result<Vec<u8>, JsValue> {
+        self.controller
+            .with_document(|doc| tpt_codex_files::save(doc, name))
+            .map(|saved| saved.bytes)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
     /// The document as PDF file bytes. The page turns them into a download.
     pub fn export_pdf(&self) -> Result<Vec<u8>, JsValue> {
         self.controller

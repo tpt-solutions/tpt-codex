@@ -25,7 +25,7 @@ The `wasm-bindgen` CLI must be the same version as the `wasm-bindgen` library in
 ## Browser test
 
 `browser/browser-test.mjs` opens `web/index.html` in Chrome through Playwright and checks the grid,
-formulas, undo, paragraph typing, marks, and slides. It serves the files by routing requests for a
+formulas, undo, paragraph typing, marks, slides, opening and saving files, and autosave. It serves the files by routing requests for a
 made-up origin, so it starts no server.
 
 ```sh

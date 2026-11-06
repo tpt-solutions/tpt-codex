@@ -31,6 +31,7 @@ WebAssembly.
 | `tpt-codex-text` | Bundled fonts and text measurement with `tpt-text` | no |
 | `tpt-codex-pdf` | Deterministic PDF export of documents and slides | no |
 | `tpt-codex-interop` | `.docx`, `.xlsx`, `.pptx` import and `.docx`, `.xlsx` export | no |
+| `tpt-codex-files` | Open and save by file extension, from and to bytes (shared by the CLI and the browser) | no |
 | `tpt-codex-cli` | The `tpt` command: convert, check, watch, diff, new | no |
 | `tpt-codex-app` | Editor state and UI tree on `tpt-appfront` | no |
 | `tpt-codex-web` | Browser entry point (wasm) and demo page | no |

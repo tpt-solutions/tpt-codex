@@ -285,6 +285,55 @@ check("escape stops presenting", (await page.locator(".presenter").count()) === 
   check("export button downloads a PDF", download.suggestedFilename() === "document.pdf" && head === "%PDF-", `${download.suggestedFilename()} ${head}`);
 }
 
+// Opening files: a .cdx replaces the document, and live values and grids come with it.
+const status = () => page.textContent("#status");
+await page.setInputFiles("#open-file", {
+  name: "notes.cdx",
+  mimeType: "text/plain",
+  buffer: Buffer.from('---\ntitle: "T"\n---\n\n# Opened heading\n\nThe answer is [[sheet1.B2]].\n\n::: grid { id="1" }\n| a | b |\n| --- | --- |\n| 2 | =A2*21 |\n:::\n'),
+});
+await page.waitForFunction(() => document.querySelector("#app h1")?.textContent === "Opened heading", null, { timeout: 5000 });
+check("opening a .cdx shows its heading", (await page.textContent("#app h1")) === "Opened heading");
+check("opening a file says so", (await status()).includes("Opened notes.cdx"), await status());
+check("the opened grid is evaluated", (await tableCell("42").count()) === 1);
+
+// A file that cannot be read leaves the document alone and says why.
+await page.setInputFiles("#open-file", { name: "bad.cdx", mimeType: "text/plain", buffer: Buffer.from("# T\n\n> a quote\n") });
+await page.waitForFunction(() => document.querySelector("#status")?.textContent.includes("Could not open"), null, { timeout: 5000 });
+check("a bad file reports its line", (await status()).includes("bad.cdx:3:"), await status());
+check("a bad file leaves the document as it was", (await page.textContent("#app h1")) === "Opened heading");
+
+// A Word file opens, and the import report is shown.
+await page.setInputFiles("#open-file", path.join(HERE, "../../../fixtures/office/basic.docx"));
+await page.waitForFunction(() => document.querySelector("#app h1")?.textContent === "Introduction", null, { timeout: 5000 });
+check("opening a .docx shows its heading", (await page.textContent("#app h1")) === "Introduction");
+check("a .docx import shows what was not kept", (await status()).includes("not kept"), await status());
+
+// Saving in each format names the file after the one that was opened.
+for (const [ext, magic] of [["cdx", "---"], ["docx", "PK"], ["xlsx", null], ["pdf", "%PDF-"], ["json", "{"]]) {
+  if (ext === "xlsx") continue; // this document has no grid, which the page reports instead
+  await page.selectOption("#save-format", ext);
+  const downloadPromise = page.waitForEvent("download", { timeout: 20000 });
+  await page.click("#save");
+  const download = await downloadPromise;
+  const head = (await readFile(await download.path())).subarray(0, magic.length).toString("latin1");
+  check(`save as .${ext} downloads basic.${ext}`, download.suggestedFilename() === `basic.${ext}` && head === magic, `${download.suggestedFilename()} ${head}`);
+}
+await page.selectOption("#save-format", "xlsx");
+await page.click("#save");
+check("saving a grid-less document as .xlsx says why", (await status()).includes("no grid"), await status());
+
+// Autosave: the document comes back after a reload, and Start over clears it.
+await page.waitForTimeout(2600);
+await page.reload();
+await page.waitForSelector("#app h1", { timeout: 20000 });
+check("autosave restores the last document", (await page.textContent("#app h1")) === "Introduction", await page.textContent("#app h1"));
+check("restoring says so", (await status()).includes("Restored"), await status());
+await page.click("#start-over");
+await page.waitForSelector("#app h1", { timeout: 20000 });
+await page.waitForTimeout(300);
+check("start over brings back the sample", (await page.textContent("#app h1")) === "Field notes", await page.textContent("#app h1"));
+
 check("no page errors", errors.length === 0, errors.join(" | "));
 await browser.close();
 

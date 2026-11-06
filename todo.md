@@ -219,7 +219,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] Release workflow (`.github/workflows/release.yml`: `tpt` and the relay for Linux, Windows and macOS on a `v*` tag, with checksums) — _written, not yet run on GitHub_
 - [x] `scripts/build-web.sh` and `.ps1` (check the `wasm-bindgen` version, build, copy the page), `justfile`, `.devcontainer`
 - [x] Relay stop on ctrl-c — _not needed: ctrl-c ends the process and the relay keeps no state on disk. No dependency added for it_
-- [ ] Web demo opens and saves real files (today it mounts a sample document)
+- [x] Web demo opens and saves real files, with autosave — _`tpt-codex-files` (bytes in, bytes out) behind `EditorHandle.open_file` and `save_file`; browser-tested in Chrome_
 - [x] `.cdx` writer: whole-paragraph bold or italic, and bold+italic with `***` — _a flag is written as emphasis around the text and read back as a run; `docx` → `.cdx` now works for styled files_
 
 ---

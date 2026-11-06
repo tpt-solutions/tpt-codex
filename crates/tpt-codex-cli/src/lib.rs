@@ -177,11 +177,11 @@ fn output_of(opts: &Opts) -> Result<&Path, Failure> {
 
 fn print_report(
     label: &str,
-    report: &tpt_codex_interop::FidelityReport,
+    report: &tpt_codex_files::FidelityReport,
     full: bool,
     out: &mut dyn Write,
 ) {
-    use tpt_codex_interop::Fidelity;
+    use tpt_codex_files::Fidelity;
     if full {
         let _ = writeln!(out, "{label}:\n{report}");
     } else if !report.is_lossless() {

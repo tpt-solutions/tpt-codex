@@ -71,6 +71,18 @@ impl Controller {
         self.presence.borrow().id()
     }
 
+    /// Replaces the document being edited, for example with one the user opened from a file. The
+    /// undo history and the remote carets start again.
+    pub fn replace_document(&self, doc: Document) {
+        *self.editor.borrow_mut() = Editor::new(doc);
+        self.version.set(self.version.get() + 1);
+    }
+
+    /// Runs `read` on the document being edited.
+    pub fn with_document<R>(&self, read: impl FnOnce(&Document) -> R) -> R {
+        read(self.editor.borrow().document())
+    }
+
     /// The document as PDF file bytes, on the page size of its document class.
     pub fn export_pdf(&self) -> Result<Vec<u8>, String> {
         crate::export::export_pdf(self.editor.borrow().document())

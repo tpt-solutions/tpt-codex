@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
 
 - Release workflow, `scripts/build-web.sh` and `.ps1`, a `justfile`, and a devcontainer.
 
+- The browser demo opens and saves real files: Open (or drop) `.cdx`, `.md`, `.docx`, `.xlsx`, `.pptx`,
+  `.json`, with the fidelity report shown; Save as `.cdx`, `.docx`, `.xlsx`, `.pdf`, `.json`; autosave to
+  local storage with Start over. Backed by the new `tpt-codex-files` crate, which the CLI now uses too.
+  Browser-tested (55 checks).
 - `tpt merge <BASE> <OURS> <THEIRS> -o <OUT> [--prefer ours|theirs]`: the core's three-way merge on text
   files. Blocks are matched with the base by kind and word overlap first, because a file read from
   Markdown numbers its blocks by position and an added paragraph would shift every later id.

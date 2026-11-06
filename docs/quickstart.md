@@ -94,8 +94,11 @@ yours, the conflict is listed, and the exit status is 1. Run again with `--prefe
 
 ## The browser editor
 
-`crates/tpt-codex-web` builds the editor to WebAssembly. It currently opens a sample document. See
-its [README](../crates/tpt-codex-web/README.md).
+`crates/tpt-codex-web` builds the editor to WebAssembly (`just serve`, or `scripts/build-web.sh`).
+The page opens a `.cdx`, `.md`, `.docx`, `.xlsx`, `.pptx` or `.json` file (the Open button, or drop a
+file on the page), shows what an import could not keep, saves as `.cdx`, `.docx`, `.xlsx`, `.pdf` or
+`.json`, and keeps your document in the browser's local storage so it is there next time (Start over
+clears it). See its [README](../crates/tpt-codex-web/README.md).
 
 ## Collaboration
 

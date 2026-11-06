@@ -613,12 +613,9 @@ dependencies = [
 name = "tpt-codex-cli"
 version = "0.1.0-spec"
 dependencies = [
- "serde_json",
  "tpt-codex-core",
+ "tpt-codex-files",
  "tpt-codex-grid",
- "tpt-codex-interop",
- "tpt-codex-markdown",
- "tpt-codex-pdf",
  "tpt-typeset",
 ]
 
@@ -628,6 +625,18 @@ version = "0.1.0-spec"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "tpt-codex-files"
+version = "0.1.0-spec"
+dependencies = [
+ "serde_json",
+ "tpt-codex-core",
+ "tpt-codex-grid",
+ "tpt-codex-interop",
+ "tpt-codex-markdown",
+ "tpt-codex-pdf",
 ]
 
 [[package]]
@@ -709,6 +718,7 @@ name = "tpt-codex-web"
 version = "0.1.0-spec"
 dependencies = [
  "tpt-codex-app",
+ "tpt-codex-files",
  "wasm-bindgen",
 ]
 

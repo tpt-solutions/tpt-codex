@@ -27,6 +27,23 @@
     <!-- The editor marks the presenter stage; this button makes the browser show it full screen. -->
     <button id="fullscreen" type="button">Full screen</button>
     <button id="export-pdf" type="button">Export PDF</button>
+    <!-- Open any .cdx, .md, .docx, .xlsx, .pptx or .json file, or drop one on the page. -->
+    <label class="file-button">Open file
+      <input id="open-file" type="file" hidden
+             accept=".cdx,.md,.markdown,.docx,.xlsx,.pptx,.json" />
+    </label>
+    <label>Save as
+      <select id="save-format">
+        <option value="cdx">.cdx</option>
+        <option value="docx">.docx</option>
+        <option value="xlsx">.xlsx</option>
+        <option value="pdf">.pdf</option>
+        <option value="json">.json</option>
+      </select>
+    </label>
+    <button id="save" type="button">Save</button>
+    <button id="start-over" type="button" hidden>Start over</button>
+    <p id="status" role="status" style="margin: 8px 0; white-space: pre-wrap"></p>
     <main id="app"></main>
     <script type="module">
       // The pkg folder is produced by wasm-bindgen from tpt_codex_web.wasm.
@@ -56,6 +73,88 @@
           alert("PDF export failed: " + error);
         }
       });
+      // ---- Opening and saving files ----
+      const status = document.getElementById("status");
+      let fileName = "document.cdx";
+      const MEDIA = {
+        cdx: "text/plain", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        pdf: "application/pdf", json: "application/json",
+      };
+
+      async function openFile(file) {
+        try {
+          const report = editor.open_file(file.name, new Uint8Array(await file.arrayBuffer()));
+          fileName = file.name;
+          status.textContent = report
+            ? `Opened ${file.name}. Some things were not kept:\n${report}`
+            : `Opened ${file.name}.`;
+        } catch (error) {
+          // The document on the page is unchanged.
+          status.textContent = `Could not open ${file.name}: ${error}`;
+        }
+      }
+      document.getElementById("open-file").addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (file) openFile(file);
+        event.target.value = "";
+      });
+      // Dropping a file anywhere on the page opens it.
+      document.addEventListener("dragover", (event) => event.preventDefault());
+      document.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const file = event.dataTransfer?.files?.[0];
+        if (file) openFile(file);
+      });
+      // Saves in the chosen format, named after the file that was opened.
+      document.getElementById("save").addEventListener("click", () => {
+        const ext = document.getElementById("save-format").value;
+        const name = fileName.replace(/\.[^.]*$/, "") + "." + ext;
+        try {
+          const bytes = editor.save_file(name);
+          const url = URL.createObjectURL(new Blob([bytes], { type: MEDIA[ext] }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = name;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          status.textContent = `Saved ${name}.`;
+        } catch (error) {
+          status.textContent = `Could not save ${name}: ${error}`;
+        }
+      });
+
+      // ---- Autosave ----
+      // The document is kept in this browser's local storage every two seconds while it differs
+      // from the last copy, and comes back the next time the page opens. Pages that join a relay
+      // do not restore, so that collaborators start from the same document. Storage can be
+      // unavailable (private windows, blocked site data), and then nothing is saved.
+      const KEY = "tpt-codex-autosave";
+      const store = {
+        get() { try { return localStorage.getItem(KEY); } catch { return null; } },
+        set(value) { try { localStorage.setItem(KEY, value); } catch { /* not saved */ } },
+        clear() { try { localStorage.removeItem(KEY); } catch { /* nothing to clear */ } },
+      };
+      const snapshot = () => new TextDecoder().decode(editor.save_file("autosave.json"));
+      const startOver = document.getElementById("start-over");
+      let lastSaved = snapshot();
+      const saved = params.has("relay") || params.has("fresh") ? null : store.get();
+      if (saved) {
+        try {
+          editor.open_file("autosave.json", new TextEncoder().encode(saved));
+          lastSaved = snapshot();
+          status.textContent = "Restored your last session.";
+          startOver.hidden = false;
+        } catch { store.clear(); }
+      }
+      startOver.addEventListener("click", () => { store.clear(); location.reload(); });
+      setInterval(() => {
+        try {
+          const now = snapshot();
+          if (now !== lastSaved) { store.set(now); lastSaved = now; }
+        } catch { /* a document that cannot be saved is not stored */ }
+      }, 2000);
+
       // When the browser leaves full screen (for example with Escape), the editor follows.
       document.addEventListener("fullscreenchange", () => {
         if (!document.fullscreenElement) editor.set_fullscreen(false);
