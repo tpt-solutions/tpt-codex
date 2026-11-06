@@ -17,6 +17,8 @@
       table.grid-table td, table.grid-table th { border: 1px solid #bbb; padding: 2px 8px; text-align: right; }
       input.grid-cell { width: 6em; }
       textarea.paragraph-input { width: 100%; min-height: 3em; font: inherit; }
+      /* A list item's marker comes from its data-marker attribute, not from a text node. */
+      .list-item::before { content: attr(data-marker) " "; }
     </style>
   </head>
   <body>

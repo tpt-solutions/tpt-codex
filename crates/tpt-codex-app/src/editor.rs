@@ -8,6 +8,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::query_form::QueryDraft;
 use tpt_appfront_core::ui_tree::{ContainerBuilder, NodeKind};
 use tpt_appfront_core::{KeyEvent, UITree};
 use tpt_codex_core::{
@@ -127,6 +128,17 @@ pub enum Msg {
     },
     /// Add an empty slide (16:9) at the end of the document, as one undoable step.
     InsertSlide,
+    /// Insert a bulleted list with one empty item, at the end of the document, as one undoable
+    /// step. The caret goes into the item.
+    InsertList,
+    /// Insert a query over paragraphs with no conditions, at the end of the document, as one
+    /// undoable step. Its form then sets the conditions.
+    InsertQuery,
+    /// Add a text box to `slide` at its top left, as one undoable step. It is selected.
+    InsertSlideText {
+        /// The slide to add the box to.
+        slide: BlockId,
+    },
     /// Select a block on a slide, or clear the selection with `None`. Arrow keys then move the
     /// block, and Alt with an arrow key resizes it (Shift takes ten times as far). Escape clears
     /// the selection. Only a block on a slide can be selected.
@@ -173,6 +185,18 @@ pub enum Msg {
         block: BlockId,
         /// The query, without JSON.
         spec: tpt_typeset::query_builder::QuerySpec,
+    },
+    /// Change one control of a query block's form. This changes the form only, not the document.
+    SetQueryDraft {
+        /// The query block whose form changed.
+        block: BlockId,
+        /// The control's new value.
+        change: crate::query_form::DraftChange,
+    },
+    /// Apply a query block's form: store the query it describes, as [`Msg::SetQuery`] does.
+    ApplyQueryDraft {
+        /// The query block to set.
+        block: BlockId,
     },
     /// Move slide `from` (0-based, in slide order) so that it becomes slide `to`. As one undoable
     /// step.
@@ -238,6 +262,8 @@ pub struct Editor {
     fullscreen: bool,
     /// The block selected on a slide, if any. Only used while editing, not presenting.
     selected_block: Option<BlockId>,
+    /// The form values of each query block, not yet applied.
+    query_drafts: BTreeMap<BlockId, QueryDraft>,
     /// Other people's carets, drawn in their paragraphs.
     remote_cursors: Vec<RemoteCursor>,
     /// The rendered nodes of each top-level block, reused until the block changes.
@@ -273,6 +299,7 @@ impl Editor {
             paginated: false,
             fullscreen: false,
             selected_block: None,
+            query_drafts: BTreeMap::new(),
             remote_cursors: Vec::new(),
             cache: RefCell::new(BTreeMap::new()),
             stale: RefCell::new(BTreeSet::new()),
@@ -356,6 +383,9 @@ impl Editor {
             Msg::EditQuery { block, source } => self.edit_query(block, source),
             Msg::SetTableSize { rows, cols } => self.set_table_size(rows, cols),
             Msg::InsertSlide => self.insert_slide(),
+            Msg::InsertList => self.insert_list(),
+            Msg::InsertQuery => self.insert_query(),
+            Msg::InsertSlideText { slide } => self.insert_slide_text(slide),
             Msg::SelectBlock(block) => self.select_block(block),
             Msg::StartPresenting { index } => {
                 let count = self.slide_ids().len();
@@ -403,6 +433,13 @@ impl Editor {
             Msg::InsertTable { rows, cols } => self.insert_table(rows, cols),
             Msg::AddListItem { list } => self.add_list_item(list),
             Msg::SetQuery { block, spec } => self.set_query(block, &spec),
+            Msg::SetQueryDraft { block, change } => {
+                self.query_drafts.entry(block).or_default().apply(change);
+                // The form is part of the query block's view, so only that block is drawn again.
+                self.mark_stale(&BTreeSet::from([block]), &BTreeSet::new(), false);
+                Ok(())
+            }
+            Msg::ApplyQueryDraft { block } => self.apply_query_draft(block),
             Msg::RemoveListItem { list, index } => self.remove_list_item(list, index),
             Msg::ToggleListKind { list } => self.toggle_list_kind(list),
             Msg::Undo => {
@@ -761,6 +798,121 @@ impl Editor {
             .map_err(|e| e.to_string())
     }
 
+    /// The next free block id: one more than the largest in use.
+    fn next_block_id(&self) -> BlockId {
+        BlockId(
+            self.doc
+                .blocks
+                .keys()
+                .map(|b| b.0)
+                .max()
+                .map_or(1, |m| m + 1),
+        )
+    }
+
+    fn insert_list(&mut self) -> Result<(), String> {
+        let root = self.doc.root;
+        let Some(Block::Container { children, .. }) = self.doc.get(root) else {
+            return Err("the document root cannot hold a list".to_string());
+        };
+        let index = children.len();
+        // The item takes the next id, and the list the one after it: no block has either yet.
+        let item = self.next_block_id();
+        let list = BlockId(item.0 + 1);
+        let ops = vec![
+            Op::AddBlock {
+                id: item,
+                block: Block::Text {
+                    content: String::new(),
+                    style: Default::default(),
+                },
+            },
+            Op::AddBlock {
+                id: list,
+                block: Block::List {
+                    ordered: false,
+                    start: 1,
+                    items: vec![item],
+                },
+            },
+            Op::InsertChild {
+                parent: root,
+                index,
+                child: list,
+            },
+        ];
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())?;
+        self.caret = Some(Selection::caret(item, 0));
+        self.cell = None;
+        Ok(())
+    }
+
+    fn insert_query(&mut self) -> Result<(), String> {
+        let root = self.doc.root;
+        let Some(Block::Container { children, .. }) = self.doc.get(root) else {
+            return Err("the document root cannot hold a query".to_string());
+        };
+        let index = children.len();
+        let id = self.next_block_id();
+        let ops = vec![
+            Op::AddBlock {
+                id,
+                block: Block::Query(tpt_codex_core::Query {
+                    source: r#"{"source":1,"filters":[]}"#.to_string(),
+                }),
+            },
+            Op::InsertChild {
+                parent: root,
+                index,
+                child: id,
+            },
+        ];
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())
+    }
+
+    fn insert_slide_text(&mut self, slide: BlockId) -> Result<(), String> {
+        let index = match self.doc.get(slide) {
+            Some(Block::Container {
+                layout_mode: LayoutMode::Absolute,
+                children,
+            }) => children.len(),
+            _ => return Err(format!("block {} is not a slide", slide.0)),
+        };
+        let id = self.next_block_id();
+        let ops = vec![
+            Op::AddBlock {
+                id,
+                block: Block::Text {
+                    content: "Text".to_string(),
+                    style: Default::default(),
+                },
+            },
+            Op::InsertChild {
+                parent: slide,
+                index,
+                child: id,
+            },
+            Op::SetFrame {
+                id,
+                frame: Some(tpt_codex_core::Rect {
+                    x: 40.0,
+                    y: 40.0,
+                    width: 320.0,
+                    height: 80.0,
+                }),
+            },
+        ];
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())?;
+        self.selected_block = Some(id);
+        Ok(())
+    }
+
     /// The slide that holds `block`, if it is a child of an absolute container.
     fn slide_of(&self, block: BlockId) -> Option<BlockId> {
         self.doc.blocks.iter().find_map(|(id, b)| match b {
@@ -815,6 +967,12 @@ impl Editor {
             }
         }
         self.edit_query(block, build_source(spec))
+    }
+
+    fn apply_query_draft(&mut self, block: BlockId) -> Result<(), String> {
+        let draft = self.query_drafts.get(&block).cloned().unwrap_or_default();
+        let spec = draft.to_spec()?;
+        self.set_query(block, &spec)
     }
 
     fn filter_query(&mut self, block: BlockId, field: &str, value: &str) -> Result<(), String> {
@@ -1129,6 +1287,8 @@ impl Editor {
             c.button("Insert table")
                 .on_click(Msg::InsertTable { rows, cols });
             c.button("Insert slide").on_click(Msg::InsertSlide);
+            c.button("Insert list").on_click(Msg::InsertList);
+            c.button("Insert query").on_click(Msg::InsertQuery);
             c.button("Pages").on_click(Msg::SetPaginated { on: true });
             c.button("Present slides")
                 .on_click(Msg::StartPresenting { index: 0 });
@@ -1218,18 +1378,20 @@ impl Editor {
                 for (n, item) in items.iter().enumerate() {
                     if let Some(Block::Text { content, style }) = self.doc.get(*item) {
                         let marker = if *ordered {
-                            format!("{}. ", n + 1)
+                            format!("{}.", n + 1)
                         } else {
-                            "• ".to_string()
+                            "•".to_string()
                         };
                         // Each item is edited like a paragraph, so typing and the caret work in it.
+                        // The marker is drawn by CSS from `data-marker`, not as a text node: a text
+                        // node before the text area makes the browser move the area and drop focus.
                         c.container(|row| {
-                            row.text(marker);
                             self.view_paragraph(row, *item, content, style);
                             row.button("Remove item")
                                 .on_click(Msg::RemoveListItem { list, index: n });
                         })
-                        .class("list-item");
+                        .class("list-item")
+                        .attr("data-marker", marker);
                     }
                 }
                 c.button("Add item").on_click(Msg::AddListItem { list });
@@ -1349,6 +1511,11 @@ impl Editor {
             .and_then(|b| self.doc.frames.get(&b).map(|f| (b, *f)));
         let node = c
             .container(|slide| {
+                if editing {
+                    slide
+                        .button("Add text")
+                        .on_click(Msg::InsertSlideText { slide: id });
+                }
                 for &child in children {
                     match self.doc.frames.get(&child) {
                         Some(frame) => {
@@ -1399,6 +1566,7 @@ impl Editor {
             .aria("label", "query source")
             .on_input(move |source| Msg::EditQuery { block: id, source })
             .class("query-source");
+        self.view_query_form(c, id);
         let entities = document_entities(&self.doc);
         let json = match run_query(query, &entities) {
             Ok(json) => json,
@@ -1429,6 +1597,65 @@ impl Editor {
                 .map_or_else(|| "(unknown block)".to_string(), block_text);
             styled_text(c, line, "query query-row");
         }
+    }
+
+    /// The form under a query block's source: controls for the source type, the field and test,
+    /// the value, the sort and the limit, with an apply button. Each control sends its own
+    /// change, which the editor applies to the draft it holds. The handlers capture only the
+    /// block id, because the renderer keeps the handlers of a control it reuses.
+    fn view_query_form(&self, c: &mut ContainerBuilder<Msg>, id: BlockId) {
+        use crate::query_form::{DraftChange, FIELDS, SOURCES};
+        let draft = self.query_drafts.get(&id).cloned().unwrap_or_default();
+        let change = move |make: fn(String) -> DraftChange| {
+            move |value: String| Msg::SetQueryDraft {
+                block: id,
+                change: make(value),
+            }
+        };
+        let sources = SOURCES
+            .iter()
+            .map(|(value, label)| (value.to_string(), *label));
+        c.select(sources, draft.source.to_string())
+            .aria("label", "query source type")
+            .on_input(change(DraftChange::Source))
+            .class("query-form-control");
+        let fields = FIELDS.iter().map(|f| (*f, *f));
+        c.select(fields.clone(), draft.field.clone())
+            .aria("label", "query field")
+            .on_input(change(DraftChange::Field))
+            .class("query-form-control");
+        let operators = [("equals", "equals"), ("not-equals", "not equals")];
+        let operator = if draft.not_equal {
+            "not-equals"
+        } else {
+            "equals"
+        };
+        c.select(operators, operator)
+            .aria("label", "query test")
+            .on_input(change(DraftChange::Test))
+            .class("query-form-control");
+        c.input(draft.value.clone())
+            .aria("label", "query value")
+            .on_input(change(DraftChange::Value))
+            .class("query-form-control");
+        let sorts = std::iter::once(("", "no sort")).chain(fields);
+        c.select(sorts, draft.sort.clone())
+            .aria("label", "query sort field")
+            .on_input(change(DraftChange::Sort))
+            .class("query-form-control");
+        let directions = [("asc", "ascending"), ("desc", "descending")];
+        let direction = if draft.descending { "desc" } else { "asc" };
+        c.select(directions, direction)
+            .aria("label", "query sort direction")
+            .on_input(change(DraftChange::Direction))
+            .class("query-form-control");
+        c.input(draft.limit.clone())
+            .aria("label", "query limit")
+            .on_input(change(DraftChange::Limit))
+            .class("query-form-control");
+        c.button("Apply query")
+            .on_click(Msg::ApplyQueryDraft { block: id })
+            .class("query-apply");
     }
 
     /// A grid shows its computed values as a table, with an editable input for every cell in

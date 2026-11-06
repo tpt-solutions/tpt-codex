@@ -161,6 +161,90 @@ await page.getByRole("button", { name: "Back to editing" }).click();
 await page.waitForTimeout(150);
 check("back to editing restores the editor", (await page.locator(".page").count()) === 0 && (await page.getByRole("button", { name: "Insert table" }).count()) === 1);
 
+// Lists: insert one, type into its item, add an item, number the list, and remove an item.
+await page.getByRole("button", { name: "Insert list" }).click();
+await page.waitForTimeout(150);
+check("inserting a list draws one item", (await page.locator(".list-item").count()) === 1);
+await page.getByRole("textbox", { name: "paragraph" }).click();
+await page.keyboard.type("milk");
+await page.getByRole("button", { name: "Add item" }).click();
+await page.getByRole("textbox", { name: "paragraph" }).click();
+await page.keyboard.type("eggs");
+await page.waitForTimeout(150);
+// The item being typed in is a text area; the others show their text. Read both.
+const itemTexts = async () =>
+  page.locator(".list-item").evaluateAll((rows) =>
+    rows.map((row) => {
+      const area = row.querySelector("textarea");
+      return area ? area.value : row.textContent.replace("Remove item", "");
+    }),
+  );
+const items = await itemTexts();
+check("add item adds an item the caret is in", items.length === 2 && items[0] === "milk" && items[1] === "eggs", JSON.stringify(items));
+await page.getByRole("button", { name: "Make numbered" }).click();
+await page.waitForTimeout(150);
+const numbered = await page.locator(".list-item").evaluateAll((els) => els.map((e) => e.dataset.marker));
+check("toggle numbers the list", numbered[0] === "1." && numbered[1] === "2.", JSON.stringify(numbered));
+await page.getByRole("button", { name: "Remove item" }).first().click();
+await page.waitForTimeout(150);
+check("remove item removes the first item", (await page.locator(".list-item").count()) === 1 && JSON.stringify(await itemTexts()) === '["eggs"]', JSON.stringify(await itemTexts()));
+await page.getByRole("button", { name: "Undo" }).click();
+await page.waitForTimeout(150);
+check("undo brings the removed item back", (await page.locator(".list-item").count()) === 2);
+
+// Query builder: insert a query, set its form, apply it, and see the matching rows.
+await page.getByRole("button", { name: "Insert query" }).click();
+await page.waitForTimeout(150);
+const querySource = page.locator(".query-source");
+const before = await querySource.inputValue();
+await page.getByRole("combobox", { name: "query field" }).selectOption("content");
+await page.getByRole("combobox", { name: "query test" }).selectOption("not-equals");
+await page.getByRole("textbox", { name: "query value" }).fill("nothing");
+await page.getByRole("combobox", { name: "query sort field" }).selectOption("content");
+await page.getByRole("combobox", { name: "query sort direction" }).selectOption("desc");
+await page.getByRole("textbox", { name: "query limit" }).fill("2");
+check("query form does not change the query until applied", (await querySource.inputValue()) === before);
+await page.getByRole("button", { name: "Apply query" }).click();
+await page.waitForTimeout(150);
+const applied = await querySource.inputValue();
+check("apply stores the query the form describes", applied !== before && applied.includes("content") && applied.includes("nothing"), applied);
+check("the applied query shows matching rows", (await page.locator(".query-row").count()) >= 1);
+await page.getByRole("textbox", { name: "query limit" }).fill("lots");
+await page.getByRole("button", { name: "Apply query" }).click();
+await page.waitForTimeout(150);
+check("a bad limit is reported and the query is kept", (await page.locator(".status").first().textContent()).includes("whole number") && (await querySource.inputValue()) === applied);
+
+// Slides: add a text box, select it, and nudge it with the arrow keys.
+await page.getByRole("button", { name: "Add text" }).click();
+await page.waitForTimeout(150);
+check("add text draws a selectable box on the slide", (await page.locator(".slide-child").count()) === 1);
+await page.locator(".slide-child").click();
+await page.waitForTimeout(100);
+const focused = await page.evaluate(() => document.activeElement?.className ?? "(none)");
+await page.keyboard.press("ArrowRight");
+await page.waitForTimeout(150);
+const moved = await page.locator(".slide-child.selected").getAttribute("style");
+check("arrow key nudges the selected box by one point", moved.includes("left:41px"), `focus=${focused} style=${moved}`);
+await page.keyboard.press("Escape");
+await page.waitForTimeout(100);
+check("escape clears the slide selection", (await page.locator(".slide-child.selected").count()) === 0);
+
+// Presenter keys: with two slides, the arrow keys step through them and Escape stops.
+await page.getByRole("button", { name: "Insert slide" }).click();
+await page.waitForTimeout(150);
+await page.getByRole("button", { name: "Present slides" }).click();
+await page.waitForTimeout(150);
+await page.locator(".presenter").click();
+await page.keyboard.press("ArrowRight");
+await page.waitForTimeout(100);
+check("arrow right shows the next slide", (await page.locator(".presenter-count").textContent()) === "slide 2 of 2");
+await page.keyboard.press("ArrowLeft");
+await page.waitForTimeout(100);
+check("arrow left shows the previous slide", (await page.locator(".presenter-count").textContent()) === "slide 1 of 2");
+await page.keyboard.press("Escape");
+await page.waitForTimeout(150);
+check("escape stops presenting", (await page.locator(".presenter").count()) === 0);
+
 check("no page errors", errors.length === 0, errors.join(" | "));
 await browser.close();
 

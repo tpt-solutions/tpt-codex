@@ -15,6 +15,7 @@
 pub mod editor;
 mod file_storage;
 mod persistence;
+pub mod query_form;
 
 pub use editor::{Arrow, CellFocus, Editor, Msg, RemoteCursor};
 pub use file_storage::FileStorage;
