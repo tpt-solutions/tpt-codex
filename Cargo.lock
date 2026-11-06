@@ -511,7 +511,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-core"
 version = "0.1.1"
-source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67#5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67"
+source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=be649e1b1b499450e25e8652b5682a3967ab739f#be649e1b1b499450e25e8652b5682a3967ab739f"
 dependencies = [
  "serde",
  "serde_json",
@@ -522,7 +522,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-dom"
 version = "0.1.1"
-source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67#5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67"
+source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=be649e1b1b499450e25e8652b5682a3967ab739f#be649e1b1b499450e25e8652b5682a3967ab739f"
 dependencies = [
  "serde",
  "serde_json",
@@ -534,7 +534,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-html"
 version = "0.1.1"
-source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67#5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67"
+source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=be649e1b1b499450e25e8652b5682a3967ab739f#be649e1b1b499450e25e8652b5682a3967ab739f"
 dependencies = [
  "tpt-appfront-core",
 ]
@@ -542,7 +542,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-macros"
 version = "0.1.1"
-source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67#5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67"
+source = "git+https://github.com/tpt-solutions/tpt-appfront?rev=be649e1b1b499450e25e8652b5682a3967ab739f#be649e1b1b499450e25e8652b5682a3967ab739f"
 dependencies = [
  "proc-macro2",
  "quote",

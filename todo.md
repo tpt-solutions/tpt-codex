@@ -160,7 +160,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] Explicit X/Y positioning of children, render via `tpt-canvas` — _`Document.frames` holds each child's rectangle (`Op::SetFrame`); the editor places blocks on a slide. Drawing goes through the slide's HTML, not `tpt-canvas`_
 - [x] Slide navigation, presenter/fullscreen mode — _presenter mode shows one slide at a time, with previous, next, stop, and the section name. Full screen is tracked both ways: the demo page's button marks the stage in the editor (`EditorHandle.set_fullscreen`), and leaving full screen clears it. Browser-tested_
 - [x] Slide ordering / sections — _slides can be reordered (`MoveSlide`, undoable). Each slide can be put in a section (`SetSection`, undoable), kept in `Document.sections`. Consecutive slides with the same section form a group (`slide_sections`)_
-- [x] Select / move / resize of canvas children — _done: a press selects a child and starts a drag; the child follows the pointer and moves on release as one undoable step (`PressSlideBlock`, `DragSlideBlock`, `DropSlideBlock`). Browser-tested. Needs appfront `c9f928e` and `be649e1` pushed, then the rev repinned_
+- [x] Select / move / resize of canvas children — _done: a press selects a child and starts a drag; the child follows the pointer and moves on release as one undoable step (`PressSlideBlock`, `DragSlideBlock`, `DropSlideBlock`). Browser-tested. Uses appfront `be649e1`, pushed and pinned_
 - [x] Slides → PDF export — _partial: `render_slide_svg` exports one slide as SVG, with text wrapped by the Flow view's measure. PDF is blocked upstream_ — _`export_slide` writes one slide to PDF_
 
 ### Collaboration (`tpt-replicate`)

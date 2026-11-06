@@ -37,9 +37,9 @@ quick-xml = "0.37"
 tpt-query = { git = "https://github.com/tpt-solutions/tpt-query", rev = "6b06d02c70f273a658e9aefee26473988160bb74" }
 tpt-lattice-core = { git = "https://github.com/tpt-solutions/tpt-lattice", rev = "d72332117c1c5f2074513ce9cd7ce1cf7e423d1f" }
 tpt-lattice-evaluator = { git = "https://github.com/tpt-solutions/tpt-lattice", rev = "d72332117c1c5f2074513ce9cd7ce1cf7e423d1f" }
-tpt-appfront-core = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67" }
-tpt-appfront-html = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67" }
-tpt-appfront-dom = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67" }
+tpt-appfront-core = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "be649e1b1b499450e25e8652b5682a3967ab739f" }
+tpt-appfront-html = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "be649e1b1b499450e25e8652b5682a3967ab739f" }
+tpt-appfront-dom = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "be649e1b1b499450e25e8652b5682a3967ab739f" }
 tpt-text = { git = "https://github.com/tpt-solutions/tpt-text", rev = "83bc13c624b9aa3cee1eccedbb6c8376e4144ea6" }
 tpt-layout = { git = "https://github.com/tpt-solutions/tpt-layout", rev = "21361d18fb09e4cb620baa5571c707172ca5b355" }
 # PDF output. e451560 is the glyph-outline fix (tpt-canvas master HEAD on 2026-11-06).
