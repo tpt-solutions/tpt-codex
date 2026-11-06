@@ -60,20 +60,31 @@ impl DocumentClass {
         DocumentClass::ALL
             .into_iter()
             .find(|c| c.spec().name == name)
-            .ok_or_else(|| UnknownClass(alloc::string::String::from(name)))
+            .ok_or_else(|| UnknownClass {
+                name: alloc::string::String::from(name),
+                hint: "use one of the known classes: article, report",
+            })
     }
 }
 
 /// A class name that is not one of the known classes.
+///
+/// The front matter does not carry a position for the value, so the error gives the name and a
+/// hint, and the Markdown reader reports the line it came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnknownClass(pub alloc::string::String);
+pub struct UnknownClass {
+    /// The name that was given.
+    pub name: alloc::string::String,
+    /// A suggested fix.
+    pub hint: &'static str,
+}
 
 impl fmt::Display for UnknownClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "unknown document class '{}' (known classes: article, report)",
-            self.0
+            "unknown document class '{}' (hint: {})",
+            self.name, self.hint
         )
     }
 }

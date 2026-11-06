@@ -25,7 +25,10 @@ fn invalid_json_is_a_parse_error_with_a_message() {
         source: "not a query".into(),
     };
     match run_query(&block, &source()) {
-        Err(QueryRunError::Parse(message)) => assert!(!message.is_empty()),
+        Err(QueryRunError::Parse { message, hint }) => {
+            assert!(!message.is_empty());
+            assert!(!hint.is_empty());
+        }
         other => panic!("expected parse error, got {other:?}"),
     }
 }

@@ -13,8 +13,13 @@
 //! - [`check_math_blocks`]: parses every `Block::Math` in a document and reports the failures.
 //! - [`run_query`]: runs a `Block::Query` with `tpt-query` against a host-supplied entity source.
 //!
-//! Not yet implemented: footnotes, citations and bibliography, figure and table
-//! numbering, cross-references inside text, a font-backed math layout (MATH table), and `tpt-layout` box conversion.
+//! - [`semantic_tree`]: chapters and sections with their blocks, footnotes and citations, and a TOC.
+//! - [`Bindings`]: `[[name]]` values for text blocks, such as grid cells and query results.
+//! - [`section_boxes`]: each section's extent on a laid-out flow column.
+//!
+//! Not yet implemented: hyphenation and kerning (they need `tpt-text` APIs that are not wired), a
+//! font-backed math layout (the bundled font has no MATH table), equation and table labels (the
+//! model has no label on them), and `tpt-layout` box conversion.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -22,6 +27,8 @@
 
 extern crate alloc;
 
+mod bindings;
+mod boxes;
 mod citations;
 mod class;
 mod figures;
@@ -35,7 +42,10 @@ mod outline;
 mod query;
 mod references;
 mod sections;
+mod semantic;
 
+pub use bindings::{BindingCheck, Bindings, bound_text, check_bindings, grid_cell_name};
+pub use boxes::{SectionBox, section_boxes};
 pub use citations::{
     CitationCheck, CslError, Library, Name, Reference, author_year, bibliography, check_citations,
 };
@@ -54,5 +64,6 @@ pub mod query_builder;
 pub use query::{QueryRunError, document_entities, entity_type, run_query};
 pub use references::{ReferenceCheck, check_references};
 pub use sections::{SectionGroup, slide_sections};
+pub use semantic::{Section, SemanticTree, semantic_tree};
 
 pub use tpt_codex_core as core;

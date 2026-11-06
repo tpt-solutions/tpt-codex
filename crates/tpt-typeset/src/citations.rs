@@ -38,11 +38,24 @@ pub struct Reference {
 
 /// Why a library could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CslError(pub String);
+pub struct CslError {
+    /// 1-based line in the CSL-JSON source.
+    pub line: usize,
+    /// 1-based column in the source, counted in characters.
+    pub column: usize,
+    /// What went wrong.
+    pub message: &'static str,
+    /// A suggested fix.
+    pub hint: &'static str,
+}
 
 impl fmt::Display for CslError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bibliography: {}", self.0)
+        write!(
+            f,
+            "bibliography, line {}, column {}: {} (hint: {})",
+            self.line, self.column, self.message, self.hint
+        )
     }
 }
 
@@ -57,15 +70,37 @@ pub struct Library {
 impl Library {
     /// Reads a CSL-JSON array. An entry without an `id` is an error, since nothing can cite it.
     pub fn from_csl_json(src: &str) -> Result<Library, CslError> {
-        let value: Value = serde_json::from_str(src).map_err(|e| CslError(e.to_string()))?;
-        let items = value
-            .as_array()
-            .ok_or_else(|| CslError("expected a JSON array of entries".into()))?;
+        let value: Value = serde_json::from_str(src).map_err(|e| CslError {
+            line: e.line().max(1),
+            column: e.column().max(1),
+            message: "the bibliography is not valid JSON",
+            hint: "check the brackets, quotes and commas",
+        })?;
+        let items = value.as_array().ok_or(CslError {
+            line: 1,
+            column: 1,
+            message: "expected a JSON array of entries",
+            hint: "wrap the entries in [ ] and separate them with commas",
+        })?;
+        let positions = entry_positions(src);
         let mut entries = BTreeMap::new();
-        for item in items {
-            let reference = reference_from(item)?;
+        for (index, item) in items.iter().enumerate() {
+            let at_entry = |message, hint| {
+                let (line, column) = positions.get(index).copied().unwrap_or((1, 1));
+                CslError {
+                    line,
+                    column,
+                    message,
+                    hint,
+                }
+            };
+            let reference =
+                reference_from(item).map_err(|(message, hint)| at_entry(message, hint))?;
             if entries.insert(reference.id.clone(), reference).is_some() {
-                return Err(CslError("two entries share an id".into()));
+                return Err(at_entry(
+                    "two entries share an id",
+                    "give each entry a different id",
+                ));
             }
         }
         Ok(Library { entries })
@@ -87,7 +122,10 @@ impl Library {
     }
 }
 
-fn reference_from(item: &Value) -> Result<Reference, CslError> {
+/// Why an entry is rejected: the message and the hint.
+type EntryIssue = (&'static str, &'static str);
+
+fn reference_from(item: &Value) -> Result<Reference, EntryIssue> {
     let id = item
         .get("id")
         .map(|v| match v {
@@ -95,7 +133,10 @@ fn reference_from(item: &Value) -> Result<Reference, CslError> {
             other => other.to_string(),
         })
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| CslError("an entry has no id".into()))?;
+        .ok_or((
+            "an entry has no id",
+            "give every entry a string id, such as \"smith2020\"",
+        ))?;
     let title = item
         .get("title")
         .and_then(Value::as_str)
@@ -224,4 +265,47 @@ pub fn check_citations(doc: &Document, library: &Library) -> Vec<CitationCheck> 
         }
     }
     out
+}
+
+/// The line and column where each top-level entry of a CSL-JSON array starts, in order.
+///
+/// Scans the text, skipping strings, so the positions are right even when an entry is not valid
+/// enough to parse. An entry that is not an object or array still gets a position.
+fn entry_positions(src: &str) -> Vec<(usize, usize)> {
+    let mut positions = Vec::new();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let (mut line, mut column) = (1usize, 1usize);
+    for ch in src.chars() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+        } else {
+            match ch {
+                '"' => in_string = true,
+                '{' | '[' => {
+                    // Depth 1 is inside the top-level array, so this opens an entry.
+                    if depth == 1 {
+                        positions.push((line, column));
+                    }
+                    depth += 1;
+                }
+                '}' | ']' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    positions
 }

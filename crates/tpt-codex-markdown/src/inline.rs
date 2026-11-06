@@ -62,6 +62,14 @@ const CITATION_KEY: InlineError = InlineError {
     message: "citation key has a character other than letters, digits, - _ : or .",
     suggestion: "use only letters, digits, and - _ : . in a citation key",
 };
+const BINDING_UNCLOSED: InlineError = InlineError {
+    message: "binding is not closed with ]] on its line",
+    suggestion: "close the binding with ]], or escape the first bracket with a backslash",
+};
+const BINDING_NAME: InlineError = InlineError {
+    message: "binding name has a character other than letters, digits, - _ : or .",
+    suggestion: "use only letters, digits, and - _ : . in a binding name",
+};
 const LINK_ADDRESS: InlineError = InlineError {
     message: "link address has a space, parenthesis, angle bracket or backslash",
     suggestion: "use an address without spaces, parentheses, angle brackets or backslashes",
@@ -146,6 +154,28 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
             '[' => {
                 if open.is_some() {
                     return Err(LINK_IN_EMPHASIS);
+                }
+                if chars.get(i + 1) == Some(&'[') {
+                    // A binding, [[name]]: its text is the name until a value replaces it.
+                    let close = (i + 2..chars.len().saturating_sub(1))
+                        .find(|&j| chars[j] == ']' && chars[j + 1] == ']')
+                        .ok_or(BINDING_UNCLOSED)?;
+                    let name: String = chars[i + 2..close].iter().collect();
+                    if !is_citation_key(&name) {
+                        return Err(BINDING_NAME);
+                    }
+                    let start = out.len();
+                    out.extend(name.chars());
+                    runs.push(InlineRun {
+                        start,
+                        end: out.len(),
+                        bold: false,
+                        italic: false,
+                        link: Some(alloc::format!("{BINDING_PREFIX}{name}")),
+                        math: None,
+                    });
+                    i = close + 2;
+                    continue;
                 }
                 let close = find_close_bracket(&chars, i + 1)?;
                 if chars.get(close + 1) != Some(&'(') {
@@ -245,6 +275,9 @@ fn plain(chars: &[char]) -> Result<String, InlineError> {
     }
     Ok(out)
 }
+
+/// The link prefix of a binding run, such as `var:total` for `[[total]]`.
+pub(crate) const BINDING_PREFIX: &str = "var:";
 
 /// Whether `key` is a citation key: non-empty, with letters, digits, `-`, `_`, `:` or `.`.
 pub(crate) fn is_citation_key(key: &str) -> bool {
@@ -350,6 +383,25 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
                 out.push_str(&url[..1]);
                 out.push_str(key);
                 out.push(']');
+            }
+            (_, _, Some(url))
+                if url
+                    .strip_prefix(BINDING_PREFIX)
+                    .is_some_and(|n| n == segment) =>
+            {
+                // A binding whose text is still its name.
+                let name = &url[BINDING_PREFIX.len()..];
+                if !is_citation_key(name) {
+                    return Err(
+                        "binding name has a character other than letters, digits, - _ : or .",
+                    );
+                }
+                out.push_str("[[");
+                out.push_str(name);
+                out.push_str("]]");
+            }
+            (_, _, Some(url)) if url.starts_with(BINDING_PREFIX) => {
+                return Err("a binding's text must be its name");
             }
             (_, _, Some(url)) => {
                 if !is_address(url) {
@@ -506,5 +558,33 @@ mod tests {
         bold_link.bold = true;
         assert!(write_inline("ab", &[bold_link]).is_err());
         assert!(write_inline("ab", &[run(0, 5, true, false)]).is_err());
+    }
+
+    #[test]
+    fn bindings_read_and_write_back() {
+        let parsed = parse_inline("Total [[sheet1.B2]] today").unwrap();
+        assert_eq!(parsed.text, "Total sheet1.B2 today");
+        assert_eq!(parsed.runs.len(), 1);
+        assert_eq!(parsed.runs[0].link.as_deref(), Some("var:sheet1.B2"));
+        let written = write_inline(&parsed.text, &parsed.runs).unwrap();
+        assert_eq!(written, "Total [[sheet1.B2]] today");
+        assert_eq!(parse_inline(&written).unwrap(), parsed);
+    }
+
+    #[test]
+    fn bad_bindings_are_structured_errors() {
+        assert!(parse_inline("[[open").is_err());
+        assert!(parse_inline("[[a b]]").is_err());
+        assert!(parse_inline("[[]]").is_err());
+        assert!(parse_inline("*[[x]]*").is_err());
+        let replaced = [InlineRun {
+            start: 0,
+            end: 3,
+            bold: false,
+            italic: false,
+            link: Some("var:name".into()),
+            math: None,
+        }];
+        assert!(write_inline("abc", &replaced).is_err());
     }
 }

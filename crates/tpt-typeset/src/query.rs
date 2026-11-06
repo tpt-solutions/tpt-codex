@@ -17,16 +17,37 @@ use tpt_query::json::{execute_json, query_from_json};
 #[derive(Debug)]
 pub enum QueryRunError {
     /// The source is not a valid JSON query. The message says what is wrong.
-    Parse(String),
+    Parse {
+        /// What is wrong with the query.
+        message: String,
+        /// A suggested fix.
+        hint: &'static str,
+    },
     /// The query is valid but could not run against the source.
     Execute(tpt_query::QueryError),
+}
+
+impl QueryRunError {
+    /// A suggested fix for this error.
+    pub fn hint(&self) -> &'static str {
+        match self {
+            Self::Parse { hint, .. } => hint,
+            Self::Execute(_) => {
+                "check that the fields and the source named in the query exist in the entities"
+            }
+        }
+    }
 }
 
 impl fmt::Display for QueryRunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Parse(message) => write!(f, "query is not valid JSON: {message}"),
-            Self::Execute(error) => write!(f, "query could not run: {error:?}"),
+            Self::Parse { message, hint } => {
+                write!(f, "query is not valid JSON: {message} (hint: {hint})")
+            }
+            Self::Execute(error) => {
+                write!(f, "query could not run: {error:?} (hint: {})", self.hint())
+            }
         }
     }
 }
@@ -35,8 +56,10 @@ impl fmt::Display for QueryRunError {
 ///
 /// Returns the result rows as JSON text.
 pub fn run_query<S: EntitySource>(block: &QueryBlock, source: &S) -> Result<String, QueryRunError> {
-    let query =
-        query_from_json(&block.source).map_err(|e| QueryRunError::Parse(format!("{e:?}")))?;
+    let query = query_from_json(&block.source).map_err(|e| QueryRunError::Parse {
+        message: format!("{e:?}"),
+        hint: "write the query as tpt-query JSON, with a source and the fields it filters on",
+    })?;
     execute_json(source, &query).map_err(QueryRunError::Execute)
 }
 

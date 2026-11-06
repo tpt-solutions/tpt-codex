@@ -74,7 +74,9 @@ strong       = "**" text-no-edge-space "**" ; (* closes with two stars *)
 link         = "[" link-text "](" address ")" ;
 citation     = "[@" key "]" ;               (* shows the key until its text is replaced *)
 footnote-ref = "[^" label "]" ;            (* likewise, for a footnote label *)
+binding      = "[[" name "]]" ;            (* a value the host supplies, shown by name until then *)
 key          = letters, digits, and - _ : . ;
+name         = letters, digits, and - _ : . ;  (* the same characters as a key *)
 footnote-def = "[^" label "]: " text ;     (* a paragraph; its text becomes the footnote *)
 link-text    = { plain | escape } ;          (* not empty; no unescaped * [ ] *)
 address      = text without spaces, parentheses, angle brackets or backslashes ;
@@ -89,6 +91,10 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
 - A link whose address starts with `@` is a citation of that key, and one that starts with `^` is a
   footnote reference. `[@key]` and `[^label]` are the bare forms, with the key or label as their
   text. A link to `#anchor` is a cross-reference to a heading.
+- `[[name]]` is a binding. It reads as a run whose text is the name, and the typesetter replaces
+  it with the value the host supplies for that name. A grid cell is named `sheet<id>.<address>`,
+  such as `[[sheet1.B2]]`. The writer writes it back as `[[name]]` only while its text is still the
+  name. A binding inside emphasis or a link is an error, and so is an unclosed `[[`.
 - A paragraph that starts `[^label]: ` is a footnote definition. Its text becomes the footnote's
   block, and it is written back in the same form. A plain paragraph that starts that way is escaped,
   so it reads back as text.
