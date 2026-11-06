@@ -33,8 +33,10 @@ mod citations;
 mod class;
 mod figures;
 mod footnotes;
+mod labels;
 mod math;
 mod math_check;
+mod math_font;
 mod math_inline;
 mod math_layout;
 mod math_svg;
@@ -54,10 +56,14 @@ pub use figures::{FigureEntry, FigureReferenceCheck, check_figure_references, fi
 pub use footnotes::{
     FootnoteRef, check_footnotes, footnote_numbers, reading_order, unreferenced_footnotes,
 };
+pub use labels::{
+    LabelEntry, LabelReferenceCheck, LabelTarget, check_label_references, label_entries,
+};
 pub use math::{MAX_DEPTH, MathError, MathNode, parse_math, symbol_glyph, to_plain_text};
 pub use math_check::{MathBlockError, check_math_blocks};
+pub use math_font::{STIX_TWO_MATH, math_constants};
 pub use math_inline::{InlineMathCheck, check_inline_math, layout_inline_math};
-pub use math_layout::{MathBox, MathItem, MathMetrics, layout_math};
+pub use math_layout::{MathBox, MathConstants, MathItem, MathMetrics, layout_math};
 pub use math_svg::math_svg;
 pub use outline::{Outline, OutlineEntry, TocLine, number_string, slugify};
 pub mod query_builder;

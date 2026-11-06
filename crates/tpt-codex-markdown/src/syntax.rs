@@ -7,7 +7,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use tpt_codex_core::{Canvas, Figure, is_figure_label};
+use tpt_codex_core::{Canvas, Figure, is_equation_label, is_figure_label, is_table_label};
 
 /// Largest number a list item may start with (nine digits, as in CommonMark).
 pub(crate) const MAX_LIST_NUMBER: u32 = 999_999_999;
@@ -162,12 +162,15 @@ pub(crate) fn list_item(line: &str) -> Option<ListMarker<'_>> {
 }
 
 /// How a line that starts with `$$` opens a math block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MathOpen<'a> {
     /// `$$` alone: the source follows on the next lines, up to a closing `$$` line.
     Block,
-    /// `$$ source $$` on one line. The source is trimmed.
-    Single(&'a str),
+    /// `$$ source $$` on one line, optionally followed by `{#eq:id}`. The source is trimmed.
+    Single {
+        source: &'a str,
+        label: Option<String>,
+    },
 }
 
 /// Returns how a `$$` line opens a math block.
@@ -180,9 +183,14 @@ pub(crate) fn math_open(line: &str) -> Option<Result<MathOpen<'_>, &'static str>
     if rest.trim().is_empty() {
         return Some(Ok(MathOpen::Block));
     }
-    if let Some(inner) = rest.strip_suffix("$$") {
+    if let Some((inner, attributes)) = split_closing_delimiter(rest) {
         if !inner.contains("$$") && !inner.trim().is_empty() {
-            return Some(Ok(MathOpen::Single(inner.trim())));
+            return Some(
+                equation_attributes(attributes).map(|label| MathOpen::Single {
+                    source: inner.trim(),
+                    label,
+                }),
+            );
         }
     }
     Some(Err(
@@ -190,10 +198,62 @@ pub(crate) fn math_open(line: &str) -> Option<Result<MathOpen<'_>, &'static str>
     ))
 }
 
-/// Returns `true` when `line` closes a multi-line math block: `$$` alone, with up to three
-/// leading spaces. Other lines inside the block are source, kept exactly.
+/// Splits the text after an opening `$$` at its last `$$`. Returns the text before it and the
+/// attribute text after it (empty when there is none). `None` when nothing but attributes
+/// follows the delimiter.
+fn split_closing_delimiter(rest: &str) -> Option<(&str, &str)> {
+    let at = rest.rfind("$$")?;
+    let after = rest[at + 2..].trim();
+    if after.is_empty() || after.starts_with('{') {
+        Some((&rest[..at], after))
+    } else {
+        None
+    }
+}
+
+/// Reads the label of a display equation: `{#eq:id}`, or nothing when the text is empty.
+pub(crate) fn equation_attributes(text: &str) -> Result<Option<String>, &'static str> {
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let inner = text
+        .strip_prefix('{')
+        .and_then(|t| t.strip_suffix('}'))
+        .ok_or("equation attributes must be written as {#eq:id}")?;
+    let mut label = None;
+    for token in inner.split_whitespace() {
+        let Some(name) = token.strip_prefix('#') else {
+            return Err("an equation can only have a #eq: label, such as {#eq:euler}");
+        };
+        if !is_equation_label(name) {
+            return Err(
+                "equation label must start with eq: and use letters, digits, and - _ : ., such as {#eq:euler}",
+            );
+        }
+        if label.replace(String::from(name)).is_some() {
+            return Err("an equation can have only one label");
+        }
+    }
+    Ok(label)
+}
+
+/// Returns how a line closes a multi-line math block, or `None` for source lines.
+///
+/// The closing line is `$$` alone, or `$$` followed by an optional `{#eq:id}`, with up to
+/// three leading spaces. `Some(Err(reason))` is a closing line whose attributes are invalid.
+/// Other lines inside the block are source, kept exactly.
+pub(crate) fn math_close(line: &str) -> Option<Result<Option<String>, &'static str>> {
+    let body = strip_block_indent(line)?.trim_end();
+    let rest = body.strip_prefix("$$")?.trim();
+    if rest.is_empty() || rest.starts_with('{') {
+        return Some(equation_attributes(rest));
+    }
+    None
+}
+
+/// Returns `true` when `line` closes a multi-line math block. See [`math_close`].
 pub(crate) fn math_closes(line: &str) -> bool {
-    strip_block_indent(line).is_some_and(|body| body.trim_end() == "$$")
+    math_close(line).is_some()
 }
 
 /// A standalone image line: `![alt](uri)`, optionally followed by figure attributes such as
@@ -275,6 +335,8 @@ pub(crate) enum ContainerOpen<'a> {
     Grid {
         /// The sheet id the grid displays.
         id: u64,
+        /// The table label, such as `tab:results`, if the grid has one.
+        label: Option<String>,
     },
     /// `::: canvas { ratio="W:H" }`: a slide, whose body holds ordinary blocks.
     Canvas {
@@ -313,7 +375,7 @@ pub(crate) fn container_open(line: &str) -> Option<Result<ContainerOpen<'_>, &'s
         }
     };
     Some(match name {
-        "grid" => grid_id(&attrs).map(|id| ContainerOpen::Grid { id }),
+        "grid" => grid_attributes(&attrs).map(|(id, label)| ContainerOpen::Grid { id, label }),
         "canvas" => canvas_ratio(&attrs).map(|ratio| ContainerOpen::Canvas { ratio }),
         _ => Ok(ContainerOpen::Unknown(name)),
     })
@@ -356,8 +418,10 @@ fn key_values(inner: &str) -> Result<Vec<(&str, &str)>, &'static str> {
     Ok(pairs)
 }
 
-fn grid_id(attrs: &[(&str, &str)]) -> Result<u64, &'static str> {
+/// Reads a grid's `id="N"` and optional `label="tab:id"`.
+fn grid_attributes(attrs: &[(&str, &str)]) -> Result<(u64, Option<String>), &'static str> {
     let mut id = None;
+    let mut label = None;
     for &(key, value) in attrs {
         match key {
             "id" => {
@@ -370,10 +434,21 @@ fn grid_id(attrs: &[(&str, &str)]) -> Result<u64, &'static str> {
                     return Err("grid has more than one id");
                 }
             }
-            _ => return Err("unknown grid attribute; the only attribute is id"),
+            "label" => {
+                if !is_table_label(value) {
+                    return Err(
+                        "table label must start with tab: and use letters, digits, and - _ : ., such as label=\"tab:results\"",
+                    );
+                }
+                if label.replace(String::from(value)).is_some() {
+                    return Err("grid has more than one label");
+                }
+            }
+            _ => return Err("unknown grid attribute; the attributes are id and label"),
         }
     }
-    id.ok_or("grid needs an id, such as ::: grid { id=\"1\" }")
+    let id = id.ok_or("grid needs an id, such as ::: grid { id=\"1\" }")?;
+    Ok((id, label))
 }
 
 fn canvas_ratio(attrs: &[(&str, &str)]) -> Result<(u32, u32), &'static str> {

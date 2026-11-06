@@ -12,6 +12,7 @@ use alloc::vec::Vec;
 use tpt_codex_core::{Block, BlockId, Document};
 
 use crate::figures::FIGURE_PREFIX;
+use crate::labels::is_label_target;
 use crate::outline::{Outline, number_string};
 
 /// One cross-reference found in the document.
@@ -41,8 +42,8 @@ pub fn check_references(doc: &Document) -> Vec<ReferenceCheck> {
             let Some(target) = address.strip_prefix('#') else {
                 continue;
             };
-            // Figure links are resolved by `check_figure_references`.
-            if target.starts_with(FIGURE_PREFIX) {
+            // Figure, equation and table links are resolved by their own checks.
+            if target.starts_with(FIGURE_PREFIX) || is_label_target(target) {
                 continue;
             }
             let number = outline

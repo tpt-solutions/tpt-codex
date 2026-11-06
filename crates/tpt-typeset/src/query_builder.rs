@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Builds the JSON source of a `Block::Query` from a structured description, so a host can
 //! offer filters, ordering and a limit without asking the user to write JSON.
 //!

@@ -123,6 +123,10 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
 - A math block can follow text or a list directly, as a fence can. Text after the closing `$$` line
   starts a new paragraph.
 - An empty source is an error, and so is a block that is still open at the end of the document.
+- A display equation can be labelled. The closing line is `$$ {#eq:id}`, or the one-line form is
+  `$$ source $$ {#eq:id}`. A label starts with `eq:` and then letters, digits, and `- _ : .`. A
+  labelled equation is numbered from 1 among the equations, in reading order, and `[text](#eq:id)`
+  is a cross-reference to it. Only one label is allowed.
 
 ### Code blocks
 
@@ -157,6 +161,9 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
   is ordinary blocks: headings, paragraphs, lists, code, math, images and grids. A line of `:::`
   alone closes it. A slide cannot be inside another slide. The slide is 960 points wide, and its
   height follows the ratio.
+- A grid can carry a table label: `::: grid { id="N" label="tab:id" }`. A label starts with `tab:`
+  and then letters, digits, and `- _ : .`. Labelled tables are numbered from 1 among the tables, in
+  reading order, and `[text](#tab:id)` is a cross-reference to the table.
 - Any other `:::` name is an error, and a grid or slide left open at the end of the document is an error.
 - Attributes are `key="value"` pairs inside braces. Values cannot contain quotes.
 
@@ -191,6 +198,8 @@ quoted value with a bad escape, or a missing closing `---`.
 - a sheet that no grid in the document shows,
 - a slide size that matches no ratio from 1:1 to 32:32 at 960 points wide,
 - figure attributes on anything but an image, or a label or width the reader would not read back,
+- an equation label on anything but a display math block in the document, or a label without `eq:`,
+- a table label without `tab:`,
 - text with bold or italic flags (not yet written),
 - empty text, or text with leading or trailing spaces,
 - a heading level outside 1 to 6, or a heading with a line break,
@@ -224,5 +233,6 @@ document already used that numbering.
 ## Not yet in the grammar
 
 Block quotes, nested lists, loose lists, setext headings, tables outside a grid, `[#ref]`
-cross-references (use `[text](#anchor)` for headings and `[text](#fig:id)` for figures), emphasis nested
+cross-references (use `[text](#anchor)` for headings and `[text](#fig:id)`, `[text](#eq:id)` or `[text](#tab:id)`
+for figures, equations and tables), emphasis nested
 in links, links with titles, bold combined with italic, grid view bounds, and slide sections and frames.

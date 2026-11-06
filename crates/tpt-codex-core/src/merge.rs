@@ -188,6 +188,21 @@ where
             block,
         }
     });
+    doc.equation_labels = m.entries(
+        &base.equation_labels,
+        &ours.equation_labels,
+        &theirs.equation_labels,
+        |block| Target::Attribute {
+            name: "equation labels",
+            block,
+        },
+    );
+    doc.table_labels = m.entries(
+        &base.table_labels,
+        &ours.table_labels,
+        &theirs.table_labels,
+        Target::Sheet,
+    );
     prune(&mut doc);
     doc.validate().map_err(MergeError::Invalid)?;
     Ok(Merge {
@@ -617,6 +632,9 @@ fn prune(doc: &mut Document) {
     doc.footnotes.retain(|block, _| ids.contains(block));
     doc.sections.retain(|block, _| ids.contains(block));
     doc.figures.retain(|block, _| ids.contains(block));
+    doc.equation_labels.retain(|block, _| ids.contains(block));
+    let sheets: BTreeSet<_> = doc.sheets.keys().copied().collect();
+    doc.table_labels.retain(|sheet, _| sheets.contains(sheet));
 }
 
 #[cfg(test)]

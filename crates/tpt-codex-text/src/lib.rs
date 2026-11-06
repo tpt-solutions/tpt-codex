@@ -17,7 +17,7 @@ use tpt_text::font::{FontError, FontFace, FontRegistry};
 use tpt_text::fx::Fx;
 use tpt_text::layout::{LayoutError, ParagraphLayout, layout_paragraph_with};
 use tpt_text::style::{FontVariation, TextStyle};
-use tpt_typeset::MathMetrics;
+use tpt_typeset::{MathConstants, MathMetrics};
 
 /// Family name used for the bundled font.
 pub const FAMILY: &str = "Noto Sans";
@@ -58,6 +58,8 @@ pub struct FontMeasure {
     registry: FontRegistry,
     regular: Arc<FontFace>,
     _faces: Vec<Arc<FontFace>>,
+    /// Layout constants from the bundled math font's MATH table.
+    math: Option<MathConstants>,
 }
 
 /// The weight used for bold text. The bundled fonts are variable, so bold is this weight on
@@ -78,6 +80,7 @@ impl FontMeasure {
             registry,
             regular: Arc::clone(&regular),
             _faces: vec![regular, italic],
+            math: tpt_typeset::math_constants(tpt_typeset::STIX_TWO_MATH),
         })
     }
 
@@ -189,6 +192,10 @@ impl MathMetrics for FontMeasure {
         let upm = f64::from(self.regular.units_per_em().max(1));
         f64::from(self.regular.descender()).abs() / upm * size
     }
+
+    fn math_constants(&self) -> Option<MathConstants> {
+        self.math
+    }
 }
 
 impl TextMeasurer for FontMeasure {
@@ -207,6 +214,92 @@ impl TextMeasurer for FontMeasure {
                 text: line.text_range.clone(),
             })
             .collect()
+    }
+}
+
+/// One glyph of a shaped run: its id in the face, and its origin in points relative to the start
+/// of the line, on the baseline, y down.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlyphPlacement {
+    /// Glyph id in the face.
+    pub glyph: u32,
+    /// Horizontal origin, in points from the start of the line.
+    pub x: f32,
+    /// Vertical origin, in points from the baseline. Positive is down.
+    pub y: f32,
+}
+
+/// Glyphs from one face at one size.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlyphRun {
+    /// Index into [`FontMeasure::faces`]: 0 is the regular face, 1 the italic face.
+    pub face: usize,
+    /// Size in points.
+    pub size: f32,
+    /// Glyphs in visual order.
+    pub glyphs: Vec<GlyphPlacement>,
+}
+
+/// One laid-out line of text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlyphLine {
+    /// Top of the line, in points from the top of the text block.
+    pub top: f32,
+    /// Baseline, in points from the top of the text block.
+    pub baseline: f32,
+    /// Runs in visual order.
+    pub runs: Vec<GlyphRun>,
+}
+
+impl FontMeasure {
+    /// The faces that [`GlyphRun::face`] indexes: regular first, then italic.
+    ///
+    /// Bold text is shaped with the `wght` axis set, so its advances match bold, but the outlines
+    /// come from the regular face at its default weight. A caller that draws these outlines
+    /// draws bold text at regular weight.
+    pub fn faces(&self) -> Vec<Arc<FontFace>> {
+        self._faces.clone()
+    }
+
+    /// Shapes `text` in `style` into lines, breaking at `max_width` points, or never breaking
+    /// when `max_width` is `None`. Line breaks and advances are the same as [`TextMeasure`] and
+    /// [`TextMeasurer`] use.
+    pub fn shape_lines(
+        &self,
+        text: &str,
+        style: &CoreStyle,
+        max_width: Option<f32>,
+    ) -> Result<Vec<GlyphLine>, TextError> {
+        let size = Self::points(style);
+        let emphasis = Emphasis::of(style);
+        let width = max_width.map_or_else(unbounded, |w| Fx::from_f32(w.max(1.0)));
+        let layout = self.layout(text, size, emphasis, width)?;
+        // `layout` picks the italic face when italic is requested, and the regular face otherwise.
+        let face = usize::from(emphasis.italic);
+        let mut lines = Vec::with_capacity(layout.lines.len());
+        for line in &layout.lines {
+            let mut runs = Vec::with_capacity(line.runs.len());
+            // Advances carry across runs, so the glyphs of a line run from left to right.
+            let mut cursor = 0.0_f32;
+            for run in &line.runs {
+                let mut glyphs = Vec::with_capacity(run.glyphs.len());
+                for g in &run.glyphs {
+                    glyphs.push(GlyphPlacement {
+                        glyph: g.glyph_id,
+                        x: line.x_offset.to_f32() + cursor + g.x_offset.to_f32(),
+                        y: -g.y_offset.to_f32(),
+                    });
+                    cursor += g.x_advance.to_f32();
+                }
+                runs.push(GlyphRun { face, size, glyphs });
+            }
+            lines.push(GlyphLine {
+                top: line.top.to_f32(),
+                baseline: line.baseline_y.to_f32(),
+                runs,
+            });
+        }
+        Ok(lines)
     }
 }
 

@@ -13,7 +13,7 @@ use crate::inline::parse_inline;
 use crate::syntax::{
     ContainerOpen, ListMarker, MathOpen, canvas_size, container_closes, container_open,
     fence_closes, fence_open, figure_attributes, heading, image_line, is_separator, list_item,
-    math_closes, math_open, table_row, thematic_break, unsupported,
+    math_close, math_open, table_row, thematic_break, unsupported,
 };
 
 /// Reads the supported Markdown subset into a [`Document`].
@@ -32,7 +32,14 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
         let lineno = body_start + offset + 1;
 
         if let Some(source_lines) = open.math.as_mut() {
-            if math_closes(line) {
+            if let Some(close) = math_close(line) {
+                let label = close.map_err(|reason| {
+                    error(
+                        lineno,
+                        reason,
+                        "close the math with $$ alone, or with $$ {#eq:id}",
+                    )
+                })?;
                 let source = source_lines.join(
                     "
 ",
@@ -45,7 +52,10 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                         "put the math source between the two $$ lines",
                     ));
                 }
-                b.push_block(Block::Math { source });
+                let id = b.push_block(Block::Math { source });
+                if let Some(label) = label {
+                    b.equation_labels.insert(id, label);
+                }
             } else {
                 // Math source is kept exactly, including leading spaces.
                 source_lines.push(String::from(*line));
@@ -156,7 +166,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
             open.close_list(&mut b);
             open.after_image = false;
             match opener {
-                ContainerOpen::Grid { id } => {
+                ContainerOpen::Grid { id, label } => {
                     if b.sheets.contains_key(&SheetId(id)) {
                         return Err(error(
                             lineno,
@@ -166,6 +176,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     }
                     open.grid = Some(OpenGrid {
                         id,
+                        label,
                         line: lineno,
                         rows: Vec::new(),
                         header_rows: None,
@@ -271,10 +282,13 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
             open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
             match opener {
-                MathOpen::Single(source) => {
-                    b.push_block(Block::Math {
+                MathOpen::Single { source, label } => {
+                    let id = b.push_block(Block::Math {
                         source: String::from(source),
                     });
+                    if let Some(label) = label {
+                        b.equation_labels.insert(id, label);
+                    }
                 }
                 MathOpen::Block => open.math = Some(Vec::new()),
             }
@@ -438,6 +452,8 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
     }
     doc.canvases = b.canvases;
     doc.figures = b.figures;
+    doc.equation_labels = b.equation_labels;
+    doc.table_labels = b.table_labels;
     Ok(doc)
 }
 
@@ -486,6 +502,9 @@ fn finish_grid(open: &mut Open, b: &mut Builder) -> Result<(), ParseError> {
         }
     }
     let sheet_id = SheetId(grid.id);
+    if let Some(label) = grid.label {
+        b.table_labels.insert(sheet_id, label);
+    }
     b.sheets.insert(sheet_id, sheet);
     b.push_block(Block::Grid {
         sheet_id,
@@ -556,6 +575,10 @@ struct Builder {
     canvases: BTreeMap<BlockId, Canvas>,
     /// Figure attributes of the images read so far.
     figures: BTreeMap<BlockId, Figure>,
+    /// Equation labels of the math blocks read so far.
+    equation_labels: BTreeMap<BlockId, String>,
+    /// Table labels of the grids read so far.
+    table_labels: BTreeMap<SheetId, String>,
 }
 
 impl Builder {
@@ -661,6 +684,8 @@ impl OpenList {
 /// A grid whose body is still being read: its pipe-table rows, and where its separator is.
 struct OpenGrid {
     id: u64,
+    /// The table label from the opening line, if any.
+    label: Option<String>,
     /// The line of the opening `:::` line.
     line: usize,
     /// Each row's line and trimmed cells.

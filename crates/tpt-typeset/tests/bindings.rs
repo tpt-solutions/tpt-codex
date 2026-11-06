@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Data binding: `[[name]]` in a text block resolves to the value the caller supplies, and a
 //! binding that is not supplied keeps its name.
 

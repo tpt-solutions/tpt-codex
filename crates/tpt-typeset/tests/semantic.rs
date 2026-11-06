@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The semantic tree: sections nest by heading level, bodies stop at the next heading of the same
 //! or a higher level, and footnotes and citations are listed where they are referenced.
 

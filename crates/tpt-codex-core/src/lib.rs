@@ -31,7 +31,9 @@ mod tree_crdt;
 mod versions;
 
 pub use block::{Block, Query};
-pub use document::{Document, Metadata, SCHEMA_VERSION, is_figure_label};
+pub use document::{
+    Document, Metadata, SCHEMA_VERSION, is_equation_label, is_figure_label, is_table_label,
+};
 pub use error::ValidationError;
 pub use history::History;
 pub use id::{BlockId, SheetId};

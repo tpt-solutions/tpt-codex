@@ -18,6 +18,21 @@ pub fn is_figure_label(label: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.'))
 }
 
+/// Whether `label` is `prefix` followed by a label, such as `eq:euler` for the prefix `eq:`.
+fn has_label_prefix(label: &str, prefix: &str) -> bool {
+    label.strip_prefix(prefix).is_some_and(is_figure_label)
+}
+
+/// Whether `label` can name a display equation: `eq:` followed by a label (`eq:euler`).
+pub fn is_equation_label(label: &str) -> bool {
+    has_label_prefix(label, "eq:")
+}
+
+/// Whether `label` can name a table: `tab:` followed by a label (`tab:results`).
+pub fn is_table_label(label: &str) -> bool {
+    has_label_prefix(label, "tab:")
+}
+
 /// The schema version written by this build.
 ///
 /// Version 2 adds the `List`, `Code`, `ThematicBreak` and `Math` block variants.
@@ -79,6 +94,14 @@ pub struct Document {
     /// from the JSON when there are none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub figures: BTreeMap<BlockId, Figure>,
+    /// Labels of display equations, keyed by the math block. Each label starts with `eq:`.
+    /// Absent from the JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub equation_labels: BTreeMap<BlockId, String>,
+    /// Labels of tables, keyed by the sheet. Each label starts with `tab:`. Absent from the JSON
+    /// when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub table_labels: BTreeMap<SheetId, String>,
 }
 
 impl Document {
@@ -97,6 +120,8 @@ impl Document {
             footnotes: BTreeMap::new(),
             sections: BTreeMap::new(),
             figures: BTreeMap::new(),
+            equation_labels: BTreeMap::new(),
+            table_labels: BTreeMap::new(),
         }
     }
 
@@ -217,6 +242,24 @@ impl Document {
                 .is_some_and(|w| !(1..=100).contains(&w))
             {
                 return Err(ValidationError::InvalidFigure(block));
+            }
+        }
+        let mut equation_ids = alloc::collections::BTreeSet::new();
+        for (&block, label) in &self.equation_labels {
+            if !matches!(self.blocks.get(&block), Some(Block::Math { .. })) {
+                return Err(ValidationError::EquationLabelOfNonMath(block));
+            }
+            if !is_equation_label(label) || !equation_ids.insert(label.as_str()) {
+                return Err(ValidationError::InvalidEquationLabel(block));
+            }
+        }
+        let mut table_ids = alloc::collections::BTreeSet::new();
+        for (&sheet, label) in &self.table_labels {
+            if !self.sheets.contains_key(&sheet) {
+                return Err(ValidationError::TableLabelOfMissingSheet(sheet));
+            }
+            if !is_table_label(label) || !table_ids.insert(label.as_str()) {
+                return Err(ValidationError::InvalidTableLabel(sheet));
             }
         }
         for (&block, canvas) in &self.canvases {

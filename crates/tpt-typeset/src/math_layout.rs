@@ -3,11 +3,12 @@
 //!
 //! Each node becomes a box with a width, an ascent and a descent (both measured from the
 //! baseline), and the glyphs and rules that draw it. Fractions and roots get rules. Scripts are
-//! drawn at 70% of the size, raised or lowered from the baseline.
+//! drawn raised or lowered from the baseline.
 //!
 //! Metrics come from a [`MathMetrics`]. This module does not look up fonts, so the same formula
-//! lays out the same way wherever the metrics agree. It is a first version: it does not read a
-//! font's MATH table, and spacing and proportions are fixed fractions of the size.
+//! lays out the same way wherever the metrics agree. Proportions and shifts come from a
+//! [`MathConstants`]: a metrics source that has a font's MATH table returns its values, and one
+//! that has none gets the fixed fallbacks in [`MathConstants::default`].
 
 use alloc::vec::Vec;
 
@@ -21,6 +22,59 @@ pub trait MathMetrics {
     fn ascent(&self, size: f64) -> f64;
     /// Depth of the deepest glyph below the baseline, at `size`.
     fn descent(&self, size: f64) -> f64;
+    /// Layout constants for this font, when it has them (a MATH table). `None` uses
+    /// [`MathConstants::default`].
+    fn math_constants(&self) -> Option<MathConstants> {
+        None
+    }
+}
+
+/// Layout constants for math, as fractions of the size, except where a field says otherwise.
+///
+/// A font's MATH table gives these in font units; [`crate::math_font::math_constants`] converts
+/// them. The defaults are the fixed proportions the layout used before the table was read.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MathConstants {
+    /// Script size as a fraction of the base size.
+    pub script_scale: f64,
+    /// Height of the axis (the fraction bar's centre) above the baseline.
+    pub axis_height: f64,
+    /// Thickness of fraction bars.
+    pub fraction_rule: f64,
+    /// Minimum gap between a numerator and the bar.
+    pub numerator_gap: f64,
+    /// Minimum gap between the bar and a denominator.
+    pub denominator_gap: f64,
+    /// Minimum numerator baseline shift above the baseline, when the font sets one.
+    pub numerator_shift_up: Option<f64>,
+    /// Minimum denominator baseline shift below the baseline, when the font sets one.
+    pub denominator_shift_down: Option<f64>,
+    /// Raise of a superscript.
+    pub superscript_shift_up: f64,
+    /// Drop of a subscript.
+    pub subscript_shift_down: f64,
+    /// Thickness of root overlines.
+    pub radical_rule: f64,
+    /// Gap between a root's argument and its overline.
+    pub radical_gap: f64,
+}
+
+impl Default for MathConstants {
+    fn default() -> Self {
+        Self {
+            script_scale: 0.7,
+            axis_height: 0.25,
+            fraction_rule: 0.04,
+            numerator_gap: 0.1,
+            denominator_gap: 0.1,
+            numerator_shift_up: None,
+            denominator_shift_down: None,
+            superscript_shift_up: 0.4,
+            subscript_shift_down: 0.2,
+            radical_rule: 0.04,
+            radical_gap: 0.1,
+        }
+    }
 }
 
 /// Something drawn by a math box. Positions are relative to the box's left edge and baseline,
@@ -64,33 +118,22 @@ pub struct MathBox {
     pub items: Vec<MathItem>,
 }
 
-/// Script size as a fraction of the base size.
-const SCRIPT_SCALE: f64 = 0.7;
-/// Height of the fraction bar and of root overlines, as a fraction of the size.
-const RULE: f64 = 0.04;
-/// Height of the fraction bar above the baseline, as a fraction of the size.
-const AXIS: f64 = 0.25;
-/// Gap between a fraction's parts and its bar, and under a root's overline, as a fraction.
-const GAP: f64 = 0.1;
 /// Space on each side of an operator, as a fraction of the size.
 const OP_SPACE: f64 = 0.2;
 /// Space after a script, as a fraction of the size.
 const SCRIPT_SPACE: f64 = 0.05;
-/// Raise of a superscript, as a fraction of the size.
-const SUP_SHIFT: f64 = 0.4;
-/// Drop of a subscript, as a fraction of the size.
-const SUB_SHIFT: f64 = 0.2;
 
-/// Lays out `nodes` at `size`.
+/// Lays out `nodes` at `size`, with the constants the metrics give (or the defaults).
 pub fn layout_math(nodes: &[MathNode], metrics: &dyn MathMetrics, size: f64) -> MathBox {
-    hbox(nodes, metrics, size)
+    let k = metrics.math_constants().unwrap_or_default();
+    hbox(nodes, metrics, &k, size)
 }
 
 /// Lays out a sequence side by side on one baseline.
-fn hbox(nodes: &[MathNode], metrics: &dyn MathMetrics, size: f64) -> MathBox {
+fn hbox(nodes: &[MathNode], metrics: &dyn MathMetrics, k: &MathConstants, size: f64) -> MathBox {
     let mut out = MathBox::default();
     for node in nodes {
-        let child = node_box(node, metrics, size);
+        let child = node_box(node, metrics, k, size);
         out.append(child, 0.0);
     }
     out
@@ -123,7 +166,7 @@ fn shift_y(item: &mut MathItem, dy: f64) {
 }
 
 /// The box of one node.
-fn node_box(node: &MathNode, metrics: &dyn MathMetrics, size: f64) -> MathBox {
+fn node_box(node: &MathNode, metrics: &dyn MathMetrics, k: &MathConstants, size: f64) -> MathBox {
     match node {
         MathNode::Number(text) => glyphs(text.chars(), metrics, size),
         MathNode::Ident(c) => glyphs([*c].into_iter(), metrics, size),
@@ -138,11 +181,11 @@ fn node_box(node: &MathNode, metrics: &dyn MathMetrics, size: f64) -> MathBox {
             b.width += 2.0 * space;
             b
         }
-        MathNode::Group(items) => hbox(items, metrics, size),
-        MathNode::Frac { num, den } => fraction(num, den, metrics, size),
-        MathNode::Sqrt(arg) => root(arg, metrics, size),
+        MathNode::Group(items) => hbox(items, metrics, k, size),
+        MathNode::Frac { num, den } => fraction(num, den, metrics, k, size),
+        MathNode::Sqrt(arg) => root(arg, metrics, k, size),
         MathNode::Script { base, sup, sub } => {
-            script(base, sup.as_deref(), sub.as_deref(), metrics, size)
+            script(base, sup.as_deref(), sub.as_deref(), metrics, k, size)
         }
     }
 }
@@ -168,11 +211,17 @@ fn glyphs(chars: impl Iterator<Item = char>, metrics: &dyn MathMetrics, size: f6
     out
 }
 
-fn fraction(num: &[MathNode], den: &[MathNode], metrics: &dyn MathMetrics, size: f64) -> MathBox {
-    let script = size * SCRIPT_SCALE;
-    let num = hbox(num, metrics, script);
-    let den = hbox(den, metrics, script);
-    let thick = RULE * size;
+fn fraction(
+    num: &[MathNode],
+    den: &[MathNode],
+    metrics: &dyn MathMetrics,
+    k: &MathConstants,
+    size: f64,
+) -> MathBox {
+    let script = size * k.script_scale;
+    let num = hbox(num, metrics, k, script);
+    let den = hbox(den, metrics, k, script);
+    let thick = k.fraction_rule * size;
     let width = num.width.max(den.width);
     let mut out = MathBox {
         width,
@@ -180,11 +229,18 @@ fn fraction(num: &[MathNode], den: &[MathNode], metrics: &dyn MathMetrics, size:
         descent: 0.0,
         items: Vec::new(),
     };
-    // Baselines of the parts: the numerator sits above the bar, the denominator below.
-    let bar_bottom = AXIS * size - thick / 2.0;
-    let bar_top = AXIS * size + thick / 2.0;
-    let y_num = bar_top + GAP * size + num.descent;
-    let y_den = bar_bottom - GAP * size - den.ascent;
+    // Baselines of the parts: the numerator sits above the bar, the denominator below. The
+    // font's shifts, when it has them, are minimums; the gaps keep the parts clear of the bar.
+    let bar_bottom = k.axis_height * size - thick / 2.0;
+    let bar_top = k.axis_height * size + thick / 2.0;
+    let mut y_num = bar_top + k.numerator_gap * size + num.descent;
+    if let Some(shift) = k.numerator_shift_up {
+        y_num = y_num.max(shift * size);
+    }
+    let mut y_den = bar_bottom - k.denominator_gap * size - den.ascent;
+    if let Some(shift) = k.denominator_shift_down {
+        y_den = y_den.min(-shift * size);
+    }
     out.ascent = y_num + num.ascent;
     out.descent = den.descent - y_den;
 
@@ -209,10 +265,10 @@ fn fraction(num: &[MathNode], den: &[MathNode], metrics: &dyn MathMetrics, size:
     out
 }
 
-fn root(arg: &[MathNode], metrics: &dyn MathMetrics, size: f64) -> MathBox {
-    let arg = hbox(arg, metrics, size);
-    let thick = RULE * size;
-    let gap = GAP * size;
+fn root(arg: &[MathNode], metrics: &dyn MathMetrics, k: &MathConstants, size: f64) -> MathBox {
+    let arg = hbox(arg, metrics, k, size);
+    let thick = k.radical_rule * size;
+    let gap = k.radical_gap * size;
     let sign_advance = metrics.advance('√', size);
     let mut out = MathBox {
         width: 0.0,
@@ -244,14 +300,15 @@ fn script(
     sup: Option<&[MathNode]>,
     sub: Option<&[MathNode]>,
     metrics: &dyn MathMetrics,
+    k: &MathConstants,
     size: f64,
 ) -> MathBox {
-    let base = node_box(base, metrics, size);
-    let script_size = size * SCRIPT_SCALE;
-    let sup = sup.map(|n| hbox(n, metrics, script_size));
-    let sub = sub.map(|n| hbox(n, metrics, script_size));
-    let sup_y = SUP_SHIFT * size;
-    let sub_y = -SUB_SHIFT * size;
+    let base = node_box(base, metrics, k, size);
+    let script_size = size * k.script_scale;
+    let sup = sup.map(|n| hbox(n, metrics, k, script_size));
+    let sub = sub.map(|n| hbox(n, metrics, k, script_size));
+    let sup_y = k.superscript_shift_up * size;
+    let sub_y = -k.subscript_shift_down * size;
     let scripts_width = sup
         .as_ref()
         .map_or(0.0, |b| b.width)

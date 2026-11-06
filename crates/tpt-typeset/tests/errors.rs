@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Structured errors: bibliography, document class and query errors carry a position or a hint.
 
 use tpt_typeset::{DocumentClass, Library};

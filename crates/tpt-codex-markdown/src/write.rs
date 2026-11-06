@@ -7,7 +7,8 @@ use alloc::vec::Vec;
 
 use tpt_codex_core::{
     Block, BlockId, Canvas, CellInput, Document, Figure, LayoutMode, MediaSource, Metadata,
-    SheetId, TextStyle, address_of, address_position, is_figure_label,
+    SheetId, TextStyle, address_of, address_position, is_equation_label, is_figure_label,
+    is_table_label,
 };
 
 use crate::error::SerializeError;
@@ -142,6 +143,13 @@ fn check_layout(doc: &Document, root: &[BlockId]) -> Result<(), SerializeError> 
             ));
         }
     }
+    for &id in doc.equation_labels.keys() {
+        if !placed.contains(&id) || !matches!(doc.get(id), Some(Block::Math { .. })) {
+            return Err(fail(
+                "equation labels can only be written on display math in the document",
+            ));
+        }
+    }
     let mut shown: BTreeSet<SheetId> = BTreeSet::new();
     for id in &placed {
         if let Some(Block::Grid { sheet_id, .. }) = doc.get(*id) {
@@ -238,7 +246,18 @@ fn write_grid(
         }
     }
 
-    let mut lines = vec![format!("::: grid {{ id=\"{}\" }}", sheet_id.0)];
+    let open_line = match doc.table_labels.get(&sheet_id) {
+        None => format!("::: grid {{ id=\"{}\" }}", sheet_id.0),
+        Some(label) => {
+            if !is_table_label(label) {
+                return Err(fail(
+                    "table label must start with tab: and use letters, digits, and - _ : .",
+                ));
+            }
+            format!("::: grid {{ id=\"{}\" label=\"{}\" }}", sheet_id.0, label)
+        }
+    };
+    let mut lines = vec![open_line];
     for row in 1..=sheet.rows {
         let mut cells: Vec<String> = Vec::with_capacity(sheet.cols as usize);
         for col in 1..=sheet.cols {
@@ -333,7 +352,11 @@ fn write_block(
             items,
         } => write_list(doc, index, *ordered, *start, items, prev),
         Block::Code { language, code } => write_code(index, language.as_deref(), code),
-        Block::Math { source } => write_math(index, source),
+        Block::Math { source } => write_math(
+            index,
+            source,
+            doc.equation_labels.get(&id).map(String::as_str),
+        ),
         Block::ThematicBreak => Ok(String::from("***")),
         Block::Media { source, alt_text } => write_image(
             index,
@@ -533,7 +556,7 @@ fn write_code(index: usize, language: Option<&str>, code: &str) -> Result<String
     Ok(out)
 }
 
-fn write_math(index: usize, source: &str) -> Result<String, SerializeError> {
+fn write_math(index: usize, source: &str, label: Option<&str>) -> Result<String, SerializeError> {
     let fail = |reason: &str| SerializeError {
         index: Some(index),
         reason: String::from(reason),
@@ -550,7 +573,22 @@ fn write_math(index: usize, source: &str) -> Result<String, SerializeError> {
             "math source cannot contain a line with only $$, which would close the block",
         ));
     }
-    Ok(format!("$$\n{source}\n$$"))
+    let close = match label {
+        None => String::from("$$"),
+        Some(label) => {
+            if !is_equation_label(label) {
+                return Err(fail(
+                    "equation label must start with eq: and use letters, digits, and - _ : ., such as eq:euler",
+                ));
+            }
+            format!("$$ {{#{label}}}")
+        }
+    };
+    Ok(format!(
+        "$$
+{source}
+{close}"
+    ))
 }
 
 fn write_image(

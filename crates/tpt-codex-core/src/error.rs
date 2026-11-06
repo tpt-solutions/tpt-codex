@@ -33,6 +33,14 @@ pub enum ValidationError {
     FigureOfNonMedia(BlockId),
     /// A figure's label is empty, repeated or malformed, or its width is outside 1 to 100.
     InvalidFigure(BlockId),
+    /// An equation label is recorded for a block that is not a display equation.
+    EquationLabelOfNonMath(BlockId),
+    /// An equation label is empty, repeated, or does not start with `eq:`.
+    InvalidEquationLabel(BlockId),
+    /// A table label is recorded for a sheet that does not exist.
+    TableLabelOfMissingSheet(SheetId),
+    /// A table label is empty, repeated, or does not start with `tab:`.
+    InvalidTableLabel(SheetId),
     /// A section is recorded for a block that is not a slide.
     SectionOfNonSlide(BlockId),
     /// A slide's section has an empty name.
@@ -101,6 +109,22 @@ impl fmt::Display for ValidationError {
                 )
             }
             Self::InvalidFigure(id) => write!(f, "block {} has invalid figure attributes", id.0),
+            Self::EquationLabelOfNonMath(id) => {
+                write!(f, "block {} has an equation label but is not math", id.0)
+            }
+            Self::InvalidEquationLabel(id) => {
+                write!(
+                    f,
+                    "block {} has an invalid or repeated equation label",
+                    id.0
+                )
+            }
+            Self::TableLabelOfMissingSheet(id) => {
+                write!(f, "table label recorded for missing sheet {}", id.0)
+            }
+            Self::InvalidTableLabel(id) => {
+                write!(f, "sheet {} has an invalid or repeated table label", id.0)
+            }
             Self::SectionOfNonSlide(id) => {
                 write!(f, "block {} has a section but is not a slide", id.0)
             }

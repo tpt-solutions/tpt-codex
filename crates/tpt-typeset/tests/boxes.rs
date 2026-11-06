@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Section boxes: each section's extent on a laid-out column covers its heading, its body and the
 //! sections nested below it, and sibling sections do not overlap.
 

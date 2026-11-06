@@ -13,6 +13,7 @@ tpt-codex-core.workspace = true
 tpt-codex-views.workspace = true
 tpt-query = { workspace = true, features = ["json"] }
 serde_json.workspace = true
+ttf-parser = { version = "0.25.1", default-features = false, features = ["no-std-float", "opentype-layout"] }
 
 [dev-dependencies]
 tpt-codex-markdown.workspace = true
