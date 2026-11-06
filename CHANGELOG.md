@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- One-click PDF export: `tpt-codex-app::export::export_pdf` writes the document on its document class's page size,
+  with a `Page N of M` footer. The demo page has an `Export PDF` button, and the browser test checks the download.
+- `tpt-codex-pdf` text is drawn as glyph outlines (`tpt-canvas` pinned at `e451560`).
+
 - `tpt-codex-text` crate: text measurement with the bundled Noto Sans Regular (OFL), shaped by
   `tpt-text`. It implements the Flow view's `TextMeasure` and `tpt-layout`'s `TextMeasurer`. The
   Flow view and pagination are tested on the fixture with it.

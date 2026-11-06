@@ -40,5 +40,5 @@ Rules:
 ## What is not yet decided
 
 - Migration tooling. There is no older schema to migrate from yet.
-- The `tpt-model` schema and its versioning. The `tpt-model` dependency is blocked (see
-  `docs/tpt-dependency-audit.md`). If it is adopted, its schema version replaces or wraps `schema_version`.
+- The `tpt-model` schema and its versioning. The `tpt-model` stub blocker is cleared (see
+  `docs/tpt-dependency-audit.md`), but tpt-codex does not depend on it yet. If it is adopted, its schema version replaces or wraps `schema_version`.

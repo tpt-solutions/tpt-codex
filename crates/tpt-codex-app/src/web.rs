@@ -70,6 +70,11 @@ impl Controller {
     pub fn replica(&self) -> ReplicaId {
         self.presence.borrow().id()
     }
+
+    /// The document as PDF file bytes, on the page size of its document class.
+    pub fn export_pdf(&self) -> Result<Vec<u8>, String> {
+        crate::export::export_pdf(self.editor.borrow().document())
+    }
 }
 
 /// Mounts `doc` as an editor inside `container`, as replica 1, and returns the handle to send it

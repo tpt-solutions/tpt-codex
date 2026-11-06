@@ -26,6 +26,7 @@
   <body>
     <!-- The editor marks the presenter stage; this button makes the browser show it full screen. -->
     <button id="fullscreen" type="button">Full screen</button>
+    <button id="export-pdf" type="button">Export PDF</button>
     <main id="app"></main>
     <script type="module">
       // The pkg folder is produced by wasm-bindgen from tpt_codex_web.wasm.
@@ -40,6 +41,20 @@
         editor.set_fullscreen(true);
         const stage = document.querySelector(".presenter");
         if (stage && stage.requestFullscreen) stage.requestFullscreen().catch(() => {});
+      });
+      // Exports the document as a PDF and downloads it.
+      document.getElementById("export-pdf").addEventListener("click", () => {
+        try {
+          const bytes = editor.export_pdf();
+          const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "document.pdf";
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) {
+          alert("PDF export failed: " + error);
+        }
       });
       // When the browser leaves full screen (for example with Escape), the editor follows.
       document.addEventListener("fullscreenchange", () => {

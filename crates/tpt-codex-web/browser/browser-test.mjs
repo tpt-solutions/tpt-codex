@@ -245,6 +245,16 @@ await page.keyboard.press("Escape");
 await page.waitForTimeout(150);
 check("escape stops presenting", (await page.locator(".presenter").count()) === 0);
 
+// Export: the button downloads a PDF of the document.
+{
+  const downloadPromise = page.waitForEvent("download", { timeout: 20000 });
+  await page.click("#export-pdf");
+  const download = await downloadPromise;
+  const saved = await download.path();
+  const head = (await readFile(saved)).subarray(0, 5).toString("latin1");
+  check("export button downloads a PDF", download.suggestedFilename() === "document.pdf" && head === "%PDF-", `${download.suggestedFilename()} ${head}`);
+}
+
 check("no page errors", errors.length === 0, errors.join(" | "));
 await browser.close();
 

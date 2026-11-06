@@ -13,6 +13,7 @@
 #![warn(missing_docs)]
 
 pub mod editor;
+pub mod export;
 mod file_storage;
 mod persistence;
 pub mod presence;

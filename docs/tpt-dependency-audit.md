@@ -107,6 +107,26 @@ still blocked by their own `zip` features. The same `archive` module could read 
   A small reader on our own `archive` module covers it, so we don't depend on `tpt-doc-word`. Its loss items are
   recorded in the fidelity report.
 
+## Update 2026-11-06: tpt-model stub blocker cleared
+
+- The `*-stub` crates are folded into `tpt-model` as modules (`uir`, `crypto`, `validex`, `primitives`), and
+  `tpt-uir-stub`, `tpt-validex-stub`, `tpt-crypto-stub`, `tpt-primitives-stub` and `tpt-testkit-stub` are removed
+  from the workspace. Commit `59699b3` is on GitHub master. Its normal dependencies are serde, uuid, sha2, hmac
+  and `tpt-model-derive`.
+- Checked locally: `cargo test -p tpt-model` passes (all suites), `cargo tree -p tpt-model` shows no stub crate,
+  and `scripts/check_licenses.py` passes on its `cargo metadata`.
+- tpt-codex does not depend on `tpt-model` yet, so its closure is unchanged and the gate for this repository is not affected.
+
+## Update 2026-11-06: upstream fixes checked on GitHub
+
+- **`tpt-canvas` glyph runs.** Fixed upstream at `e451560` (glyph runs with a glyph source are filled as outline
+  paths). Our `Cargo.toml` already pins that rev for `tpt-canvas` and `tpt-canvas-pdf`, so the PDF export draws text.
+- **`tpt-doc` zip feature.** Fixed on tpt-doc `master` (`cc16a28`, `zip` with `deflate-flate2-zlib-rs`). The license
+  gate passes on the closures of `tpt-doc-pdf` (9 packages) and `tpt-doc-convert` (22 packages). The
+  `gate-zip-deflate-flate2` branch mentioned above is no longer needed. Not adopted: `.docx` and `.xlsx` are in-house.
+- **`tpt-doc-pdf` has no parser.** It writes PDFs only, so it cannot provide `.pdf` import. That needs a new parser
+  or another dependency, which is a decision for you.
+
 ## Next steps
 
 - No licensing decisions are open.

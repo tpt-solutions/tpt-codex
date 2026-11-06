@@ -52,6 +52,13 @@ impl EditorHandle {
     pub fn replica(&self) -> u32 {
         self.controller.replica() as u32
     }
+
+    /// The document as PDF file bytes. The page turns them into a download.
+    pub fn export_pdf(&self) -> Result<Vec<u8>, JsValue> {
+        self.controller
+            .export_pdf()
+            .map_err(|e| JsValue::from_str(&e))
+    }
 }
 
 /// Mounts the sample editor in the element with id `container_id`.
