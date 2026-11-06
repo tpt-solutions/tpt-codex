@@ -67,10 +67,11 @@ Other text is kept as written.
 ### Inline
 
 ```ebnf
-inline       = { plain | escape | emphasis | strong | link } ;
+inline       = { plain | escape | emphasis | strong | both | link } ;
 escape       = "\" ASCII-punctuation ;      (* the punctuation character, literally *)
 emphasis     = "*" text-no-edge-space "*" ;  (* closes with one star *)
 strong       = "**" text-no-edge-space "**" ; (* closes with two stars *)
+both         = "***" text-no-edge-space "***" ; (* bold and italic; closes with three stars *)
 link         = "[" link-text "](" address ")" ;
 citation     = "[@" key "]" ;               (* shows the key until its text is replaced *)
 footnote-ref = "[^" label "]" ;            (* likewise, for a footnote label *)
@@ -85,8 +86,9 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
 - A `*` or `**` opens emphasis when the next character is not a space. It closes when the text
   before it is not a space. An opening `**` is strong, and a `*` run of three after strong text
   closes strong and opens emphasis, so `**a***b*` reads as strong `a` then emphasis `b`.
-- Emphasis does not nest, and a link cannot start inside emphasis. Bold together with italic on the
-  same text is not written yet.
+- Emphasis does not nest, and a link cannot start inside emphasis. Three stars open bold and italic
+  together, and close with three stars. A run of stars that is longer than the marker closes it and
+  opens the next, so `***a****b*` reads as bold italic `a` then emphasis `b`.
 - A backslash before ASCII punctuation is an escape. Any other backslash is literal.
 - A link whose address starts with `@` is a citation of that key, and one that starts with `^` is a
   footnote reference. `[@key]` and `[^label]` are the bare forms, with the key or label as their
@@ -199,7 +201,6 @@ quoted value with a bad escape, or a missing closing `---`.
 - figure attributes on anything but an image, or a label or width the reader would not read back,
 - an equation label on anything but a display math block in the document, or a label without `eq:`,
 - a table label without `tab:`,
-- text with bold or italic flags (not yet written),
 - empty text, or text with leading or trailing spaces,
 - a heading level outside 1 to 6, or a heading with a line break,
 - a paragraph with a blank line, or a line that would read back as another block,
@@ -221,6 +222,13 @@ quoted value with a bad escape, or a missing closing `---`.
 
 The writer writes a thematic break as `***`, not `---`. A `---` line as the first line of a
 document reads as front matter.
+
+## Bold and italic flags
+
+A text block's own `bold` and `italic` flags have no Markdown form, so the writer writes them as
+emphasis around the whole text (`**text**`, `*text*` or `***text***`), in paragraphs, headings and
+list items. Reading that back gives one run over the whole text, not the flags. The writer refuses
+a flagged block that also has runs which would nest inside the emphasis.
 
 ## Block ids
 

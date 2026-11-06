@@ -6,8 +6,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use tpt_codex_core::{
-    Block, BlockId, Canvas, CellInput, Document, Figure, LayoutMode, MediaSource, Metadata,
-    SheetId, TextStyle, address_of, address_position, is_equation_label, is_figure_label,
+    Block, BlockId, Canvas, CellInput, Document, Figure, InlineRun, LayoutMode, MediaSource,
+    Metadata, SheetId, TextStyle, address_of, address_position, is_equation_label, is_figure_label,
     is_table_label,
 };
 
@@ -375,23 +375,36 @@ fn write_block(
     }
 }
 
+/// The runs of a text block, with its bold and italic flags added as one run over the whole text.
+/// Markdown has no block-level emphasis, so the flags are written as emphasis around the text and
+/// read back as a run.
+fn runs_with_flags(content: &str, style: &TextStyle) -> Vec<InlineRun> {
+    let mut runs = style.runs.clone();
+    if (style.bold || style.italic) && !content.is_empty() {
+        runs.push(InlineRun {
+            start: 0,
+            end: content.chars().count(),
+            bold: style.bold,
+            italic: style.italic,
+            link: None,
+            math: None,
+        });
+    }
+    runs
+}
+
 fn write_text(index: usize, content: &str, style: &TextStyle) -> Result<String, SerializeError> {
     let fail = |reason: &str| SerializeError {
         index: Some(index),
         reason: String::from(reason),
     };
-    if style.bold || style.italic {
-        return Err(fail(
-            "bold and italic are not written yet; remove the flags",
-        ));
-    }
     if content.is_empty() {
         return Err(fail("empty text cannot be written"));
     }
     if content.trim() != content {
         return Err(fail("leading or trailing spaces would be lost"));
     }
-    let escaped = write_inline(content, &style.runs).map_err(fail)?;
+    let escaped = write_inline(content, &runs_with_flags(content, style)).map_err(fail)?;
 
     if let Some(level) = style.heading_level {
         if !(1..=6).contains(&level) {
@@ -487,7 +500,7 @@ fn write_list(
             Block::Text { content, style } => (content, style),
             _ => return Err(fail("list items must be text")),
         };
-        if style.bold || style.italic || style.heading_level.is_some() {
+        if style.heading_level.is_some() {
             return Err(fail("list items must be plain text"));
         }
         let content = text.as_str();
@@ -499,7 +512,7 @@ fn write_list(
         if content.contains(['\n', '\r']) {
             return Err(fail("list items must be single lines"));
         }
-        let escaped = write_inline(content, &style.runs).map_err(fail)?;
+        let escaped = write_inline(content, &runs_with_flags(content, style)).map_err(fail)?;
         // "- - -" would read back as a thematic break, not as an item.
         if escaped
             .bytes()

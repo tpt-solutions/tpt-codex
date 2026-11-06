@@ -123,6 +123,23 @@ fn office_files_convert_and_report_what_was_lost() {
 }
 
 #[test]
+fn a_word_file_with_bold_italic_text_converts_to_cdx_and_back() {
+    let dir = scratch("styled");
+    let cdx = dir.join("report.cdx");
+    let done = tpt(&["convert", s(&fixture("corpus_report.docx")), "-o", s(&cdx)]);
+    assert_eq!(done.status, 0, "{}", done.err);
+    let text = fs::read_to_string(&cdx).unwrap();
+    assert!(
+        text.contains("**bold** *italic* ***bold italic*** plain tail"),
+        "{text}"
+    );
+    assert_eq!(tpt(&["check", s(&cdx), "--strict"]).status, 0);
+    // The text file converts onward without loss of the emphasis.
+    let docx = dir.join("again.docx");
+    assert_eq!(tpt(&["convert", s(&cdx), "-o", s(&docx)]).status, 0);
+}
+
+#[test]
 fn a_markdown_error_is_reported_with_file_line_and_column() {
     let dir = scratch("parse-error");
     let file = dir.join("bad.md");

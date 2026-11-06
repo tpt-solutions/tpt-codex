@@ -80,8 +80,9 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
     let chars: Vec<char> = src.chars().collect();
     let mut out: Vec<char> = Vec::new();
     let mut runs: Vec<InlineRun> = Vec::new();
-    // The open emphasis: (is strong, start in `out`).
-    let mut open: Option<(bool, usize)> = None;
+    // The open emphasis: (marker length, start in `out`). One star is emphasis, two are strong
+    // text, and three are both.
+    let mut open: Option<(usize, usize)> = None;
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -94,10 +95,9 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
             '*' => {
                 let run = chars[i..].iter().take_while(|&&x| x == '*').count();
                 match open {
-                    Some((strong, start)) => {
-                        // A closing strong marker is two stars; a closing emphasis is one. A
-                        // longer run is read as the closing marker followed by an opening one.
-                        let len = if strong { 2 } else { 1 };
+                    Some((len, start)) => {
+                        // A closing marker has as many stars as the opening one. A longer run is
+                        // read as the closing marker followed by an opening one.
                         if run < len {
                             return Err(UNMATCHED_EMPHASIS);
                         }
@@ -107,8 +107,8 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                         runs.push(InlineRun {
                             start,
                             end: out.len(),
-                            bold: strong,
-                            italic: !strong,
+                            bold: len >= 2,
+                            italic: len != 2,
                             link: None,
                             math: None,
                         });
@@ -116,11 +116,11 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                         i += len;
                     }
                     None => {
-                        let len = if run >= 2 { 2 } else { 1 };
+                        let len = run.min(3);
                         if chars.get(i + len).is_none_or(|n| n.is_whitespace()) {
                             return Err(EMPHASIS_SPACE);
                         }
-                        open = Some((len == 2, out.len()));
+                        open = Some((len, out.len()));
                         i += len;
                     }
                 }
@@ -297,9 +297,9 @@ fn is_address(address: &str) -> bool {
 
 /// Writes `text` with its runs as inline Markdown that [`parse_inline`] reads back exactly.
 ///
-/// Refuses what the subset cannot express: bold and italic together, emphasis or a link with a
-/// leading or trailing space inside its markers, a link inside emphasis, and a character with two
-/// different links.
+/// Bold and italic on the same text are written with three stars. Refuses what the subset cannot
+/// express: emphasis or a link with a leading or trailing space inside its markers, emphasis inside
+/// emphasis, a link inside emphasis, math inside emphasis, and a character with two different links.
 pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'static str> {
     let chars: Vec<char> = text.chars().collect();
     let n = chars.len();
@@ -345,6 +345,9 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
         let segment: String = chars[i..j].iter().collect();
         if let Some(source) = key.3 {
             // Math is written as $source$. Its text is its source, so the segment is the whole run.
+            if key.0 || key.1 {
+                return Err("inline math cannot be bold or italic");
+            }
             if segment != source {
                 return Err("inline math text must be its source");
             }
@@ -356,15 +359,18 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
         }
         match (key.0, key.1, key.2) {
             (false, false, None) => out.push_str(&escape(&segment)),
-            (true, true, _) => return Err("bold and italic together are not written yet"),
             (_, _, Some(_)) if key.0 || key.1 => {
                 return Err("links cannot be bold or italic in the Markdown subset");
             }
-            (strong, _, None) => {
+            (strong, italic, None) => {
                 if segment.trim() != segment {
                     return Err("bold or italic text cannot start or end with a space");
                 }
-                let marker = if strong { "**" } else { "*" };
+                let marker = match (strong, italic) {
+                    (true, true) => "***",
+                    (true, false) => "**",
+                    _ => "*",
+                };
                 out.push_str(marker);
                 out.push_str(&escape(&segment));
                 out.push_str(marker);
@@ -502,6 +508,28 @@ mod tests {
     }
 
     #[test]
+    fn three_stars_are_bold_and_italic() {
+        let p = parse_inline("***both*** plain").unwrap();
+        assert_eq!(p.text, "both plain");
+        assert_eq!(p.runs, [run(0, 4, true, true)]);
+        // Each pairing of neighbours, in each order, reads as written.
+        for (a, b) in [
+            ("***a***", "**b**"),
+            ("**a**", "***b***"),
+            ("***a***", "*b*"),
+            ("*a*", "***b***"),
+        ] {
+            let p = parse_inline(&alloc::format!("{a}{b}")).unwrap();
+            assert_eq!(p.text, "ab", "{a}{b}");
+            assert_eq!(p.runs.len(), 2, "{a}{b}");
+        }
+        // Emphasis does not nest, so a mixed marker run is still an error.
+        assert!(parse_inline("***a** b*").is_err());
+        assert!(parse_inline("*** a***").is_err());
+        assert!(parse_inline("***a").is_err());
+    }
+
+    #[test]
     fn writer_output_reads_back_to_the_same_text_and_runs() {
         let cases: Vec<(&str, Vec<InlineRun>)> = vec![
             ("plain", vec![]),
@@ -515,6 +543,9 @@ mod tests {
                 vec![run(0, 1, true, false), run(1, 2, false, true)],
             ),
             ("a*b*", vec![run(1, 3, false, true)]),
+            ("both", vec![run(0, 4, true, true)]),
+            ("abcd", vec![run(0, 2, true, true), run(2, 4, true, false)]),
+            ("abcd", vec![run(0, 2, false, true), run(2, 4, true, true)]),
             (
                 "see docs now",
                 vec![InlineRun {
@@ -540,7 +571,11 @@ mod tests {
 
     #[test]
     fn writer_refuses_what_the_subset_cannot_express() {
-        assert!(write_inline("x", &[run(0, 1, true, true)]).is_err());
+        assert_eq!(
+            write_inline("x", &[run(0, 1, true, true)]).unwrap(),
+            "***x***"
+        );
+        assert!(write_inline("a b", &[run(0, 1, true, true), run(1, 3, true, false)]).is_err());
         assert!(write_inline("ab", &[run(0, 2, true, false)]).is_ok());
         assert!(write_inline("a b", &[run(0, 3, true, false)]).is_ok());
         assert!(write_inline(" a", &[run(0, 2, true, false)]).is_err());

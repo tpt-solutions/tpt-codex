@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
 
 - Release workflow, `scripts/build-web.sh` and `.ps1`, a `justfile`, and a devcontainer.
 
+- Markdown: bold and italic on the same text, written and read as `***text***`. A block's own bold or
+  italic flag is written as emphasis around its text (paragraphs, headings and list items), so a styled
+  `.docx` converts to `.cdx`.
+
 ### Fixed
 
 - `.docx` import no longer puts spaces at the edge of a bold or italic run, which Markdown cannot write.

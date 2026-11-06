@@ -25,9 +25,9 @@ Nothing is dropped silently. Read the report before you rely on the result.
 | Images | Dropped |
 | Footnotes, comments, tracked changes, styles beyond headings | Not read |
 
-Known limit: a paragraph that is bold or italic all the way through, or that mixes bold and italic on
-the same text, cannot be written as `.cdx` yet, so `tpt convert x.docx -o x.cdx` stops with an error.
-Convert to `.json`, `.pdf` or `.docx` instead until that is added.
+Known limit: `.cdx` has no nested emphasis. A bold paragraph with an italic word inside it cannot be
+written as `.cdx`, so `tpt convert x.docx -o x.cdx` stops and names the paragraph. Convert to `.json`,
+`.pdf` or `.docx` instead.
 
 Writing `.docx` keeps headings, bold, italic and runs. Links are written as plain text, lists lose
 their markers, and images and grids are not written. The report says which.

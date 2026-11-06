@@ -499,20 +499,84 @@ fn round_trip_of_supported_subset_is_exact() {
     assert_eq!(from_markdown(&md).unwrap(), doc);
 }
 
-#[test]
-fn writer_refuses_bold_and_italic_rather_than_dropping_them() {
-    let doc = doc_of(vec![Block::Text {
-        content: "x".into(),
+fn flagged(content: &str, bold: bool, italic: bool, heading_level: Option<u8>) -> Block {
+    Block::Text {
+        content: content.into(),
         style: TextStyle {
-            bold: true,
-            italic: false,
-            heading_level: None,
+            bold,
+            italic,
+            heading_level,
             runs: Vec::new(),
         },
+    }
+}
+
+/// The block's whole text, as the run that Markdown reads back for a flag.
+fn whole_run(block: &Block) -> (usize, usize, bool, bool) {
+    let Block::Text { content, style } = block else {
+        panic!("not text");
+    };
+    assert!(
+        !style.bold && !style.italic,
+        "read back as a run, not a flag"
+    );
+    assert_eq!(style.runs.len(), 1, "{style:?}");
+    let run = &style.runs[0];
+    assert_eq!(
+        run.end - run.start,
+        content.chars().count(),
+        "covers all of it"
+    );
+    (run.start, run.end, run.bold, run.italic)
+}
+
+#[test]
+fn a_bold_or_italic_flag_is_written_as_emphasis_over_the_whole_text() {
+    for (bold, italic, written) in [
+        (true, false, "**Whole text**"),
+        (false, true, "*Whole text*"),
+        (true, true, "***Whole text***"),
+    ] {
+        let doc = doc_of(vec![flagged("Whole text", bold, italic, None)]);
+        let md = to_markdown(&doc).unwrap();
+        assert_eq!(md.trim_end(), written);
+        let back = from_markdown(&md).unwrap();
+        let (_, _, b, i) = whole_run(back.get(BlockId(1)).unwrap());
+        assert_eq!((b, i), (bold, italic));
+    }
+}
+
+#[test]
+fn flags_work_on_headings_and_list_items_too() {
+    let doc = doc_of(vec![flagged("Title", true, false, Some(2))]);
+    assert_eq!(to_markdown(&doc).unwrap().trim_end(), "## **Title**");
+
+    let mut doc = doc_of(vec![Block::List {
+        ordered: false,
+        start: 1,
+        items: vec![BlockId(2)],
     }]);
-    let err = to_markdown(&doc).unwrap_err();
+    doc.insert(BlockId(2), flagged("Item", false, true, None));
+    assert_eq!(to_markdown(&doc).unwrap().trim_end(), "- *Item*");
+}
+
+#[test]
+fn a_flag_that_cannot_be_written_is_refused_not_dropped() {
+    // Emphasis inside emphasis is not in the subset.
+    let mut block = flagged("a b c", true, false, None);
+    if let Block::Text { style, .. } = &mut block {
+        style.runs.push(tpt_codex_core::InlineRun {
+            start: 2,
+            end: 3,
+            bold: false,
+            italic: true,
+            link: None,
+            math: None,
+        });
+    }
+    let err = to_markdown(&doc_of(vec![block])).unwrap_err();
     assert_eq!(err.index, Some(0));
-    assert!(err.reason.contains("bold"));
+    assert!(err.reason.contains("space"), "{}", err.reason);
 }
 
 #[test]

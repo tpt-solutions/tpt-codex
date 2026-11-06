@@ -23,7 +23,7 @@ Only `title`, `author`, `date` and `class` (`article` or `report`) are allowed.
 # Heading 1
 ## Heading 2
 
-A paragraph with *emphasis*, **strong text**, a [link](https://example.com)
+A paragraph with *emphasis*, **strong text**, ***both***, a [link](https://example.com)
 and an escaped \* star.
 
 - Bullet
@@ -35,8 +35,8 @@ and an escaped \* star.
 ***
 ```
 
-Not supported yet: bold and italic on the same text, nested lists, block quotes, link titles, tables
-outside a grid.
+Not supported yet: emphasis inside emphasis, nested lists, block quotes, link titles, tables outside
+a grid.
 
 ## Code
 
