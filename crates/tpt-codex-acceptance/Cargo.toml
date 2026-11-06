@@ -1,0 +1,21 @@
+[package]
+name = "tpt-codex-acceptance"
+description = "End-to-end headless acceptance tests, one file per milestone in todo.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tpt-codex-app = { path = "../tpt-codex-app" }
+tpt-codex-core = { path = "../tpt-codex-core" }
+tpt-codex-grid = { path = "../tpt-codex-grid" }
+tpt-codex-interop = { path = "../tpt-codex-interop" }
+tpt-codex-markdown = { path = "../tpt-codex-markdown" }
+tpt-codex-views = { path = "../tpt-codex-views" }
+tpt-typeset = { path = "../tpt-typeset" }

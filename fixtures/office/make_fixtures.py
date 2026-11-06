@@ -99,11 +99,61 @@ def make_pptx() -> None:
     prs.save(HERE / "basic.pptx")
 
 
+def make_corpus_xlsx() -> None:
+    """Three worksheets: formulas across sheets, a merged range, unicode text, a percent
+    format and an empty sheet. Expected values are asserted in tests/corpus.rs."""
+    wb = openpyxl.Workbook()
+    costs = wb.active
+    costs.title = "Costs"
+    costs["A1"] = "Item"
+    costs["B1"] = "Qty"
+    costs["C1"] = "Cost"
+    costs["A2"] = "café"
+    costs["B2"] = 4
+    costs["C2"] = "=B2*Rates!A1"
+    costs["A3"] = "tax"
+    costs["B3"] = 0.15
+    costs["C3"] = "=C2*B3"
+    costs["C3"].number_format = "0.0%"
+    costs["D2"] = True
+    costs.merge_cells("A5:C5")
+    costs["A5"] = "merged title"
+    rates = wb.create_sheet("Rates")
+    rates["A1"] = 2.5
+    rates["B2"] = "rate note"
+    wb.create_sheet("Empty")
+    wb.save(HERE / "corpus_workbook.xlsx")
+
+
+def make_corpus_docx() -> None:
+    """Styled runs, a three-column table, bullets and a numbered list. Expected values are
+    asserted in tests/corpus.rs."""
+    doc = docx.Document()
+    doc.add_heading("Corpus report", level=1)
+    styled = doc.add_paragraph()
+    styled.add_run("bold ").bold = True
+    styled.add_run("italic ").italic = True
+    styled.add_run("bold italic").bold = True
+    styled.runs[-1].italic = True
+    styled.add_run(" plain tail")
+    doc.add_heading("Table", level=3)
+    table = doc.add_table(rows=2, cols=3)
+    for r, row in enumerate([["name", "unit", "price"], ["widget", "each", "2.50"]]):
+        for c, text in enumerate(row):
+            table.cell(r, c).text = text
+    doc.add_paragraph("bullet one", style="List Bullet")
+    doc.add_paragraph("numbered one", style="List Number")
+    doc.add_paragraph("unicode: café — ünïcode & <tags>")
+    doc.save(HERE / "corpus_report.docx")
+
+
 if __name__ == "__main__":
     (HERE / "_pixel.png").write_bytes(PNG_1X1)
     make_basic_xlsx()
     make_zips()
     make_docx()
     make_pptx()
+    make_corpus_xlsx()
+    make_corpus_docx()
     (HERE / "_pixel.png").unlink()
     print("wrote", sorted(p.name for p in HERE.iterdir() if p.suffix in (".xlsx", ".zip", ".docx", ".pptx")))

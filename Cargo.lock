@@ -550,6 +550,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-codex-acceptance"
+version = "0.1.0-spec"
+dependencies = [
+ "tpt-codex-app",
+ "tpt-codex-core",
+ "tpt-codex-grid",
+ "tpt-codex-interop",
+ "tpt-codex-markdown",
+ "tpt-codex-views",
+ "tpt-typeset",
+]
+
+[[package]]
 name = "tpt-codex-app"
 version = "0.1.0-spec"
 dependencies = [
@@ -703,6 +716,7 @@ dependencies = [
  "serde_json",
  "tpt-codex-core",
  "tpt-codex-markdown",
+ "tpt-codex-views",
  "tpt-query",
 ]
 

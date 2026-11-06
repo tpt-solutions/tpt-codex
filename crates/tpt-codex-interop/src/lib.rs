@@ -23,6 +23,8 @@ pub use docx_write::{DocxExport, export_docx};
 pub use fidelity::{Fidelity, FidelityItem, FidelityReport};
 pub use place::{PlaceError, SheetPlacement, place_sheet};
 pub use pptx::{PptxImport, import_pptx};
-pub use xlsx::{XlsxError, XlsxImport, export_xlsx, import_xlsx};
+pub use xlsx::{
+    XlsxError, XlsxImport, XlsxSheet, XlsxWorkbook, export_xlsx, import_xlsx, import_xlsx_workbook,
+};
 
 pub use tpt_codex_core as core;

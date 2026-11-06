@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `.xlsx` import and export for live grids, on the in-house [`archive`](crate::archive) reader.
 //!
-//! Import reads the first worksheet into a [`Sheet`]. Anything the model cannot hold is recorded in
-//! the [`FidelityReport`]: other worksheets, merged cells, array and shared formulas, error values,
-//! named ranges. Cell formatting is not read, so dates and percentages come in as their stored
+//! Import reads the first worksheet into a [`Sheet`], or every worksheet with
+//! [`import_xlsx_workbook`]. Anything the model cannot hold is recorded in the [`FidelityReport`]:
+//! merged cells, array and shared formulas, formulas that refer to another worksheet, error values,
+//! named ranges, and (for [`import_xlsx`]) the worksheets it does not read. Cell formatting is not read, so dates and percentages come in as their stored
 //! numbers, and the report says so.
 //!
 //! Export writes one worksheet. Formulas carry their computed value, so the file shows numbers
@@ -50,72 +51,141 @@ pub struct XlsxImport {
 const NS_MAIN: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-/// Imports the first worksheet of an `.xlsx` file.
+/// One worksheet of a workbook.
+#[derive(Debug, Clone, PartialEq)]
+pub struct XlsxSheet {
+    /// The worksheet's name in the workbook.
+    pub name: String,
+    /// The cells, with each formula kept alongside its computed value where it could be.
+    pub sheet: Sheet,
+}
+
+/// Every worksheet of a workbook, in workbook order, with one fidelity report covering all of them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct XlsxWorkbook {
+    /// The worksheets, in workbook order.
+    pub sheets: Vec<XlsxSheet>,
+    /// What the import kept, approximated or dropped, for every worksheet.
+    pub report: FidelityReport,
+}
+
+/// A workbook opened for reading: its parts, parsed once, and the sheet count.
+struct Opened<'a> {
+    archive: Archive<'a>,
+    workbook: Workbook,
+    rels: BTreeMap<String, String>,
+    shared: Vec<String>,
+}
+
+impl<'a> Opened<'a> {
+    fn open(bytes: &'a [u8]) -> Result<Self, XlsxError> {
+        let archive = Archive::open(bytes)?;
+        let workbook = parse_workbook(&read_text(&archive, "xl/workbook.xml")?)?;
+        if workbook.sheets.is_empty() {
+            return Err(XlsxError("the workbook has no worksheets".into()));
+        }
+        let rels = parse_rels(&read_text(&archive, "xl/_rels/workbook.xml.rels")?)?;
+        let shared = if archive.names().any(|n| n == "xl/sharedStrings.xml") {
+            parse_shared_strings(&read_text(&archive, "xl/sharedStrings.xml")?)?
+        } else {
+            Vec::new()
+        };
+        Ok(Self {
+            archive,
+            workbook,
+            rels,
+            shared,
+        })
+    }
+
+    /// Reports the named ranges, which are never imported.
+    fn report_names(&self, report: &mut FidelityReport) {
+        if self.workbook.defined_names > 0 {
+            report.dropped(
+                "workbook",
+                "named ranges",
+                format!(
+                    "{} named range(s) not imported",
+                    self.workbook.defined_names
+                ),
+            );
+        }
+    }
+
+    /// Reads worksheet `index` in workbook order, recording what it loses in `report`.
+    fn sheet(&self, index: usize, report: &mut FidelityReport) -> Result<XlsxSheet, XlsxError> {
+        let (name, rid) = &self.workbook.sheets[index];
+        let target = self
+            .rels
+            .get(rid)
+            .ok_or_else(|| XlsxError(format!("no relationship for sheet '{name}'")))?;
+        let sheet_xml = read_text(&self.archive, &resolve_target(target))?;
+        let parsed = parse_sheet(&sheet_xml, &self.shared)?;
+
+        let location = |address: &str| format!("sheet \"{name}\"!{address}");
+        if parsed.merged > 0 {
+            report.approximated(
+                format!("sheet \"{name}\""),
+                "merged cells",
+                format!(
+                    "{} merged region(s) not represented; each keeps its top-left value only",
+                    parsed.merged
+                ),
+            );
+        }
+
+        let mut sheet = Sheet::default();
+        for cell in parsed.cells {
+            match cell.kind {
+                CellKind::Input(input) => {
+                    sheet.cells.insert(cell.address, input);
+                }
+                CellKind::Approximated(input, note) => {
+                    report.approximated(location(&cell.address), "formula", note);
+                    sheet.cells.insert(cell.address, input);
+                }
+                CellKind::Dropped(note) => {
+                    report.dropped(location(&cell.address), "cell", note);
+                }
+                CellKind::Empty => {}
+            }
+        }
+        Ok(XlsxSheet {
+            name: name.clone(),
+            sheet,
+        })
+    }
+}
+
+/// Imports the first worksheet of an `.xlsx` file. Other worksheets are reported as dropped;
+/// use [`import_xlsx_workbook`] to import them all.
 pub fn import_xlsx(bytes: &[u8]) -> Result<XlsxImport, XlsxError> {
-    let archive = Archive::open(bytes)?;
+    let opened = Opened::open(bytes)?;
     let mut report = FidelityReport::new();
-
-    let workbook = parse_workbook(&read_text(&archive, "xl/workbook.xml")?)?;
-    if workbook.sheets.is_empty() {
-        return Err(XlsxError("the workbook has no worksheets".into()));
-    }
-    if workbook.defined_names > 0 {
-        report.dropped(
-            "workbook",
-            "named ranges",
-            format!("{} named range(s) not imported", workbook.defined_names),
-        );
-    }
-    let rels = parse_rels(&read_text(&archive, "xl/_rels/workbook.xml.rels")?)?;
-    let shared = if archive.names().any(|n| n == "xl/sharedStrings.xml") {
-        parse_shared_strings(&read_text(&archive, "xl/sharedStrings.xml")?)?
-    } else {
-        Vec::new()
-    };
-
-    let (first_name, first_rid) = &workbook.sheets[0];
-    for (other, _) in workbook.sheets.iter().skip(1) {
+    opened.report_names(&mut report);
+    for (other, _) in opened.workbook.sheets.iter().skip(1) {
         report.dropped(
             format!("sheet \"{other}\""),
             "worksheet",
-            "only the first worksheet is imported",
+            "only the first worksheet is imported by import_xlsx",
         );
     }
-    let target = rels
-        .get(first_rid)
-        .ok_or_else(|| XlsxError(format!("no relationship for sheet '{first_name}'")))?;
-    let sheet_xml = read_text(&archive, &resolve_target(target))?;
-    let parsed = parse_sheet(&sheet_xml, &shared)?;
+    let first = opened.sheet(0, &mut report)?;
+    Ok(XlsxImport {
+        sheet: first.sheet,
+        report,
+    })
+}
 
-    let location = |address: &str| format!("sheet \"{first_name}\"!{address}");
-    if parsed.merged > 0 {
-        report.approximated(
-            format!("sheet \"{first_name}\""),
-            "merged cells",
-            format!(
-                "{} merged region(s) not represented; each keeps its top-left value only",
-                parsed.merged
-            ),
-        );
-    }
-
-    let mut sheet = Sheet::default();
-    for cell in parsed.cells {
-        match cell.kind {
-            CellKind::Input(input) => {
-                sheet.cells.insert(cell.address, input);
-            }
-            CellKind::Approximated(input, note) => {
-                report.approximated(location(&cell.address), "formula", note);
-                sheet.cells.insert(cell.address, input);
-            }
-            CellKind::Dropped(note) => {
-                report.dropped(location(&cell.address), "cell", note);
-            }
-            CellKind::Empty => {}
-        }
-    }
-    Ok(XlsxImport { sheet, report })
+/// Imports every worksheet of an `.xlsx` file, in workbook order.
+pub fn import_xlsx_workbook(bytes: &[u8]) -> Result<XlsxWorkbook, XlsxError> {
+    let opened = Opened::open(bytes)?;
+    let mut report = FidelityReport::new();
+    opened.report_names(&mut report);
+    let sheets = (0..opened.workbook.sheets.len())
+        .map(|index| opened.sheet(index, &mut report))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(XlsxWorkbook { sheets, report })
 }
 
 /// Writes a sheet as a one-worksheet `.xlsx` file.
@@ -507,9 +577,19 @@ fn classify(raw: &RawCell, shared: &[String]) -> CellKind {
     if let Some(formula) = &raw.formula {
         match raw.formula_kind.as_deref() {
             None | Some("normal") if !formula.is_empty() => {
-                return CellKind::Input(CellInput::Formula {
+                let input = CellInput::Formula {
                     source: format!("={formula}"),
-                });
+                };
+                // The model holds one sheet, so a reference to another worksheet cannot resolve.
+                // The formula text is kept as written, and the loss is reported.
+                if formula.contains('!') {
+                    return CellKind::Approximated(
+                        input,
+                        "refers to another worksheet, which the model cannot resolve; kept as written"
+                            .into(),
+                    );
+                }
+                return CellKind::Input(input);
             }
             _ => {
                 // A shared or array formula. Only its computed value survives.
