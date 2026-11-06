@@ -20,6 +20,44 @@ pub const SOURCES: &[(u32, &str)] = &[
 /// The fields the form can test and sort by.
 pub const FIELDS: &[&str] = &["kind", "content", "language"];
 
+/// The tests the form offers, as `(id, label)` pairs. The id is the select's option value.
+pub const TESTS: &[(&str, &str)] = &[
+    ("equals", "equals"),
+    ("not-equals", "not equals"),
+    ("one-of", "one of"),
+];
+
+/// How the form's field is tested against its value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Test {
+    /// The field equals the value.
+    Equals,
+    /// The field does not equal the value.
+    NotEquals,
+    /// The field equals one of the comma-separated values.
+    OneOf,
+}
+
+impl Test {
+    /// The select option that stands for this test; one of the ids in [`TESTS`].
+    pub fn id(self) -> &'static str {
+        match self {
+            Test::Equals => "equals",
+            Test::NotEquals => "not-equals",
+            Test::OneOf => "one-of",
+        }
+    }
+
+    /// The test an option id stands for. Anything unknown is "equals".
+    pub fn from_id(id: &str) -> Test {
+        match id {
+            "not-equals" => Test::NotEquals,
+            "one-of" => Test::OneOf,
+            _ => Test::Equals,
+        }
+    }
+}
+
 /// The values of a query block's form controls.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryDraft {
@@ -27,9 +65,9 @@ pub struct QueryDraft {
     pub source: u32,
     /// The field to test, one of [`FIELDS`].
     pub field: String,
-    /// `true` for "not equals", `false` for "equals".
-    pub not_equal: bool,
-    /// The text the field is compared with.
+    /// How the field is tested.
+    pub test: Test,
+    /// The text the field is compared with. For "one of", a comma-separated list.
     pub value: String,
     /// The field to sort by, or empty for no sort.
     pub sort: String,
@@ -44,7 +82,7 @@ impl Default for QueryDraft {
         QueryDraft {
             source: entity_type::PARAGRAPH,
             field: String::from("kind"),
-            not_equal: false,
+            test: Test::Equals,
             value: String::new(),
             sort: String::new(),
             descending: false,
@@ -61,7 +99,7 @@ pub enum DraftChange {
     Source(String),
     /// The field to test.
     Field(String),
-    /// `not-equals` for "not equals", anything else for "equals".
+    /// A test id from [`TESTS`]. Anything else is "equals".
     Test(String),
     /// The text to compare with.
     Value(String),
@@ -84,7 +122,7 @@ impl QueryDraft {
                 }
             }
             DraftChange::Field(field) => self.field = field,
-            DraftChange::Test(test) => self.not_equal = test == "not-equals",
+            DraftChange::Test(test) => self.test = Test::from_id(&test),
             DraftChange::Value(value) => self.value = value,
             DraftChange::Sort(sort) => self.sort = sort,
             DraftChange::Direction(direction) => self.descending = direction == "desc",
@@ -99,15 +137,32 @@ impl QueryDraft {
         if !FIELDS.contains(&self.field.as_str()) {
             return Err(format!("'{}' cannot be filtered on", self.field));
         }
-        let condition = if self.not_equal {
-            Condition::NotEquals {
+        let condition = match self.test {
+            Test::Equals => Condition::Equals {
                 field: self.field.clone(),
                 value: self.value.clone(),
-            }
-        } else {
-            Condition::Equals {
+            },
+            Test::NotEquals => Condition::NotEquals {
                 field: self.field.clone(),
                 value: self.value.clone(),
+            },
+            Test::OneOf => {
+                let values: Vec<String> = self
+                    .value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(String::from)
+                    .collect();
+                if values.is_empty() {
+                    return Err(String::from(
+                        "'one of' needs at least one value, separated by commas",
+                    ));
+                }
+                Condition::OneOf {
+                    field: self.field.clone(),
+                    values,
+                }
             }
         };
         let mut spec = QuerySpec::new(self.source).with(condition);
@@ -144,7 +199,7 @@ mod tests {
         let draft = QueryDraft {
             source: entity_type::HEADING,
             field: String::from("content"),
-            not_equal: true,
+            test: Test::NotEquals,
             value: String::from("Draft"),
             sort: String::from("language"),
             descending: true,
@@ -193,5 +248,51 @@ mod tests {
         .unwrap();
         let source = build_source(&spec);
         assert!(source.contains("\"kind\""), "{source}");
+    }
+
+    #[test]
+    fn one_of_splits_the_value_on_commas_and_drops_blanks() {
+        let draft = QueryDraft {
+            test: Test::OneOf,
+            value: String::from(" paragraph, list item ,, "),
+            ..QueryDraft::default()
+        };
+        let spec = draft.to_spec().unwrap();
+        assert_eq!(
+            spec.conditions,
+            vec![Condition::OneOf {
+                field: String::from("kind"),
+                values: vec![String::from("paragraph"), String::from("list item")],
+            }]
+        );
+        let source = build_source(&spec);
+        assert!(
+            source.contains(r#""In":{"field":"kind","values":["paragraph","list item"]}"#),
+            "{source}"
+        );
+    }
+
+    #[test]
+    fn one_of_with_no_values_is_refused() {
+        let draft = QueryDraft {
+            test: Test::OneOf,
+            value: String::from(" , "),
+            ..QueryDraft::default()
+        };
+        assert!(draft.to_spec().unwrap_err().contains("at least one value"));
+    }
+
+    #[test]
+    fn the_test_change_selects_each_test_and_unknown_ids_mean_equals() {
+        let mut draft = QueryDraft::default();
+        draft.apply(DraftChange::Test("one-of".into()));
+        assert_eq!(draft.test, Test::OneOf);
+        draft.apply(DraftChange::Test("not-equals".into()));
+        assert_eq!(draft.test, Test::NotEquals);
+        draft.apply(DraftChange::Test("bogus".into()));
+        assert_eq!(draft.test, Test::Equals);
+        for (id, _) in TESTS {
+            assert_eq!(Test::from_id(id).id(), *id);
+        }
     }
 }

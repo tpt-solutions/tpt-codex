@@ -15,11 +15,13 @@
 pub mod editor;
 mod file_storage;
 mod persistence;
+pub mod presence;
 pub mod query_form;
 
 pub use editor::{Arrow, CellFocus, Editor, Msg, RemoteCursor};
 pub use file_storage::FileStorage;
 pub use persistence::{DocumentStore, PersistError};
+pub use presence::Presence;
 
 #[cfg(target_arch = "wasm32")]
 pub mod web;

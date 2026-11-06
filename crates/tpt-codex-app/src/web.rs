@@ -9,18 +9,20 @@ use std::rc::Rc;
 
 use tpt_appfront_core::{EffectHandle, Signal};
 use tpt_appfront_dom::render;
-use tpt_codex_core::Document;
+use tpt_codex_core::{Document, Message, ReplicaId};
 use web_sys::Element;
 use web_sys::wasm_bindgen::JsValue;
 
 use crate::editor::{Editor, Msg};
+use crate::presence::Presence;
 
-/// Mounts `doc` as an editor inside `container`.
-///
-/// Keep the returned handle alive for as long as the editor is on the page.
-/// A mounted editor that the page can send messages to. Keep it alive while the editor is shown.
+/// A mounted editor that the page can send messages to, and that exchanges presence with a relay
+/// through the page. Keep it alive while the editor is shown.
 pub struct Controller {
     dispatch: Rc<dyn Fn(Msg)>,
+    presence: Rc<RefCell<Presence>>,
+    editor: Rc<RefCell<Editor>>,
+    version: Signal<u64>,
     _effect: EffectHandle,
 }
 
@@ -35,11 +37,56 @@ impl Controller {
     pub fn send(&self, msg: Msg) {
         (self.dispatch)(msg);
     }
+
+    /// Takes in one frame from the relay. Presence updates move the other people's carets; other
+    /// frames are not presence and are ignored. Fails only on a frame that is not a message.
+    pub fn receive_sync(&self, text: &str) -> Result<(), String> {
+        let message: Message = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        self.presence.borrow_mut().receive(message);
+        let cursors = self.presence.borrow().remote_cursors();
+        self.editor.borrow_mut().set_remote_cursors(cursors);
+        // The borrows above have ended, so the view can read the editor when it re-renders.
+        self.version.set(self.version.get() + 1);
+        Ok(())
+    }
+
+    /// The frames to send to the relay, one per line: this editor's caret, if it has moved since
+    /// the last frame sent. The frames are compact JSON, so a newline cannot be inside one.
+    pub fn pending_sync(&self) -> String {
+        let caret = self.editor.borrow().caret();
+        match self.presence.borrow_mut().outbound_for(caret) {
+            Some(message) => serde_json::to_string(&message).unwrap_or_default(),
+            None => String::new(),
+        }
+    }
+
+    /// Asks the next frames to announce this editor's caret again. A page calls this when it
+    /// joins a document, because the relay does not replay presence.
+    pub fn announce_again(&self) {
+        self.presence.borrow_mut().announce_again();
+    }
+
+    /// The replica this editor is, as the relay sees it.
+    pub fn replica(&self) -> ReplicaId {
+        self.presence.borrow().id()
+    }
 }
 
-/// Mounts `doc` as an editor inside `container`, and returns the handle to send it messages.
+/// Mounts `doc` as an editor inside `container`, as replica 1, and returns the handle to send it
+/// messages.
 pub fn mount_controlled(container: &Element, doc: Document) -> Result<Controller, JsValue> {
+    mount_controlled_as(container, doc, 1)
+}
+
+/// Mounts `doc` as an editor inside `container`, as replica `replica`. Each page on a shared
+/// document needs its own replica number.
+pub fn mount_controlled_as(
+    container: &Element,
+    doc: Document,
+    replica: ReplicaId,
+) -> Result<Controller, JsValue> {
     let editor = Rc::new(RefCell::new(Editor::new(doc)));
+    let presence = Rc::new(RefCell::new(Presence::new(replica)));
     // Bumped after each message, so the view depends on it and re-runs.
     let version = Signal::new(0u64);
 
@@ -62,6 +109,9 @@ pub fn mount_controlled(container: &Element, doc: Document) -> Result<Controller
     let effect = render(container, view, Rc::clone(&dispatch))?;
     Ok(Controller {
         dispatch,
+        presence,
+        editor,
+        version,
         _effect: effect,
     })
 }
@@ -137,9 +187,14 @@ pub fn sample_document() -> Document {
     doc
 }
 
-/// Mounts the sample document in the element with id `container_id`. Called from the demo page.
-
+/// Mounts the sample document in the element with id `container_id`, as replica 1. Called from
+/// the demo page.
 pub fn mount_sample(container_id: &str) -> Result<Controller, JsValue> {
+    mount_sample_as(container_id, 1)
+}
+
+/// Mounts the sample document in the element with id `container_id`, as replica `replica`.
+pub fn mount_sample_as(container_id: &str, replica: ReplicaId) -> Result<Controller, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
     let document = window
         .document()
@@ -147,5 +202,5 @@ pub fn mount_sample(container_id: &str) -> Result<Controller, JsValue> {
     let container = document
         .get_element_by_id(container_id)
         .ok_or_else(|| JsValue::from_str("no container element"))?;
-    mount_controlled(&container, sample_document())
+    mount_controlled_as(&container, sample_document(), replica)
 }

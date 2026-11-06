@@ -1604,7 +1604,7 @@ impl Editor {
     /// change, which the editor applies to the draft it holds. The handlers capture only the
     /// block id, because the renderer keeps the handlers of a control it reuses.
     fn view_query_form(&self, c: &mut ContainerBuilder<Msg>, id: BlockId) {
-        use crate::query_form::{DraftChange, FIELDS, SOURCES};
+        use crate::query_form::{DraftChange, FIELDS, SOURCES, TESTS};
         let draft = self.query_drafts.get(&id).cloned().unwrap_or_default();
         let change = move |make: fn(String) -> DraftChange| {
             move |value: String| Msg::SetQueryDraft {
@@ -1624,13 +1624,7 @@ impl Editor {
             .aria("label", "query field")
             .on_input(change(DraftChange::Field))
             .class("query-form-control");
-        let operators = [("equals", "equals"), ("not-equals", "not equals")];
-        let operator = if draft.not_equal {
-            "not-equals"
-        } else {
-            "equals"
-        };
-        c.select(operators, operator)
+        c.select(TESTS.iter().copied(), draft.test.id())
             .aria("label", "query test")
             .on_input(change(DraftChange::Test))
             .class("query-form-control");

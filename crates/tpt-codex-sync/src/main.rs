@@ -1,25 +1,38 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The relay server. Usage: `tpt-codex-relay [address]`, default `127.0.0.1:8787`.
+//! The relay server. Usage: `tpt-codex-relay --help`.
 
 use std::net::TcpListener;
 use std::process::ExitCode;
 
+use tpt_codex_sync::{USAGE, parse_args, serve_with};
+
 fn main() -> ExitCode {
-    let addr = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8787".to_string());
-    let listener = match TcpListener::bind(&addr) {
+    let config = match parse_args(std::env::args().skip(1)) {
+        Ok(config) => config,
+        Err(message) => {
+            if message == USAGE {
+                println!("{USAGE}");
+                return ExitCode::SUCCESS;
+            }
+            eprintln!("{message}");
+            return ExitCode::from(2);
+        }
+    };
+    let listener = match TcpListener::bind(&config.addr) {
         Ok(listener) => listener,
         Err(e) => {
-            eprintln!("cannot listen on {addr}: {e}");
+            eprintln!("cannot listen on {}: {e}", config.addr);
             return ExitCode::FAILURE;
         }
     };
     match listener.local_addr() {
-        Ok(local) => eprintln!("tpt-codex relay listening on {local} (ws://, no authentication)"),
+        Ok(local) => eprintln!(
+            "tpt-codex relay listening on {local} (ws://, no authentication; max message {} bytes, max {} operations per document)",
+            config.limits.max_message_bytes, config.limits.max_ops_per_doc
+        ),
         Err(e) => eprintln!("listening, address unknown: {e}"),
     }
-    match tpt_codex_sync::serve(listener) {
+    match serve_with(listener, config.limits) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("relay stopped: {e}");

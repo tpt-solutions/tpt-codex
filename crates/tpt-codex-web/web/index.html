@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>tpt-codex demo</title>
+    <!-- No icon: an empty one stops the browser asking the server for /favicon.ico. -->
+    <link rel="icon" href="data:," />
     <style>
       body { font-family: "Noto Sans", system-ui, sans-serif; margin: 16px; line-height: 1.5; }
       /* Marks inside a paragraph are containers; they flow inline with the text. */
@@ -27,9 +29,12 @@
     <main id="app"></main>
     <script type="module">
       // The pkg folder is produced by wasm-bindgen from tpt_codex_web.wasm.
-      import init, { mount_sample } from "./pkg/tpt_codex_web.js";
+      import init, { mount_sample_as } from "./pkg/tpt_codex_web.js";
       await init();
-      const editor = mount_sample("app");
+      // ?relay=ws://host:port&doc=name&replica=N joins a relay so other pages' carets are drawn.
+      const params = new URLSearchParams(location.search);
+      const editor = mount_sample_as("app", Number(params.get("replica") ?? "1"));
+      connectRelay(editor, params);
       // The button tells the editor (so the stage is drawn as full screen) and asks the browser.
       document.getElementById("fullscreen").addEventListener("click", () => {
         editor.set_fullscreen(true);
@@ -40,6 +45,42 @@
       document.addEventListener("fullscreenchange", () => {
         if (!document.fullscreenElement) editor.set_fullscreen(false);
       });
+
+      // Joins the relay for presence only: the page passes received frames to the editor, and
+      // sends back the frames the editor produces when its caret moves. Operations are not sent.
+      function connectRelay(editor, params) {
+        const relay = params.get("relay");
+        if (!relay) return;
+        const docId = params.get("doc") ?? "demo";
+        const socket = new WebSocket(relay);
+        let joined = false;
+        socket.addEventListener("open", () => {
+          socket.send(JSON.stringify({ join: docId }));
+        });
+        socket.addEventListener("message", (event) => {
+          const text = String(event.data);
+          if (!joined) {
+            // The relay answers the join with this frame; then it replays the log.
+            if (text === '{"joined":true}') {
+              joined = true;
+              // The relay keeps no presence, so tell the peers already here where this caret is.
+              editor.announce_again();
+            }
+            return;
+          }
+          try {
+            editor.receive_sync(text);
+          } catch (e) {
+            // Not a message this page understands; ignored.
+          }
+        });
+        setInterval(() => {
+          if (!joined || socket.readyState !== WebSocket.OPEN) return;
+          for (const line of editor.pending_sync().split("\n")) {
+            if (line) socket.send(line);
+          }
+        }, 50);
+      }
     </script>
   </body>
 </html>

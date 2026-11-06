@@ -26,3 +26,14 @@ set CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe   # option
 set WEB_DIR=..\..\..\target\web                                          # the folder built above
 npm test
 ```
+
+`browser/presence-test.mjs` (`npm run test:presence`) opens two demo pages joined to a local relay
+and checks that one page's caret is drawn on the other. It needs the relay binary:
+
+```sh
+cargo build -p tpt-codex-sync --bin tpt-codex-relay
+```
+
+It serves the pages from `localhost` on port 8799 and starts the relay on 127.0.0.1:18787. Chrome
+blocks a page from reaching a local relay unless the page is served from a local origin too, so the
+test does not use a made-up host name.

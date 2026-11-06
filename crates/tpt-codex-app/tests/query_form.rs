@@ -134,6 +134,62 @@ fn a_field_outside_the_form_is_reported_by_the_editor() {
     assert_eq!(source(&editor), before);
 }
 
+/// Sends the test and value controls for block 1.
+fn fill_test(editor: &mut Editor, test: &str, value: &str) {
+    for change in [
+        DraftChange::Field("kind".into()),
+        DraftChange::Test(test.into()),
+        DraftChange::Value(value.into()),
+    ] {
+        editor.update(Msg::SetQueryDraft {
+            block: BlockId(1),
+            change,
+        });
+    }
+}
+
+#[test]
+fn one_of_stores_an_in_condition_from_the_comma_separated_values() {
+    let mut editor = Editor::new(document());
+    fill_test(&mut editor, "one-of", "paragraph, heading");
+    editor.update(Msg::ApplyQueryDraft { block: BlockId(1) });
+    assert_eq!(editor.status(), None);
+
+    let expected = QuerySpec::new(entity_type::PARAGRAPH).with(Condition::OneOf {
+        field: "kind".into(),
+        values: vec!["paragraph".into(), "heading".into()],
+    });
+    assert_eq!(source(&editor), build_source(&expected));
+}
+
+#[test]
+fn one_of_with_no_values_is_reported_and_the_query_is_unchanged() {
+    let mut editor = Editor::new(document());
+    let before = source(&editor);
+    fill_test(&mut editor, "one-of", " , ");
+    editor.update(Msg::ApplyQueryDraft { block: BlockId(1) });
+    assert!(editor.status().unwrap().contains("at least one value"));
+    assert_eq!(source(&editor), before);
+}
+
+#[test]
+fn one_of_shows_the_matching_rows_in_the_view() {
+    let mut editor = Editor::new(document());
+    fill_test(&mut editor, "one-of", "paragraph, heading");
+    editor.update(Msg::ApplyQueryDraft { block: BlockId(1) });
+    // Result rows carry the `query-row` class; the document's own paragraph does not.
+    assert!(
+        render(&editor.view()).contains("query-row"),
+        "a paragraph is in the list"
+    );
+
+    fill_test(&mut editor, "one-of", "heading, code");
+    editor.update(Msg::ApplyQueryDraft { block: BlockId(1) });
+    let page = render(&editor.view());
+    assert!(!page.contains("query-row"), "no paragraph is in the list");
+    assert!(page.contains("no matching blocks"), "{page}");
+}
+
 #[test]
 fn a_cached_view_after_a_draft_change_matches_a_full_render() {
     let mut editor = Editor::new(document());
