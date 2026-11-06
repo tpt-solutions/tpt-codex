@@ -62,7 +62,7 @@ pub fn layout_note(
     width: f64,
 ) -> Note {
     let line_height = measure.line_height(style);
-    let items: Vec<FlowItem> = wrap(content, style, measure, width)
+    let items: Vec<FlowItem> = wrap(content, style, measure, width, false)
         .into_iter()
         .enumerate()
         .map(|(i, text)| FlowItem {

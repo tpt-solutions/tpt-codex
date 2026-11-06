@@ -106,6 +106,8 @@ impl core::error::Error for LayoutError {}
 #[derive(Debug, Clone, Default)]
 pub struct FlowCache {
     blocks: BTreeMap<BlockId, CachedBlock>,
+    /// Whether lines are broken at hyphenation points. Set by the layout that uses the cache.
+    hyphenate: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +115,7 @@ struct CachedBlock {
     content: String,
     style: TextStyle,
     width: f64,
+    hyphenate: bool,
     lines: Vec<String>,
     line_height: f64,
 }
@@ -143,7 +146,22 @@ pub fn layout_flow(
     layout_flow_cached(doc, measure, options, &mut FlowCache::new())
 }
 
-/// Lays out `doc` as a single flow column, reusing `cache` for blocks that have not changed.
+/// Lays out `doc` as a single flow column, breaking long words at hyphenation points (see the
+/// `hyphenate` module). The result is the same as [`layout_flow`] except where a word is broken.
+pub fn layout_flow_hyphenated(
+    doc: &Document,
+    measure: &dyn TextMeasure,
+    options: FlowOptions,
+) -> Result<FlowLayout, LayoutError> {
+    let mut cache = FlowCache {
+        hyphenate: true,
+        ..FlowCache::default()
+    };
+    layout_flow_cached(doc, measure, options, &mut cache)
+}
+
+/// Lays out `doc` as a single flow column, reusing `cache` for blocks that have not changed. The
+/// cache's hyphenation setting applies, and is `false` in a new cache.
 /// The result is the same as [`layout_flow`]. Cache entries for blocks that no longer exist are
 /// dropped.
 pub fn layout_flow_cached(
@@ -217,12 +235,17 @@ fn wrapped_text(
     width: f64,
     cache: &mut FlowCache,
 ) -> (Vec<String>, f64) {
+    let hyphenate = cache.hyphenate;
     if let Some(hit) = cache.blocks.get(&id) {
-        if hit.content == content && hit.style == *style && hit.width == width {
+        if hit.content == content
+            && hit.style == *style
+            && hit.width == width
+            && hit.hyphenate == hyphenate
+        {
             return (hit.lines.clone(), hit.line_height);
         }
     }
-    let lines = wrap(content, style, measure, width);
+    let lines = wrap(content, style, measure, width, hyphenate);
     let line_height = measure.line_height(style);
     cache.blocks.insert(
         id,
@@ -230,6 +253,7 @@ fn wrapped_text(
             content: String::from(content),
             style: style.clone(),
             width,
+            hyphenate,
             lines: lines.clone(),
             line_height,
         },
@@ -398,43 +422,84 @@ pub(crate) fn wrap(
     style: &TextStyle,
     measure: &dyn TextMeasure,
     width: f64,
+    hyphenate: bool,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     for hard in content.split('\n') {
         let mut current = String::new();
         for word in hard.split_whitespace() {
-            let candidate = if current.is_empty() {
-                String::from(word)
-            } else {
-                let mut c = current.clone();
-                c.push(' ');
-                c.push_str(word);
-                c
-            };
-            if measure.width(&candidate, style) <= width {
-                current = candidate;
-                continue;
-            }
-            if !current.is_empty() {
-                lines.push(core::mem::take(&mut current));
-            }
-            if measure.width(word, style) <= width {
-                current = String::from(word);
-                continue;
-            }
-            // The word alone is too wide: split it by characters.
-            let mut chunk = String::new();
-            for ch in word.chars() {
-                chunk.push(ch);
-                if chunk.chars().count() > 1 && measure.width(&chunk, style) > width {
-                    chunk.pop();
-                    lines.push(core::mem::take(&mut chunk));
-                    chunk.push(ch);
+            let mut rest = word;
+            loop {
+                let candidate = if current.is_empty() {
+                    String::from(rest)
+                } else {
+                    let mut c = current.clone();
+                    c.push(' ');
+                    c.push_str(rest);
+                    c
+                };
+                if measure.width(&candidate, style) <= width {
+                    current = candidate;
+                    break;
                 }
+                if hyphenate && !current.is_empty() {
+                    // Put the head of the word on this line, with a hyphen, and go on with the tail.
+                    if let Some(cut) = fitting_cut(&current, rest, style, measure, width) {
+                        lines.push(alloc::format!("{current} {}-", &rest[..cut]));
+                        current.clear();
+                        rest = &rest[cut..];
+                        continue;
+                    }
+                }
+                if !current.is_empty() {
+                    lines.push(core::mem::take(&mut current));
+                    continue;
+                }
+                if hyphenate {
+                    if let Some(cut) = fitting_cut("", rest, style, measure, width) {
+                        lines.push(alloc::format!("{}-", &rest[..cut]));
+                        rest = &rest[cut..];
+                        continue;
+                    }
+                }
+                // The word alone is too wide: split it by characters.
+                let mut chunk = String::new();
+                for ch in rest.chars() {
+                    chunk.push(ch);
+                    if chunk.chars().count() > 1 && measure.width(&chunk, style) > width {
+                        chunk.pop();
+                        lines.push(core::mem::take(&mut chunk));
+                        chunk.push(ch);
+                    }
+                }
+                current = chunk;
+                break;
             }
-            current = chunk;
         }
         lines.push(current);
     }
     lines
+}
+
+/// The longest hyphenation point of `word` at which `head`, a space, the start of the word and a
+/// hyphen fit in `width`. `head` is empty when the word starts its line.
+fn fitting_cut(
+    head: &str,
+    word: &str,
+    style: &TextStyle,
+    measure: &dyn TextMeasure,
+    width: f64,
+) -> Option<usize> {
+    crate::hyphenate::break_points(word)
+        .into_iter()
+        .rev()
+        .find(|&cut| {
+            let prefix = &word[..cut];
+            let text = if head.is_empty() {
+                alloc::format!("{prefix}-")
+            } else {
+                alloc::format!("{head} {prefix}-")
+            };
+            measure.width(&text, style) <= width
+        })
 }

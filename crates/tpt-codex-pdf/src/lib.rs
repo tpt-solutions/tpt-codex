@@ -25,8 +25,8 @@ use tpt_codex_grid::{CellResult, evaluate_sheet};
 use tpt_codex_text::{FontMeasure, GlyphLine, GlyphRun, TextError};
 use tpt_codex_views::{
     CanvasError, FlowItem, FlowKind, FlowOptions, LayoutError, PageChrome, PageError, PageGeometry,
-    PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow, paginate_with_notes,
-    render_chrome,
+    PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow_hyphenated,
+    paginate_with_notes, render_chrome,
 };
 use tpt_text::PathSegment;
 use tpt_text::fx::Fx;
@@ -414,7 +414,7 @@ pub fn export_document_with_chrome(
     chrome: &PageChrome,
 ) -> Result<Vec<u8>, ExportError> {
     let column = paper.width - margins.left - margins.right;
-    let flow = layout_flow(
+    let flow = layout_flow_hyphenated(
         doc,
         measure,
         FlowOptions {

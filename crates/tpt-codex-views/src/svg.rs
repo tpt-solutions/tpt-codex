@@ -36,7 +36,7 @@ pub fn render_slide_svg(
         match doc.get(item.block) {
             Some(Block::Text { content, style }) => {
                 let step = measure.line_height(style);
-                let lines = wrap(content, style, measure, frame.width);
+                let lines = wrap(content, style, measure, frame.width, false);
                 for (n, line) in lines.iter().enumerate() {
                     let y = frame.y + step * (n as f64 + 1.0);
                     if y > frame.y + frame.height + step {

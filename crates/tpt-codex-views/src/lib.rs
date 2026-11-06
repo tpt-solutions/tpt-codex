@@ -20,6 +20,7 @@ extern crate alloc;
 mod canvas;
 mod chrome;
 mod flow;
+mod hyphenate;
 mod measure;
 mod paginate;
 mod svg;
@@ -28,7 +29,7 @@ pub use canvas::{CanvasError, CanvasItem, CanvasLayout, layout_canvas, slide_ids
 pub use chrome::{PageChrome, PaperSize, RenderedChrome, render_chrome, render_template};
 pub use flow::{
     FlowCache, FlowItem, FlowKind, FlowLayout, FlowOptions, LIST_INDENT, LayoutError,
-    grid_rows_shown, layout_flow, layout_flow_cached,
+    grid_rows_shown, layout_flow, layout_flow_cached, layout_flow_hyphenated,
 };
 pub use measure::{MonospaceMeasure, TextMeasure};
 pub use paginate::{
