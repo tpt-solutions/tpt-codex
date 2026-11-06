@@ -7,8 +7,16 @@ use serde::{Deserialize, Serialize};
 use crate::block::Block;
 use crate::error::ValidationError;
 use crate::id::{BlockId, SheetId};
-use crate::primitives::{Canvas, LayoutMode, Rect};
+use crate::primitives::{Canvas, Figure, LayoutMode, Rect};
 use crate::sheet::{CellInput, Sheet, is_formula_source, is_valid_address};
+
+/// Whether `label` can name a figure: non-empty, letters, digits, and `-_:.` only.
+pub fn is_figure_label(label: &str) -> bool {
+    !label.is_empty()
+        && label
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.'))
+}
 
 /// The schema version written by this build.
 ///
@@ -67,6 +75,10 @@ pub struct Document {
     /// when there are none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sections: BTreeMap<BlockId, String>,
+    /// Figure attributes of media blocks: a cross-reference label and a display width. Absent
+    /// from the JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub figures: BTreeMap<BlockId, Figure>,
 }
 
 impl Document {
@@ -84,6 +96,7 @@ impl Document {
             canvases: BTreeMap::new(),
             footnotes: BTreeMap::new(),
             sections: BTreeMap::new(),
+            figures: BTreeMap::new(),
         }
     }
 
@@ -187,6 +200,23 @@ impl Document {
             }
             if !frame.is_valid() {
                 return Err(ValidationError::InvalidFrame(block));
+            }
+        }
+        let mut figure_ids = alloc::collections::BTreeSet::new();
+        for (&block, figure) in &self.figures {
+            if !matches!(self.blocks.get(&block), Some(Block::Media { .. })) {
+                return Err(ValidationError::FigureOfNonMedia(block));
+            }
+            if let Some(id) = &figure.id {
+                if !is_figure_label(id) || !figure_ids.insert(id.as_str()) {
+                    return Err(ValidationError::InvalidFigure(block));
+                }
+            }
+            if figure
+                .width_percent
+                .is_some_and(|w| !(1..=100).contains(&w))
+            {
+                return Err(ValidationError::InvalidFigure(block));
             }
         }
         for (&block, canvas) in &self.canvases {

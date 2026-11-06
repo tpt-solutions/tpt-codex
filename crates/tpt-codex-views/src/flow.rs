@@ -156,9 +156,46 @@ pub fn layout_flow_cached(
         items: Vec::new(),
         height: 0.0,
     };
-    flow_children(doc, doc.root, measure, options, cache, &mut out)?;
+    let mut pending = 0.0;
+    flow_children(
+        doc,
+        doc.root,
+        measure,
+        options,
+        cache,
+        &mut out,
+        &mut pending,
+    )?;
+    // The last block's bottom margin is kept, as trailing space in the column.
+    out.height += pending;
     cache.blocks.retain(|id, _| doc.blocks.contains_key(id));
     Ok(out)
+}
+
+/// The margins above and below a text block, in points. A heading gets more space above it
+/// than body text, and the space shrinks with the level, so headings read as a hierarchy.
+fn text_margins(style: &TextStyle, block_spacing: f64) -> (f64, f64) {
+    match style.heading_level {
+        Some(level) => {
+            let above = if level <= 2 { 2.0 } else { 1.5 };
+            (block_spacing * above, block_spacing)
+        }
+        None => (0.0, block_spacing),
+    }
+}
+
+/// Starts a block at the current height, after the gap its top margin and the previous block's
+/// bottom margin make. Adjacent margins collapse: the gap is the larger of the two, not their
+/// sum. Nothing is gapped before the first item. Returns the block's top edge.
+fn start_block(out: &mut FlowLayout, pending: &mut f64, top: f64) -> f64 {
+    let gap = if out.items.is_empty() {
+        0.0
+    } else {
+        pending.max(top)
+    };
+    *pending = 0.0;
+    out.height += gap;
+    out.height
 }
 
 /// The wrapped lines and line height of text block `id`, from the cache when it is current.
@@ -190,6 +227,8 @@ fn wrapped_text(
     (lines, line_height)
 }
 
+/// Lays out the children of `container`. `pending` is the bottom margin of the last block placed,
+/// which the next block collapses with its top margin.
 fn flow_children(
     doc: &Document,
     container: BlockId,
@@ -197,6 +236,7 @@ fn flow_children(
     options: FlowOptions,
     cache: &mut FlowCache,
     out: &mut FlowLayout,
+    pending: &mut f64,
 ) -> Result<(), LayoutError> {
     let children = match doc.get(container) {
         Some(Block::Container { children, .. }) => children,
@@ -206,8 +246,10 @@ fn flow_children(
         let block = doc.get(id).ok_or(LayoutError::MissingBlock(id))?;
         match block {
             Block::Text { content, style } => {
+                let (top, bottom) = text_margins(style, options.block_spacing);
                 let (lines, height) =
                     wrapped_text(id, content, style, measure, options.width, cache);
+                start_block(out, pending, top);
                 for text in lines {
                     out.items.push(FlowItem {
                         block: id,
@@ -220,13 +262,13 @@ fn flow_children(
                     });
                     out.height += height;
                 }
-                out.height += options.block_spacing;
+                *pending = bottom;
             }
             Block::Container {
                 layout_mode: LayoutMode::Flow,
                 ..
             } => {
-                flow_children(doc, id, measure, options, cache, out)?;
+                flow_children(doc, id, measure, options, cache, out, pending)?;
             }
             Block::Grid {
                 sheet_id,
@@ -235,7 +277,9 @@ fn flow_children(
                 let sheet = &doc.sheets[sheet_id];
                 let (rows, _) = sheet.extent();
                 let header_rows = sheet.header_rows;
-                for row in grid_rows_shown(rows, header_rows, *view_bounds, options.row_height) {
+                let shown = grid_rows_shown(rows, header_rows, *view_bounds, options.row_height);
+                start_block(out, pending, 0.0);
+                for row in shown {
                     out.items.push(FlowItem {
                         block: id,
                         y: out.height,
@@ -248,16 +292,18 @@ fn flow_children(
                     });
                     out.height += options.row_height;
                 }
-                out.height += options.block_spacing;
+                *pending = options.block_spacing;
             }
             _ => {
+                let y = start_block(out, pending, 0.0);
                 out.items.push(FlowItem {
                     block: id,
-                    y: out.height,
+                    y,
                     height: options.box_height,
                     kind: FlowKind::Box,
                 });
-                out.height += options.box_height + options.block_spacing;
+                out.height += options.box_height;
+                *pending = options.block_spacing;
             }
         }
     }

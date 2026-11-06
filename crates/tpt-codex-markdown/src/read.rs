@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use tpt_codex_core::{Block, BlockId, Document, LayoutMode, Metadata, TextStyle};
+use tpt_codex_core::{
+    Block, BlockId, Canvas, CellInput, Document, Figure, LayoutMode, Metadata, Sheet, SheetId,
+    TextStyle, address_of,
+};
 
 use crate::error::ParseError;
 use crate::inline::parse_inline;
 use crate::syntax::{
-    ListMarker, MathOpen, fence_closes, fence_open, heading, image_line, list_item, math_closes,
-    math_open, thematic_break, unsupported,
+    ContainerOpen, ListMarker, MathOpen, canvas_size, container_closes, container_open,
+    fence_closes, fence_open, figure_attributes, heading, image_line, is_separator, list_item,
+    math_closes, math_open, table_row, thematic_break, unsupported,
 };
 
 /// Reads the supported Markdown subset into a [`Document`].
@@ -40,7 +45,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                         "put the math source between the two $$ lines",
                     ));
                 }
-                b.push_root(Block::Math { source });
+                b.push_block(Block::Math { source });
             } else {
                 // Math source is kept exactly, including leading spaces.
                 source_lines.push(String::from(*line));
@@ -51,7 +56,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
         if let Some(code) = open.code.as_mut() {
             if fence_closes(line, code.ch, code.len) {
                 if let Some(code) = open.code.take() {
-                    b.push_root(Block::Code {
+                    b.push_block(Block::Code {
                         language: code.language,
                         code: code.lines.join("\n"),
                     });
@@ -64,6 +69,128 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     .take_while(|&c| c == b' ')
                     .count();
                 code.lines.push(String::from(&line[n..]));
+            }
+            continue;
+        }
+
+        if open.grid.is_some() && container_closes(line) {
+            finish_grid(&mut open, &mut b)?;
+            continue;
+        }
+        if let Some(grid) = open.grid.as_mut() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match table_row(line) {
+                None => {
+                    return Err(error(
+                        lineno,
+                        "a grid can only hold table rows",
+                        "write each row as | cell | cell |, then close the grid with a line of :::",
+                    ));
+                }
+                Some(Err(reason)) => {
+                    return Err(error(lineno, reason, "write each row as | cell | cell |"));
+                }
+                Some(Ok(cells)) if is_separator(&cells) => {
+                    if grid.rows.is_empty() {
+                        return Err(error(
+                            lineno,
+                            "a grid's separator row must come after a row of cells",
+                            "put the header row first, then the | --- | separator",
+                        ));
+                    }
+                    if grid.header_rows.is_some() {
+                        return Err(error(
+                            lineno,
+                            "a grid can have only one separator row",
+                            "remove the extra | --- | row",
+                        ));
+                    }
+                    grid.header_rows = Some(grid.rows.len());
+                }
+                Some(Ok(cells)) => {
+                    if let Some((_, first)) = grid.rows.first() {
+                        if first.len() != cells.len() {
+                            return Err(error(
+                                lineno,
+                                &alloc::format!(
+                                    "row has {} cells, but the grid's first row has {}",
+                                    cells.len(),
+                                    first.len()
+                                ),
+                                "give every row the same number of cells",
+                            ));
+                        }
+                    }
+                    grid.rows.push((lineno, cells));
+                }
+            }
+            continue;
+        }
+
+        if container_closes(line) {
+            if b.canvas.is_none() {
+                return Err(error(
+                    lineno,
+                    "::: closes nothing",
+                    "remove it, or open a container with ::: grid { id=\"1\" } or ::: canvas { ratio=\"16:9\" }",
+                ));
+            }
+            open.close_paragraph(&mut b)?;
+            open.close_list(&mut b);
+            open.after_image = false;
+            finish_canvas(&mut b);
+            continue;
+        }
+
+        if let Some(opener) = container_open(line) {
+            let opener = opener.map_err(|reason| {
+                error(
+                    lineno,
+                    reason,
+                    "write the attributes as { key=\"value\" } after the container name",
+                )
+            })?;
+            open.close_paragraph(&mut b)?;
+            open.close_list(&mut b);
+            open.after_image = false;
+            match opener {
+                ContainerOpen::Grid { id } => {
+                    if b.sheets.contains_key(&SheetId(id)) {
+                        return Err(error(
+                            lineno,
+                            &alloc::format!("grid id {id} is used by more than one grid"),
+                            "give each grid its own id",
+                        ));
+                    }
+                    open.grid = Some(OpenGrid {
+                        id,
+                        line: lineno,
+                        rows: Vec::new(),
+                        header_rows: None,
+                    });
+                }
+                ContainerOpen::Canvas { ratio } => {
+                    if b.canvas.is_some() {
+                        return Err(error(
+                            lineno,
+                            "a canvas cannot be placed inside another canvas",
+                            "close the open canvas with ::: first",
+                        ));
+                    }
+                    b.canvas = Some(OpenCanvas {
+                        ratio,
+                        children: Vec::new(),
+                    });
+                }
+                ContainerOpen::Unknown(name) => {
+                    return Err(error(
+                        lineno,
+                        &alloc::format!("unknown container '{name}'"),
+                        "supported containers are grid and canvas",
+                    ));
+                }
             }
             continue;
         }
@@ -144,9 +271,11 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
             open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
             match opener {
-                MathOpen::Single(source) => b.push_root(Block::Math {
-                    source: String::from(source),
-                }),
+                MathOpen::Single(source) => {
+                    b.push_block(Block::Math {
+                        source: String::from(source),
+                    });
+                }
                 MathOpen::Block => open.math = Some(Vec::new()),
             }
             continue;
@@ -162,7 +291,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
             }
             open.close_paragraph(&mut b)?;
             open.close_list(&mut b);
-            b.push_root(Block::ThematicBreak);
+            b.push_block(Block::ThematicBreak);
             continue;
         }
 
@@ -186,7 +315,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     runs: Vec::new(),
                 },
             )?;
-            b.push_root(block);
+            b.push_block(block);
             continue;
         }
 
@@ -199,14 +328,24 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                 ));
             }
             open.close_list(&mut b);
-            let (alt, uri) = image
+            let (alt, uri, attributes) = image
                 .map_err(|reason| error(lineno, reason, "use ![alt text](path) with no title"))?;
-            b.push_root(Block::Media {
+            let figure = figure_attributes(attributes).map_err(|reason| {
+                error(
+                    lineno,
+                    reason,
+                    "write figure attributes as {#fig:id width=80%}",
+                )
+            })?;
+            let id = b.push_block(Block::Media {
                 source: tpt_codex_core::MediaSource::Uri {
                     uri: String::from(uri),
                 },
                 alt_text: (!alt.is_empty()).then(|| String::from(alt)),
             });
+            if !figure.is_empty() {
+                b.figures.insert(id, figure);
+            }
             open.after_image = true;
             continue;
         }
@@ -262,6 +401,20 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
             "close the block with a line containing only $$",
         ));
     }
+    if let Some(grid) = open.grid.as_ref() {
+        return Err(error(
+            grid.line,
+            "grid is not closed",
+            "close the grid with a line containing only :::",
+        ));
+    }
+    if b.canvas.is_some() {
+        return Err(error(
+            lines.len(),
+            "canvas is not closed",
+            "close the slide with a line containing only :::",
+        ));
+    }
     open.close_paragraph(&mut b)?;
     open.close_list(&mut b);
 
@@ -280,6 +433,11 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
     for (id, label) in labels {
         doc.footnotes.insert(id, label);
     }
+    for (id, sheet) in b.sheets {
+        doc.insert_sheet(id, sheet);
+    }
+    doc.canvases = b.canvases;
+    doc.figures = b.figures;
     Ok(doc)
 }
 
@@ -290,6 +448,63 @@ fn error(line: usize, message: &str, suggestion: &'static str) -> ParseError {
         message: String::from(message),
         suggestion: Some(suggestion),
     }
+}
+
+/// Builds the grid whose body was read. The grid holds one sheet with the cells that are not
+/// empty; the grid's size is its rows and columns.
+fn finish_grid(open: &mut Open, b: &mut Builder) -> Result<(), ParseError> {
+    let Some(grid) = open.grid.take() else {
+        return Ok(());
+    };
+    if grid.rows.is_empty() {
+        return Err(error(
+            grid.line,
+            "grid has no rows",
+            "add rows of cells between the grid line and the closing :::",
+        ));
+    }
+    let cols = grid.rows[0].1.len();
+    let mut sheet = Sheet::with_size(grid.rows.len() as u32, cols as u32);
+    sheet.header_rows = grid.header_rows.unwrap_or(0) as u32;
+    for (r, (line, cells)) in grid.rows.iter().enumerate() {
+        for (c, text) in cells.iter().enumerate() {
+            match CellInput::parse(text) {
+                Ok(Some(input)) => {
+                    sheet
+                        .cells
+                        .insert(address_of(c as u32 + 1, r as u32 + 1), input);
+                }
+                Ok(None) => {}
+                Err(reason) => {
+                    return Err(error(
+                        *line,
+                        &reason,
+                        "write a formula as =expression, or put text or a number in the cell",
+                    ));
+                }
+            }
+        }
+    }
+    let sheet_id = SheetId(grid.id);
+    b.sheets.insert(sheet_id, sheet);
+    b.push_block(Block::Grid {
+        sheet_id,
+        view_bounds: None,
+    });
+    Ok(())
+}
+
+/// Closes the open slide: its children become an absolute container at the root.
+fn finish_canvas(b: &mut Builder) {
+    let Some(canvas) = b.canvas.take() else {
+        return;
+    };
+    let id = b.alloc(Block::Container {
+        layout_mode: LayoutMode::Absolute,
+        children: canvas.children,
+    });
+    b.root.push(id);
+    b.canvases.insert(id, canvas_size(canvas.ratio));
 }
 
 /// A text block read from the source line `line`. Inline marks are read here.
@@ -333,6 +548,14 @@ struct Builder {
     root: Vec<BlockId>,
     /// Footnote definitions: the block that holds each text, and its label.
     labels: Vec<(BlockId, String)>,
+    /// The slide being read. Blocks read while it is open are its children.
+    canvas: Option<OpenCanvas>,
+    /// Sheets of the grids read so far, keyed by the id each grid names.
+    sheets: BTreeMap<SheetId, Sheet>,
+    /// Sizes of the slides read so far.
+    canvases: BTreeMap<BlockId, Canvas>,
+    /// Figure attributes of the images read so far.
+    figures: BTreeMap<BlockId, Figure>,
 }
 
 impl Builder {
@@ -341,10 +564,25 @@ impl Builder {
         BlockId(self.blocks.len() as u64)
     }
 
-    fn push_root(&mut self, block: Block) {
+    /// Adds a block to the open slide, or to the root when no slide is open.
+    fn push_block(&mut self, block: Block) -> BlockId {
         let id = self.alloc(block);
-        self.root.push(id);
+        self.place(id);
+        id
     }
+
+    fn place(&mut self, id: BlockId) {
+        match self.canvas.as_mut() {
+            Some(canvas) => canvas.children.push(id),
+            None => self.root.push(id),
+        }
+    }
+}
+
+/// A slide whose closing `:::` line has not been read yet.
+struct OpenCanvas {
+    ratio: (u32, u32),
+    children: Vec<BlockId>,
 }
 
 /// The block that is still open while reading lines.
@@ -359,6 +597,8 @@ struct Open {
     code: Option<OpenCode>,
     /// Source lines of a multi-line math block that is still open.
     math: Option<Vec<String>>,
+    /// A grid whose closing `:::` line has not been read yet.
+    grid: Option<OpenGrid>,
     /// The previous line was an image. Text on the next line would join it in CommonMark.
     after_image: bool,
 }
@@ -368,6 +608,13 @@ impl Open {
         if let Some(content) = self.para.take() {
             match footnote_definition(&content) {
                 Some((label, text)) => {
+                    if b.canvas.is_some() {
+                        return Err(error(
+                            self.para_line,
+                            "footnotes cannot be placed inside a slide yet",
+                            "move the footnote definition outside the ::: canvas block",
+                        ));
+                    }
                     let block = text_block(&text, self.para_line)?;
                     let id = b.alloc(block);
                     b.root.push(id);
@@ -375,7 +622,7 @@ impl Open {
                 }
                 None => {
                     let block = text_block(&content, self.para_line)?;
-                    b.push_root(block);
+                    b.push_block(block);
                 }
             }
         }
@@ -384,7 +631,7 @@ impl Open {
 
     fn close_list(&mut self, b: &mut Builder) {
         if let Some(list) = self.list.take() {
-            b.push_root(Block::List {
+            b.push_block(Block::List {
                 ordered: list.key.0,
                 start: list.start,
                 items: list.items,
@@ -409,6 +656,17 @@ impl OpenList {
             items: alloc::vec![first],
         })
     }
+}
+
+/// A grid whose body is still being read: its pipe-table rows, and where its separator is.
+struct OpenGrid {
+    id: u64,
+    /// The line of the opening `:::` line.
+    line: usize,
+    /// Each row's line and trimmed cells.
+    rows: Vec<(usize, Vec<String>)>,
+    /// How many rows come before the `| --- |` separator, if there is one.
+    header_rows: Option<usize>,
 }
 
 /// A fenced code block whose closing fence has not been read yet.

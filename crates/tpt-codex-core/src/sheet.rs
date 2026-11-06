@@ -34,6 +34,50 @@ pub enum CellInput {
     },
 }
 
+impl CellInput {
+    /// Turns the text of a cell into an input, as a user types it.
+    ///
+    /// Empty text is `Ok(None)`, which clears the cell. A leading `=` is a formula, a finite
+    /// number is a number, `TRUE` or `FALSE` is a boolean, and anything else is text.
+    /// A lone `=` is an error.
+    pub fn parse(text: &str) -> Result<Option<CellInput>, String> {
+        if text.is_empty() {
+            return Ok(None);
+        }
+        if text.starts_with('=') {
+            if text.len() == 1 {
+                return Err(String::from("a formula needs something after '='"));
+            }
+            return Ok(Some(CellInput::Formula {
+                source: String::from(text),
+            }));
+        }
+        if let Ok(value) = text.parse::<f64>() {
+            if value.is_finite() {
+                return Ok(Some(CellInput::Number { value }));
+            }
+        }
+        Ok(Some(match text {
+            "TRUE" => CellInput::Boolean { value: true },
+            "FALSE" => CellInput::Boolean { value: false },
+            _ => CellInput::Text {
+                value: String::from(text),
+            },
+        }))
+    }
+
+    /// The text that [`CellInput::parse`] reads back as this input, for a value that
+    /// round-trips. Numbers use the shortest form that reads back exactly.
+    pub fn to_text(&self) -> String {
+        match self {
+            CellInput::Number { value } => alloc::format!("{value}"),
+            CellInput::Text { value } => value.clone(),
+            CellInput::Boolean { value } => String::from(if *value { "TRUE" } else { "FALSE" }),
+            CellInput::Formula { source } => source.clone(),
+        }
+    }
+}
+
 /// The cells of one live grid, keyed by A1 address (for example `B4`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Sheet {

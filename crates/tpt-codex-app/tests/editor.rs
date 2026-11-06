@@ -1039,3 +1039,169 @@ fn a_grid_window_shows_the_same_rows_as_the_flow() {
     assert!(!html.contains(">500<"), "{html}");
     assert!(html.contains(">100<"), "{html}");
 }
+
+fn pointer_handler(view: &UITree<Msg>, class: &str) -> Vec<Msg> {
+    let mut nodes = Vec::new();
+    all_nodes(view, &mut nodes);
+    nodes
+        .iter()
+        .filter(|n| n.meta.class.as_deref() == Some(class))
+        .filter_map(|n| n.meta.on_pointer_down.as_ref())
+        .filter_map(|f| f(tpt_appfront_core::PointerEvent::default()))
+        .collect()
+}
+
+fn keydown_on(view: &UITree<Msg>, class: &str, name: &str) -> Option<Msg> {
+    press(view, class, key_with(name, false, false))
+}
+
+/// Sends `key` to the node with `class` that has a keydown handler. `None` if there is none, or
+/// the handler ignores the key.
+fn press(view: &UITree<Msg>, class: &str, key: KeyEvent) -> Option<Msg> {
+    let mut nodes = Vec::new();
+    all_nodes(view, &mut nodes);
+    let node = nodes
+        .iter()
+        .find(|n| n.meta.class.as_deref() == Some(class) && n.meta.on_keydown.is_some())?;
+    (node.meta.on_keydown.as_ref()?)(key)
+}
+
+fn key_with(name: &str, shift: bool, alt: bool) -> KeyEvent {
+    KeyEvent {
+        key: name.into(),
+        shift,
+        alt,
+        ..KeyEvent::default()
+    }
+}
+
+#[test]
+fn a_slide_child_is_selected_by_pointer_and_nudged_by_keys() {
+    let mut e = slide_with_placed_title();
+    let before = e.document().frames[&BlockId(1)];
+
+    // Pressing on the placed child selects it, and the slide draws the selection.
+    let selects = pointer_handler(&e.view(), "slide-child");
+    assert_eq!(selects, vec![Msg::SelectBlock(Some(BlockId(1)))]);
+    e.update(selects[0].clone());
+    assert_eq!(e.selected_block(), Some(BlockId(1)));
+    assert!(render(&e.view()).contains("slide-child selected"));
+
+    // Arrow keys move it one point; Shift takes ten.
+    let right = keydown_on(&e.view(), "slide", "ArrowRight").expect("arrow moves");
+    assert_eq!(
+        right,
+        Msg::MoveBlock {
+            block: BlockId(1),
+            dx: 1.0,
+            dy: 0.0
+        }
+    );
+    e.update(right);
+    let moved = e.document().frames[&BlockId(1)];
+    assert_eq!(moved.x, before.x + 1.0);
+    let far = keydown_on(&e.view(), "slide", "ArrowDown");
+    assert_eq!(
+        far,
+        Some(Msg::MoveBlock {
+            block: BlockId(1),
+            dx: 0.0,
+            dy: 1.0
+        })
+    );
+
+    // Alt resizes; Shift with Alt takes ten points.
+    let grow = press(&e.view(), "slide", key_with("ArrowRight", true, true));
+    assert_eq!(
+        grow,
+        Some(Msg::ResizeBlock {
+            block: BlockId(1),
+            width: 110.0,
+            height: 50.0
+        })
+    );
+    e.update(grow.unwrap());
+    assert_eq!(e.document().frames[&BlockId(1)].width, 110.0);
+
+    // Undo steps back through the nudges, one at a time.
+    e.update(Msg::Undo);
+    assert_eq!(e.document().frames[&BlockId(1)].width, 100.0);
+    e.update(Msg::Undo);
+    assert_eq!(e.document().frames[&BlockId(1)], before);
+}
+
+#[test]
+fn escape_clears_the_selection_and_other_keys_are_left_alone() {
+    let mut e = slide_with_placed_title();
+    e.update(Msg::SelectBlock(Some(BlockId(1))));
+    assert_eq!(
+        keydown_on(&e.view(), "slide", "Escape"),
+        Some(Msg::SelectBlock(None))
+    );
+    assert_eq!(keydown_on(&e.view(), "slide", "a"), None);
+    e.update(Msg::SelectBlock(None));
+    assert!(!render(&e.view()).contains("selected"));
+}
+
+#[test]
+fn only_a_block_on_a_slide_can_be_selected() {
+    let mut e = Editor::new(doc());
+    e.update(Msg::SelectBlock(Some(BlockId(1))));
+    assert!(e.status().is_some());
+    assert_eq!(e.selected_block(), None);
+}
+
+#[test]
+fn presenting_is_read_only_and_its_keys_change_slides() {
+    let mut e = slide_with_placed_title();
+    e.update(Msg::InsertSlide);
+    e.update(Msg::SelectBlock(Some(BlockId(1))));
+    e.update(Msg::StartPresenting { index: 0 });
+
+    // Nothing on the presented slide can be selected or pressed.
+    assert!(pointer_handler(&e.view(), "slide-child").is_empty());
+    assert_eq!(keydown_on(&e.view(), "slide", "ArrowRight"), None);
+    assert!(!render(&e.view()).contains("selected"));
+
+    // The stage's keys move between slides and stop presenting.
+    assert_eq!(
+        keydown_on(&e.view(), "presenter", "ArrowRight"),
+        Some(Msg::NextSlide)
+    );
+    assert_eq!(
+        keydown_on(&e.view(), "presenter", "PageDown"),
+        Some(Msg::NextSlide)
+    );
+    assert_eq!(
+        keydown_on(&e.view(), "presenter", " "),
+        Some(Msg::NextSlide)
+    );
+    assert_eq!(
+        keydown_on(&e.view(), "presenter", "ArrowLeft"),
+        Some(Msg::PreviousSlide)
+    );
+    assert_eq!(
+        keydown_on(&e.view(), "presenter", "PageUp"),
+        Some(Msg::PreviousSlide)
+    );
+    assert_eq!(
+        keydown_on(&e.view(), "presenter", "Escape"),
+        Some(Msg::StopPresenting)
+    );
+    assert_eq!(keydown_on(&e.view(), "presenter", "a"), None);
+    // The stage is focusable, so the browser sends it the keys. The HTML renderer leaves custom
+    // attributes out, so this is checked on the node itself.
+    let view = e.view();
+    let mut nodes = Vec::new();
+    all_nodes(&view, &mut nodes);
+    let stage = nodes
+        .iter()
+        .find(|n| n.meta.class.as_deref() == Some("presenter"))
+        .expect("the stage");
+    assert!(
+        stage
+            .meta
+            .attrs
+            .contains(&("tabindex".to_string(), "0".to_string()))
+    );
+}

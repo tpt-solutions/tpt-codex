@@ -29,6 +29,10 @@ pub enum ValidationError {
         /// The text block.
         block: BlockId,
     },
+    /// Figure attributes are recorded for a block that is not an image.
+    FigureOfNonMedia(BlockId),
+    /// A figure's label is empty, repeated or malformed, or its width is outside 1 to 100.
+    InvalidFigure(BlockId),
     /// A section is recorded for a block that is not a slide.
     SectionOfNonSlide(BlockId),
     /// A slide's section has an empty name.
@@ -89,6 +93,14 @@ impl fmt::Display for ValidationError {
                 "text block {} has an inline run outside its text or with no characters",
                 block.0
             ),
+            Self::FigureOfNonMedia(id) => {
+                write!(
+                    f,
+                    "block {} has figure attributes but is not an image",
+                    id.0
+                )
+            }
+            Self::InvalidFigure(id) => write!(f, "block {} has invalid figure attributes", id.0),
             Self::SectionOfNonSlide(id) => {
                 write!(f, "block {} has a section but is not a slide", id.0)
             }

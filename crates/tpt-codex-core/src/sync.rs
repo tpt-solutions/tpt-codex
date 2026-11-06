@@ -8,10 +8,12 @@
 //! ignore duplicates, and hold an operation until its dependencies have arrived.
 //!
 //! [`Transport`] is the boundary to the network. This crate does not choose a server or a
-//! protocol. Presence (cursors) is not replicated as document state: it is sent with
-//! [`Message::Presence`], is not queued, and only the newest update from each replica counts.
+//! protocol. A [`Session`] puts a replica on a transport: it acknowledges operations, resends the
+//! outbox on [`Session::reconnect`], and keeps only the newest cursor update while offline.
+//! Presence (cursors) is not replicated as document state: it is sent with
+//! [`Message::Presence`], and only the newest update from each replica counts.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -99,6 +101,17 @@ pub struct PresenceUpdate {
     pub cursor: Option<Cursor>,
 }
 
+/// Tells replica `to` that replica `from` has applied its operations up to and including `seq`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ack {
+    /// The replica whose operations were applied.
+    pub to: ReplicaId,
+    /// The replica that applied them.
+    pub from: ReplicaId,
+    /// The highest sequence number applied in order.
+    pub seq: u64,
+}
+
 /// What travels between replicas.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Message {
@@ -106,6 +119,9 @@ pub enum Message {
     Op(Envelope),
     /// A presence update. It is not retried.
     Presence(PresenceUpdate),
+    /// An acknowledgement of applied operations. It is not retried: the receiver of an operation
+    /// acknowledges it again each time it arrives.
+    Ack(Ack),
 }
 
 /// The boundary to the network. An implementation decides how bytes move.
@@ -118,6 +134,11 @@ pub trait Transport {
 
     /// The next message from the peer, if one has arrived.
     fn receive(&mut self) -> Option<Message>;
+
+    /// Whether the connection is still up. A transport that cannot tell says `true`.
+    fn is_connected(&self) -> bool {
+        true
+    }
 }
 
 /// Why a local edit was refused.
@@ -156,10 +177,15 @@ pub struct Replica {
     tree: TreeCrdt<Block>,
     texts: BTreeMap<NodeId, TextCrdt>,
     next_seq: u64,
-    /// Local operations the peer has not acknowledged, in sequence order.
+    /// Local operations that some peer has not acknowledged, in sequence order.
     unacked: Vec<Envelope>,
     /// Highest sequence number applied from each sender, in order.
     applied: BTreeMap<ReplicaId, u64>,
+    /// Every other replica heard from so far. An operation is dropped from the outbox only when
+    /// all of them have acknowledged it.
+    peers: BTreeSet<ReplicaId>,
+    /// Highest sequence number each peer has acknowledged from this replica.
+    peer_acks: BTreeMap<ReplicaId, u64>,
     /// Received operations that are not applied yet.
     held: Vec<Envelope>,
     /// Newest presence update from each replica.
@@ -188,6 +214,8 @@ impl Replica {
             next_seq: 1,
             unacked: Vec::new(),
             applied: BTreeMap::new(),
+            peers: BTreeSet::new(),
+            peer_acks: BTreeMap::new(),
             held: Vec::new(),
             presence: BTreeMap::new(),
             presence_counter: 0,
@@ -349,17 +377,68 @@ impl Replica {
         &self.unacked
     }
 
-    /// Records that the peer has applied every operation up to and including `seq` from this
+    /// Records that every peer has applied every operation up to and including `seq` from this
     /// replica. The outbox drops them.
     pub fn acknowledge(&mut self, seq: u64) {
         self.unacked.retain(|e| e.seq > seq);
     }
 
+    /// The highest sequence number applied in order from `sender`, or 0 if none.
+    pub fn applied_from(&self, sender: ReplicaId) -> u64 {
+        self.applied.get(&sender).copied().unwrap_or(0)
+    }
+
+    /// The acknowledgement to send `sender` for what this replica has applied from it, or
+    /// `None` if nothing has been applied yet.
+    pub fn ack(&self, sender: ReplicaId) -> Option<Ack> {
+        match self.applied_from(sender) {
+            0 => None,
+            seq => Some(Ack {
+                to: sender,
+                from: self.id,
+                seq,
+            }),
+        }
+    }
+
     /// Takes in one message from the peer and applies whatever is ready.
     pub fn receive(&mut self, message: Message) {
         match message {
-            Message::Op(envelope) => self.receive_op(envelope),
-            Message::Presence(update) => self.receive_presence(update),
+            Message::Op(envelope) => {
+                self.note_peer(envelope.from);
+                self.receive_op(envelope);
+            }
+            Message::Presence(update) => {
+                self.note_peer(update.from);
+                self.receive_presence(update);
+            }
+            Message::Ack(ack) => {
+                self.note_peer(ack.from);
+                if ack.to == self.id {
+                    let known = self.peer_acks.entry(ack.from).or_insert(0);
+                    *known = (*known).max(ack.seq);
+                    self.drop_acknowledged();
+                }
+            }
+        }
+    }
+
+    fn note_peer(&mut self, from: ReplicaId) {
+        if from != self.id {
+            self.peers.insert(from);
+        }
+    }
+
+    /// Drops the outbox entries that every known peer has acknowledged. With no known peer,
+    /// nothing is dropped.
+    fn drop_acknowledged(&mut self) {
+        let floor = self
+            .peers
+            .iter()
+            .map(|p| self.peer_acks.get(p).copied().unwrap_or(0))
+            .min();
+        if let Some(floor) = floor {
+            self.unacked.retain(|e| e.seq > floor);
         }
     }
 
@@ -522,5 +601,129 @@ impl Replica {
                 _ => None,
             })
             .collect()
+    }
+}
+
+/// A replica connected through a [`Transport`].
+///
+/// Edits made while the connection is down stay in the replica's outbox. Presence updates made
+/// while it is down are kept only as the newest one. [`Session::reconnect`] takes a new
+/// transport and sends the outbox and that presence update again. Each received operation is
+/// acknowledged, including a duplicate, so the sender can empty its outbox even when an earlier
+/// acknowledgement was lost.
+#[derive(Debug)]
+pub struct Session<T: Transport> {
+    replica: Replica,
+    transport: T,
+    online: bool,
+    /// The newest presence update made while offline. Only it is sent on reconnect.
+    queued_presence: Option<PresenceUpdate>,
+}
+
+impl<T: Transport> Session<T> {
+    /// Starts a session on `transport`, which is taken to be connected.
+    pub fn new(replica: Replica, transport: T) -> Self {
+        Self {
+            replica,
+            transport,
+            online: true,
+            queued_presence: None,
+        }
+    }
+
+    /// The replica, as this session sees it.
+    pub fn replica(&self) -> &Replica {
+        &self.replica
+    }
+
+    /// The replica, for making local changes. Send what they return with [`Session::send`].
+    pub fn replica_mut(&mut self) -> &mut Replica {
+        &mut self.replica
+    }
+
+    /// Whether messages are going out now.
+    pub fn is_online(&self) -> bool {
+        self.online && self.transport.is_connected()
+    }
+
+    /// Marks the connection as down, for example after the host sees it close. Nothing is sent
+    /// until [`Session::reconnect`].
+    pub fn disconnect(&mut self) {
+        self.online = false;
+    }
+
+    /// Sends `envelopes` now if the connection is up. Otherwise they stay in the outbox, and
+    /// [`Session::reconnect`] sends them.
+    pub fn send(&mut self, envelopes: &[Envelope]) {
+        if !self.is_online() {
+            return;
+        }
+        for envelope in envelopes {
+            if self.transport.send(&Message::Op(envelope.clone())).is_err() {
+                self.online = false;
+                return;
+            }
+        }
+    }
+
+    /// Makes a cursor update. It is sent now if the connection is up, and kept otherwise.
+    pub fn set_cursor(&mut self, cursor: Option<Cursor>) {
+        let update = self.replica.set_cursor(cursor);
+        if self.is_online() {
+            if self
+                .transport
+                .send(&Message::Presence(update.clone()))
+                .is_ok()
+            {
+                self.queued_presence = None;
+                return;
+            }
+            self.online = false;
+        }
+        self.queued_presence = Some(update);
+    }
+
+    /// Receives every message that has arrived, applies it, and acknowledges operations. Returns
+    /// how many messages were received. A failed send marks the connection as down.
+    pub fn pump(&mut self) -> usize {
+        let mut received = 0;
+        while self.is_online() {
+            let Some(message) = self.transport.receive() else {
+                break;
+            };
+            received += 1;
+            let sender = match &message {
+                Message::Op(envelope) => Some(envelope.from),
+                _ => None,
+            };
+            self.replica.receive(message);
+            if let Some(ack) = sender.and_then(|s| self.replica.ack(s)) {
+                if self.transport.send(&Message::Ack(ack)).is_err() {
+                    self.online = false;
+                }
+            }
+        }
+        received
+    }
+
+    /// Replaces the transport with a new connection, and sends the outbox and any queued
+    /// presence update over it. Messages that fail to send leave the session offline again.
+    pub fn reconnect(&mut self, transport: T) {
+        self.transport = transport;
+        self.online = true;
+        let pending = self.replica.pending().to_vec();
+        self.send(&pending);
+        if self.is_online() {
+            if let Some(update) = self.queued_presence.take() {
+                if self
+                    .transport
+                    .send(&Message::Presence(update.clone()))
+                    .is_err()
+                {
+                    self.online = false;
+                    self.queued_presence = Some(update);
+                }
+            }
+        }
     }
 }

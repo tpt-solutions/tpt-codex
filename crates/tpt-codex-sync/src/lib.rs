@@ -83,6 +83,10 @@ impl WsTransport {
 impl Transport for WsTransport {
     type Error = String;
 
+    fn is_connected(&self) -> bool {
+        self.error.is_none()
+    }
+
     fn send(&mut self, message: &Message) -> Result<(), String> {
         if let Some(e) = &self.error {
             return Err(e.clone());

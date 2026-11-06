@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 
 use tpt_codex_core::{Block, BlockId, Document};
 
+use crate::figures::FIGURE_PREFIX;
 use crate::outline::{Outline, number_string};
 
 /// One cross-reference found in the document.
@@ -40,6 +41,10 @@ pub fn check_references(doc: &Document) -> Vec<ReferenceCheck> {
             let Some(target) = address.strip_prefix('#') else {
                 continue;
             };
+            // Figure links are resolved by `check_figure_references`.
+            if target.starts_with(FIGURE_PREFIX) {
+                continue;
+            }
             let number = outline
                 .resolve(target)
                 .map(|entry| number_string(&entry.number));

@@ -2,7 +2,8 @@
 
 This is the grammar that `tpt-codex-markdown` reads and writes today. Anything outside it is a
 structured error when read, and a refusal when written. The spec's Codex Flavored Markdown
-extensions (grids, canvases, math, citations) are not in this subset yet.
+extensions are partly in this subset: grids and slides (see Containers), figure attributes (see
+Images), display and inline math, and citations.
 
 The reader and the writer share the same line predicates (`src/syntax.rs`). A document the writer
 accepts reads back as the same document. The tests check this on a fixed fixture and on random input.
@@ -130,6 +131,28 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
   spaces. An image directly under text, or text directly under an image, is an error. Put a blank
   line between them.
 - An image is a block. It is not an inline image inside a paragraph.
+- Figure attributes can follow the image on the same line, in braces: `![alt](uri) {#fig:id width=80%}`.
+  `#label` names the figure. A label is letters, digits, and `- _ : .`. `width=N%` sets the width from
+  1% to 100%. Each attribute can appear once, and any other word is an error.
+- A labelled image is a figure. Figures are numbered from 1 in reading order, and `[text](#fig:id)`
+  is a cross-reference to the figure. An image with only a width has no label, so it is not numbered
+  and cannot be referred to.
+
+### Containers
+
+- `::: grid { id="N" }` opens a live grid, where N is the sheet id. Each line inside is a table
+  row, `| cell | cell |`, and every row has the same number of cells as the first. A `| --- |`
+  row after some rows makes those rows header rows. There can be only one such row, and it must
+  come after a row of cells. A cell reads like sheet input: `=` starts a formula, a number is a
+  number, `TRUE` and `FALSE` are booleans, and anything else is text. Write `\|` for a pipe and
+  `\\` for a backslash inside a cell. A line of `:::` alone closes the grid. A grid needs at least
+  one row, and each grid needs its own id.
+- `::: canvas { ratio="W:H" }` opens a slide, where W and H are whole numbers from 1 to 32. Its body
+  is ordinary blocks: headings, paragraphs, lists, code, math, images and grids. A line of `:::`
+  alone closes it. A slide cannot be inside another slide. The slide is 960 points wide, and its
+  height follows the ratio.
+- Any other `:::` name is an error, and a grid or slide left open at the end of the document is an error.
+- Attributes are `key="value"` pairs inside braces. Values cannot contain quotes.
 
 ## Unsupported syntax (read errors)
 
@@ -139,8 +162,8 @@ A line that starts with any of these is an error. The error names the construct 
 | --- | --- |
 | Indented code block | a line starting with 4 spaces or a tab |
 | Block quote | `> ` or `>` |
-| Table | a line starting with `|` |
-| Container block | `:::` |
+| Table | a line starting with `|` outside a grid |
+| Other container block | `::: name` for a name other than grid or canvas |
 | Raw HTML | a line starting with `<` |
 | Footnote definition | a line starting with `[^` |
 | Setext heading | a line of `=`, or `---` under a paragraph line |
@@ -156,7 +179,12 @@ quoted value with a bad escape, or a missing closing `---`.
 `to_markdown` refuses rather than changing meaning. It refuses:
 
 - a root that is not a flow container,
-- children that are grids, queries, or nested containers,
+- queries, nested containers, sections, and slide frames (where blocks sit on a slide),
+- grids with view bounds, a cell that would not read back as the same value or has a line break,
+  or a row of only dashes (it would read back as the header separator),
+- a sheet that no grid in the document shows,
+- a slide size that matches no ratio from 1:1 to 32:32 at 960 points wide,
+- figure attributes on anything but an image, or a label or width the reader would not read back,
 - text with bold or italic flags (not yet written),
 - empty text, or text with leading or trailing spaces,
 - a heading level outside 1 to 6, or a heading with a line break,
@@ -189,6 +217,6 @@ document already used that numbering.
 
 ## Not yet in the grammar
 
-Block quotes, nested lists, loose lists, setext headings, tables, `::: grid`, `::: canvas`, inline
-math, citations, `[#ref]` cross-references, `{#fig:id}` attributes, footnotes, and emphasis nested in
-links, links with titles, and bold combined with italic.
+Block quotes, nested lists, loose lists, setext headings, tables outside a grid, `[#ref]`
+cross-references (use `[text](#anchor)` for headings and `[text](#fig:id)` for figures), emphasis nested
+in links, links with titles, bold combined with italic, grid view bounds, and slide sections and frames.

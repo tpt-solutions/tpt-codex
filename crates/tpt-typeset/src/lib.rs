@@ -24,6 +24,7 @@ extern crate alloc;
 
 mod citations;
 mod class;
+mod figures;
 mod footnotes;
 mod math;
 mod math_check;
@@ -39,6 +40,7 @@ pub use citations::{
     CitationCheck, CslError, Library, Name, Reference, author_year, bibliography, check_citations,
 };
 pub use class::{ClassSpec, DocumentClass, UnknownClass, class_of};
+pub use figures::{FigureEntry, FigureReferenceCheck, check_figure_references, figure_entries};
 pub use footnotes::{
     FootnoteRef, check_footnotes, footnote_numbers, reading_order, unreferenced_footnotes,
 };
@@ -48,6 +50,7 @@ pub use math_inline::{InlineMathCheck, check_inline_math, layout_inline_math};
 pub use math_layout::{MathBox, MathItem, MathMetrics, layout_math};
 pub use math_svg::math_svg;
 pub use outline::{Outline, OutlineEntry, TocLine, number_string, slugify};
+pub mod query_builder;
 pub use query::{QueryRunError, document_entities, entity_type, run_query};
 pub use references::{ReferenceCheck, check_references};
 pub use sections::{SectionGroup, slide_sections};

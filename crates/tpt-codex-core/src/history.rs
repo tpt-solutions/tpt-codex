@@ -3,8 +3,8 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use crate::document::Document;
-use crate::id::BlockId;
-use crate::ops::{EditError, Op, apply, changed_blocks};
+use crate::id::{BlockId, SheetId};
+use crate::ops::{EditError, Op, apply};
 
 /// A group of operations that succeed or fail together.
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +25,7 @@ pub struct History {
     undo: Vec<Transaction>,
     redo: Vec<Transaction>,
     last_changed: BTreeSet<BlockId>,
+    last_changed_sheets: BTreeSet<SheetId>,
 }
 
 impl History {
@@ -33,13 +34,32 @@ impl History {
         Self::default()
     }
 
+    /// Records which blocks and sheets the most recent step changed.
+    fn record(&mut self, ops: &[Op]) {
+        self.last_changed = crate::ops::changed_blocks(ops);
+        self.last_changed_sheets = changed_sheets(ops);
+    }
+
+    /// Clears what the last step changed, so that the next [`last_changed`](Self::last_changed)
+    /// and [`last_changed_sheets`](Self::last_changed_sheets) describe only later steps.
+    pub fn forget_changes(&mut self) {
+        self.last_changed.clear();
+        self.last_changed_sheets.clear();
+    }
+
+    /// The sheets changed by the most recent commit, undo or redo. Cell edits name the sheet
+    /// rather than a block, because a sheet can be shown by several grid blocks.
+    pub fn last_changed_sheets(&self) -> &BTreeSet<SheetId> {
+        &self.last_changed_sheets
+    }
+
     /// Applies `ops` to `doc` as one undoable step.
     ///
     /// If any operation fails, the operations already applied are reverted and
     /// the document is left unchanged.
     pub fn commit(&mut self, doc: &mut Document, ops: Vec<Op>) -> Result<(), EditError> {
         let inverses = apply_all(doc, &ops)?;
-        self.last_changed = changed_blocks(&ops);
+        self.record(&ops);
         self.undo.push(Transaction { ops, inverses });
         self.redo.clear();
         Ok(())
@@ -54,7 +74,7 @@ impl History {
             apply(doc, inverse)
                 .expect("undo: stored inverse must apply to the state it was made for");
         }
-        self.last_changed = changed_blocks(&tx.ops);
+        self.record(&tx.ops);
         self.redo.push(tx);
         Ok(true)
     }
@@ -66,7 +86,7 @@ impl History {
         };
         match apply_all(doc, &tx.ops) {
             Ok(_) => {
-                self.last_changed = changed_blocks(&tx.ops);
+                self.record(&tx.ops);
                 self.undo.push(tx);
                 Ok(true)
             }
@@ -112,4 +132,15 @@ fn apply_all(doc: &mut Document, ops: &[Op]) -> Result<Vec<Op>, EditError> {
         }
     }
     Ok(inverses)
+}
+
+/// The sheets changed by a group of operations.
+fn changed_sheets(ops: &[Op]) -> BTreeSet<SheetId> {
+    ops.iter()
+        .filter_map(|op| match op {
+            Op::SetCell { sheet, .. } => Some(*sheet),
+            Op::SetSheet { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect()
 }

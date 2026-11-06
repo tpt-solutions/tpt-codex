@@ -48,7 +48,7 @@ impl Relay {
     pub fn publish(&mut self, doc: &str, message: Message) -> Publish {
         let log = self.docs.entry(doc.into()).or_default();
         match &message {
-            Message::Presence(_) => Publish::NotLogged,
+            Message::Presence(_) | Message::Ack(_) => Publish::NotLogged,
             Message::Op(envelope) => {
                 if !log.seen.insert((envelope.from, envelope.seq)) {
                     return Publish::Duplicate;

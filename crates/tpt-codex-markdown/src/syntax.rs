@@ -4,6 +4,11 @@
 //! Both directions use the same predicates, so anything the writer emits is
 //! guaranteed to read back as the same block.
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use tpt_codex_core::{Canvas, Figure, is_figure_label};
+
 /// Largest number a list item may start with (nine digits, as in CommonMark).
 pub(crate) const MAX_LIST_NUMBER: u32 = 999_999_999;
 
@@ -191,12 +196,13 @@ pub(crate) fn math_closes(line: &str) -> bool {
     strip_block_indent(line).is_some_and(|body| body.trim_end() == "$$")
 }
 
-/// A standalone image line: `![alt](uri)`.
+/// A standalone image line: `![alt](uri)`, optionally followed by figure attributes such as
+/// `{#fig:overview width=80%}`.
 ///
-/// Returns `Some(Ok((alt, uri)))` for a supported image, `Some(Err(reason))`
-/// for a line that starts like an image but uses syntax this crate does not read,
-/// and `None` for any other line.
-pub(crate) fn image_line(line: &str) -> Option<Result<(&str, &str), &'static str>> {
+/// Returns `Some(Ok((alt, uri, attributes)))` for a supported image, where `attributes` is the
+/// text between the braces (empty when there are none). `Some(Err(reason))` is a line that
+/// starts like an image but uses syntax this crate does not read, and `None` is any other line.
+pub(crate) fn image_line(line: &str) -> Option<Result<(&str, &str, &str), &'static str>> {
     let body = strip_block_indent(line)?.trim_end();
     if !body.starts_with("![") {
         return None;
@@ -204,24 +210,230 @@ pub(crate) fn image_line(line: &str) -> Option<Result<(&str, &str), &'static str
     Some(parse_image(body))
 }
 
-fn parse_image(body: &str) -> Result<(&str, &str), &'static str> {
-    let inner = body[2..]
-        .strip_suffix(')')
-        .ok_or("image must end with ')' on the same line")?;
-    let (alt, uri) = inner
+fn parse_image(body: &str) -> Result<(&str, &str, &str), &'static str> {
+    let (alt, after_alt) = body[2..]
         .split_once("](")
         .ok_or("image must be written as ![alt](uri)")?;
+    let end = after_alt
+        .find(')')
+        .ok_or("image must end with ')' on the same line")?;
+    let uri = &after_alt[..end];
     if alt.contains(['[', ']', '\\', '&']) {
         return Err("image alt text cannot contain brackets, backslashes or entities");
     }
     if uri.is_empty() {
         return Err("image has no uri");
     }
-    if uri.contains(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>' | '\\' | '&'))
-    {
+    if uri.contains(|c: char| c.is_whitespace() || matches!(c, '(' | '<' | '>' | '\\' | '&')) {
         return Err("image titles, angle brackets and escapes are not supported");
     }
-    Ok((alt, uri))
+    let tail = after_alt[end + 1..].trim_start();
+    let attributes = if tail.is_empty() {
+        ""
+    } else {
+        tail.strip_prefix('{')
+            .and_then(|inner| inner.strip_suffix('}'))
+            .ok_or("figure attributes must be written as {#label width=80%} after the image")?
+    };
+    Ok((alt, uri, attributes))
+}
+
+/// Reads the attributes of a figure: the text between the braces of `{#fig:id width=80%}`.
+///
+/// Tokens are separated by spaces. `#label` names the figure for cross-references, and
+/// `width=N%` sets its width from 1% to 100%. Anything else is an error.
+pub(crate) fn figure_attributes(inner: &str) -> Result<Figure, &'static str> {
+    let mut figure = Figure::default();
+    for token in inner.split_whitespace() {
+        if let Some(label) = token.strip_prefix('#') {
+            if !is_figure_label(label) {
+                return Err("figure label must be letters, digits, and - _ : .");
+            }
+            if figure.id.replace(String::from(label)).is_some() {
+                return Err("a figure can have only one #label");
+            }
+        } else if let Some(width) = token.strip_prefix("width=") {
+            let percent = width
+                .strip_suffix('%')
+                .and_then(|n| n.parse::<u8>().ok())
+                .filter(|n| (1..=100).contains(n))
+                .ok_or("width must be a whole percentage from 1% to 100%, such as width=80%")?;
+            if figure.width_percent.replace(percent).is_some() {
+                return Err("a figure can have only one width");
+            }
+        } else {
+            return Err("unknown figure attribute; supported attributes are #label and width=N%");
+        }
+    }
+    Ok(figure)
+}
+
+/// The container a `:::` line opens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ContainerOpen<'a> {
+    /// `::: grid { id="N" }`: a live grid whose body is a pipe table.
+    Grid {
+        /// The sheet id the grid displays.
+        id: u64,
+    },
+    /// `::: canvas { ratio="W:H" }`: a slide, whose body holds ordinary blocks.
+    Canvas {
+        /// Width and height of the ratio, each from 1 to 32.
+        ratio: (u32, u32),
+    },
+    /// A container name this crate does not know.
+    Unknown(&'a str),
+}
+
+/// Returns how a `:::` line opens a container, or `None` if it is not an opening line.
+///
+/// A closing `:::` line is not an opening line. Attribute errors are returned as the reason.
+pub(crate) fn container_open(line: &str) -> Option<Result<ContainerOpen<'_>, &'static str>> {
+    let body = strip_block_indent(line)?.trim_end();
+    let rest = body.strip_prefix(":::")?.trim_start();
+    if rest.is_empty() {
+        return None;
+    }
+    let name_len = rest.bytes().take_while(u8::is_ascii_alphabetic).count();
+    let (name, attrs) = rest.split_at(name_len);
+    let attrs = attrs.trim();
+    let attrs = if attrs.is_empty() {
+        Vec::new()
+    } else {
+        match attrs.strip_prefix('{').and_then(|a| a.strip_suffix('}')) {
+            Some(inner) => match key_values(inner) {
+                Ok(pairs) => pairs,
+                Err(reason) => return Some(Err(reason)),
+            },
+            None => {
+                return Some(Err(
+                    "container attributes must be written as { key=\"value\" }",
+                ));
+            }
+        }
+    };
+    Some(match name {
+        "grid" => grid_id(&attrs).map(|id| ContainerOpen::Grid { id }),
+        "canvas" => canvas_ratio(&attrs).map(|ratio| ContainerOpen::Canvas { ratio }),
+        _ => Ok(ContainerOpen::Unknown(name)),
+    })
+}
+
+/// The size of a slide with the given ratio, in points: 960 wide, as wide as 16:9.
+///
+/// The writer finds the ratio again by comparing sizes, so this function must not change.
+pub(crate) fn canvas_size((width, height): (u32, u32)) -> Canvas {
+    Canvas {
+        width: 960.0,
+        height: 960.0 * f64::from(height) / f64::from(width),
+    }
+}
+
+/// Returns `true` when the line closes a container: `:::` alone, with up to three spaces.
+pub(crate) fn container_closes(line: &str) -> bool {
+    strip_block_indent(line).is_some_and(|body| body.trim_end() == ":::")
+}
+
+/// Reads `key="value"` pairs. Values cannot contain quotes.
+fn key_values(inner: &str) -> Result<Vec<(&str, &str)>, &'static str> {
+    const FORM: &str = "attributes must be written as key=\"value\"";
+    let mut pairs = Vec::new();
+    let mut rest = inner.trim_start();
+    while !rest.is_empty() {
+        let key_len = rest
+            .bytes()
+            .take_while(|b| b.is_ascii_alphanumeric() || *b == b'_')
+            .count();
+        let (key, after_key) = rest.split_at(key_len);
+        if key.is_empty() {
+            return Err(FORM);
+        }
+        let value_and_rest = after_key.strip_prefix("=\"").ok_or(FORM)?;
+        let (value, after_value) = value_and_rest.split_once('"').ok_or(FORM)?;
+        pairs.push((key, value));
+        rest = after_value.trim_start();
+    }
+    Ok(pairs)
+}
+
+fn grid_id(attrs: &[(&str, &str)]) -> Result<u64, &'static str> {
+    let mut id = None;
+    for &(key, value) in attrs {
+        match key {
+            "id" => {
+                let parsed = value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or("grid id must be a positive whole number, such as id=\"1\"")?;
+                if id.replace(parsed).is_some() {
+                    return Err("grid has more than one id");
+                }
+            }
+            _ => return Err("unknown grid attribute; the only attribute is id"),
+        }
+    }
+    id.ok_or("grid needs an id, such as ::: grid { id=\"1\" }")
+}
+
+fn canvas_ratio(attrs: &[(&str, &str)]) -> Result<(u32, u32), &'static str> {
+    let mut ratio = None;
+    for &(key, value) in attrs {
+        match key {
+            "ratio" => {
+                let parsed = value
+                    .split_once(':')
+                    .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
+                    .filter(|(w, h)| (1..=32).contains(w) && (1..=32).contains(h))
+                    .ok_or("canvas ratio must be two whole numbers from 1 to 32, such as ratio=\"16:9\"")?;
+                if ratio.replace(parsed).is_some() {
+                    return Err("canvas has more than one ratio");
+                }
+            }
+            _ => return Err("unknown canvas attribute; the only attribute is ratio"),
+        }
+    }
+    ratio.ok_or("canvas needs a ratio, such as ::: canvas { ratio=\"16:9\" }")
+}
+
+/// Reads one row of a grid's pipe table, `| a | b |`, into its trimmed cells.
+///
+/// `\|` is a pipe inside a cell and `\\` is a backslash. Returns `None` for a line that does
+/// not start with `|`.
+pub(crate) fn table_row(line: &str) -> Option<Result<Vec<String>, &'static str>> {
+    let body = line.trim();
+    if !body.starts_with('|') {
+        return None;
+    }
+    if !body.ends_with('|') || body.len() < 2 {
+        return Some(Err("table rows must start and end with |"));
+    }
+    let inner = &body[1..body.len() - 1];
+    let mut cells: Vec<String> = Vec::new();
+    let mut cell = String::new();
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.clone().next() {
+                Some(next @ ('|' | '\\')) => {
+                    cell.push(next);
+                    chars.next();
+                }
+                _ => cell.push(c),
+            },
+            '|' => cells.push(core::mem::take(&mut cell)),
+            _ => cell.push(c),
+        }
+    }
+    cells.push(cell);
+    Some(Ok(cells.iter().map(|c| String::from(c.trim())).collect()))
+}
+
+/// Returns `true` for a separator row's cells: each one is three or more dashes.
+pub(crate) fn is_separator(cells: &[String]) -> bool {
+    cells
+        .iter()
+        .all(|c| c.len() >= 3 && c.bytes().all(|b| b == b'-'))
 }
 
 /// Returns a reason if the line starts syntax this crate does not read.

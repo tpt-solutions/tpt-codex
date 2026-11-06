@@ -5,8 +5,11 @@
 //! `tpt-appfront` UI tree for it. The tree renders to semantic HTML with `tpt-appfront-html`.
 //! Keeping the logic here lets it run and be tested natively.
 
-use tpt_appfront_core::UITree;
-use tpt_appfront_core::ui_tree::ContainerBuilder;
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, BTreeSet};
+
+use tpt_appfront_core::ui_tree::{ContainerBuilder, NodeKind};
+use tpt_appfront_core::{KeyEvent, UITree};
 use tpt_codex_core::{
     Block, BlockId, Canvas, CellInput, Document, EditError, History, InlineRun, LayoutMode,
     MediaSource, Movement, Op, Rect, Selection, Sheet, SheetId, TextStyle, delete_backward,
@@ -67,6 +70,23 @@ pub enum Msg {
         /// Number of columns.
         cols: u32,
     },
+    /// Append an empty item to a list, as one undoable step, and put the caret in it.
+    AddListItem {
+        /// The list.
+        list: BlockId,
+    },
+    /// Remove an item from a list and delete its block, as one undoable step.
+    RemoveListItem {
+        /// The list.
+        list: BlockId,
+        /// Position of the item to remove.
+        index: usize,
+    },
+    /// Switch a list between numbered and bulleted, as one undoable step.
+    ToggleListKind {
+        /// The list.
+        list: BlockId,
+    },
     /// Show slide `index` (0-based) in presenter mode. Out-of-range indices are clamped.
     StartPresenting {
         /// The slide to start on.
@@ -107,6 +127,10 @@ pub enum Msg {
     },
     /// Add an empty slide (16:9) at the end of the document, as one undoable step.
     InsertSlide,
+    /// Select a block on a slide, or clear the selection with `None`. Arrow keys then move the
+    /// block, and Alt with an arrow key resizes it (Shift takes ten times as far). Escape clears
+    /// the selection. Only a block on a slide can be selected.
+    SelectBlock(Option<BlockId>),
     /// Place `block` on the slide that holds it, at `frame`. `None` removes its position.
     PlaceBlock {
         /// The block to place. It must be a child of a slide.
@@ -141,6 +165,14 @@ pub enum Msg {
         field: String,
         /// The text the field must equal.
         value: String,
+    },
+    /// Set a query block from a structured description: conditions, a sort order and a limit.
+    /// The fields must be `kind`, `content` or `language`. The query runs before it is stored.
+    SetQuery {
+        /// The query block to set.
+        block: BlockId,
+        /// The query, without JSON.
+        spec: tpt_typeset::query_builder::QuerySpec,
     },
     /// Move slide `from` (0-based, in slide order) so that it becomes slide `to`. As one undoable
     /// step.
@@ -204,8 +236,16 @@ pub struct Editor {
     paginated: bool,
     /// Whether the presenter stage is full screen.
     fullscreen: bool,
+    /// The block selected on a slide, if any. Only used while editing, not presenting.
+    selected_block: Option<BlockId>,
     /// Other people's carets, drawn in their paragraphs.
     remote_cursors: Vec<RemoteCursor>,
+    /// The rendered nodes of each top-level block, reused until the block changes.
+    cache: RefCell<BTreeMap<BlockId, Vec<UITree<Msg>>>>,
+    /// Top-level blocks whose cached nodes are out of date.
+    stale: RefCell<BTreeSet<BlockId>>,
+    /// Top-level blocks rendered so far (cache misses), for checking what an edit re-renders.
+    rendered: Cell<usize>,
 }
 
 /// Another replica's caret, to draw in a paragraph. The label names the replica's author.
@@ -232,8 +272,25 @@ impl Editor {
             presenting: None,
             paginated: false,
             fullscreen: false,
+            selected_block: None,
             remote_cursors: Vec::new(),
+            cache: RefCell::new(BTreeMap::new()),
+            stale: RefCell::new(BTreeSet::new()),
+            rendered: Cell::new(0),
         }
+    }
+
+    /// The number of top-level blocks rendered so far. An edit re-renders only the top-level
+    /// blocks it changed, so the count rises by that many.
+    pub fn blocks_rendered(&self) -> usize {
+        self.rendered.get()
+    }
+
+    /// Drops every cached block, so the next view renders the whole document. Use this after
+    /// the document changes outside [`Editor::update`].
+    pub fn invalidate_view(&self) {
+        self.cache.borrow_mut().clear();
+        self.stale.borrow_mut().clear();
     }
 
     /// The rows and columns the next inserted table will have.
@@ -265,6 +322,10 @@ impl Editor {
     /// leaves the document unchanged.
     pub fn update(&mut self, msg: Msg) {
         self.status = None;
+        self.history.forget_changes();
+        let before_caret = self.caret.map(|s| s.block);
+        let before_cell = self.cell.map(|f| f.sheet);
+        let before_selected = self.selected_block;
         let result = match msg {
             Msg::Focus(id) => {
                 self.caret = match self.doc.get(id) {
@@ -295,6 +356,7 @@ impl Editor {
             Msg::EditQuery { block, source } => self.edit_query(block, source),
             Msg::SetTableSize { rows, cols } => self.set_table_size(rows, cols),
             Msg::InsertSlide => self.insert_slide(),
+            Msg::SelectBlock(block) => self.select_block(block),
             Msg::StartPresenting { index } => {
                 let count = self.slide_ids().len();
                 if count == 0 {
@@ -339,6 +401,10 @@ impl Editor {
                 height,
             } => self.resize_block(block, width, height),
             Msg::InsertTable { rows, cols } => self.insert_table(rows, cols),
+            Msg::AddListItem { list } => self.add_list_item(list),
+            Msg::SetQuery { block, spec } => self.set_query(block, &spec),
+            Msg::RemoveListItem { list, index } => self.remove_list_item(list, index),
+            Msg::ToggleListKind { list } => self.toggle_list_kind(list),
             Msg::Undo => {
                 let r = self.history.undo(&mut self.doc).map(|_| ());
                 self.clamp_caret();
@@ -352,6 +418,94 @@ impl Editor {
         };
         if let Err(message) = result {
             self.status = Some(message);
+        }
+        self.mark_changed(before_caret, before_cell);
+        // A slide shows its selection, so the slide holding either block is drawn again.
+        let selected: BTreeSet<BlockId> = before_selected
+            .into_iter()
+            .chain(self.selected_block)
+            .collect();
+        self.mark_stale(&selected, &BTreeSet::new(), false);
+    }
+
+    /// Marks the top-level blocks that the last message could have changed in view: the blocks
+    /// and sheets it changed, and the carets and cell focus before and after it.
+    fn mark_changed(&self, before_caret: Option<BlockId>, before_cell: Option<SheetId>) {
+        let doc_changed = !self.history.last_changed().is_empty()
+            || !self.history.last_changed_sheets().is_empty();
+        let mut blocks = self.history.last_changed().clone();
+        blocks.extend(before_caret);
+        blocks.extend(self.caret.map(|s| s.block));
+        let mut sheets = self.history.last_changed_sheets().clone();
+        sheets.extend(before_cell);
+        sheets.extend(self.cell.map(|f| f.sheet));
+        self.mark_stale(&blocks, &sheets, doc_changed);
+    }
+
+    /// Marks each top-level block whose subtree holds one of `blocks`, or a grid of one of
+    /// `sheets`. When the document changed, query blocks are marked too, since a query reads
+    /// the whole document.
+    fn mark_stale(
+        &self,
+        blocks: &BTreeSet<BlockId>,
+        sheets: &BTreeSet<SheetId>,
+        doc_changed: bool,
+    ) {
+        if blocks.is_empty() && sheets.is_empty() && !doc_changed {
+            return;
+        }
+        let Some(Block::Container { children, .. }) = self.doc.get(self.doc.root) else {
+            return;
+        };
+        let mut stale = self.stale.borrow_mut();
+        for &top in children {
+            let mut seen = BTreeSet::new();
+            if self.subtree_touches(top, blocks, sheets, doc_changed, &mut seen) {
+                stale.insert(top);
+            }
+        }
+    }
+
+    fn subtree_touches(
+        &self,
+        id: BlockId,
+        blocks: &BTreeSet<BlockId>,
+        sheets: &BTreeSet<SheetId>,
+        doc_changed: bool,
+        seen: &mut BTreeSet<BlockId>,
+    ) -> bool {
+        if !seen.insert(id) {
+            return false;
+        }
+        if blocks.contains(&id) {
+            return true;
+        }
+        let mut touches =
+            |child: &BlockId| self.subtree_touches(*child, blocks, sheets, doc_changed, seen);
+        match self.doc.get(id) {
+            Some(Block::Grid { sheet_id, .. }) => sheets.contains(sheet_id),
+            Some(Block::Query(_)) => doc_changed,
+            Some(Block::Container { children, .. }) => children.iter().any(&mut touches),
+            Some(Block::List { items, .. }) => items.iter().any(&mut touches),
+            _ => false,
+        }
+    }
+
+    /// The nodes of the top-level block `id`, from the cache when it has not changed.
+    fn view_cached_block(&self, c: &mut ContainerBuilder<Msg>, id: BlockId) {
+        let stale = self.stale.borrow_mut().remove(&id);
+        if stale || !self.cache.borrow().contains_key(&id) {
+            self.rendered.set(self.rendered.get() + 1);
+            let nodes = match UITree::container(|inner| self.view_block(inner, id)).kind {
+                NodeKind::Container { children } => children,
+                _ => Vec::new(),
+            };
+            self.cache.borrow_mut().insert(id, nodes);
+        }
+        if let Some(nodes) = self.cache.borrow().get(&id) {
+            for node in nodes {
+                c.with(node.clone());
+            }
         }
     }
 
@@ -481,7 +635,14 @@ impl Editor {
 
     /// Replaces the other people's carets shown in the document.
     pub fn set_remote_cursors(&mut self, cursors: Vec<RemoteCursor>) {
+        let blocks: BTreeSet<BlockId> = self
+            .remote_cursors
+            .iter()
+            .chain(cursors.iter())
+            .map(|r| r.block)
+            .collect();
         self.remote_cursors = cursors;
+        self.mark_stale(&blocks, &BTreeSet::new(), false);
     }
 
     /// The slides of the document, in order.
@@ -492,6 +653,11 @@ impl Editor {
     /// The slide being presented, if presenter mode is on.
     pub fn presenting(&self) -> Option<usize> {
         self.presenting
+    }
+
+    /// The block selected on a slide, if any.
+    pub fn selected_block(&self) -> Option<BlockId> {
+        self.selected_block
     }
 
     fn set_section(&mut self, slide: BlockId, name: &str) -> Result<(), String> {
@@ -626,6 +792,31 @@ impl Editor {
         Ok((frame, canvas))
     }
 
+    fn set_query(
+        &mut self,
+        block: BlockId,
+        spec: &tpt_typeset::query_builder::QuerySpec,
+    ) -> Result<(), String> {
+        use tpt_typeset::query_builder::{Condition, build_source};
+        let allowed = |field: &str| matches!(field, "kind" | "content" | "language");
+        for condition in &spec.conditions {
+            let field = match condition {
+                Condition::Equals { field, .. }
+                | Condition::NotEquals { field, .. }
+                | Condition::OneOf { field, .. } => field,
+            };
+            if !allowed(field) {
+                return Err(format!("'{field}' cannot be filtered on"));
+            }
+        }
+        if let Some(order) = &spec.order_by {
+            if !allowed(&order.field) {
+                return Err(format!("'{}' cannot be sorted on", order.field));
+            }
+        }
+        self.edit_query(block, build_source(spec))
+    }
+
     fn filter_query(&mut self, block: BlockId, field: &str, value: &str) -> Result<(), String> {
         if !matches!(field, "kind" | "content" | "language") {
             return Err(format!("'{field}' cannot be filtered on"));
@@ -636,6 +827,16 @@ impl Editor {
         })
         .to_string();
         self.edit_query(block, source)
+    }
+
+    fn select_block(&mut self, block: Option<BlockId>) -> Result<(), String> {
+        if let Some(block) = block {
+            if self.slide_of(block).is_none() {
+                return Err(format!("block {} is not on a slide", block.0));
+            }
+        }
+        self.selected_block = block;
+        Ok(())
     }
 
     fn move_block(&mut self, block: BlockId, dx: f64, dy: f64) -> Result<(), String> {
@@ -681,6 +882,43 @@ impl Editor {
         }
         self.table_size = (rows, cols);
         Ok(())
+    }
+
+    fn add_list_item(&mut self, list: BlockId) -> Result<(), String> {
+        let len = match self.doc.get(list) {
+            Some(Block::List { items, .. }) => items.len(),
+            _ => return Err(format!("block {} is not a list", list.0)),
+        };
+        let (id, ops) =
+            tpt_codex_core::lists::add_item(&self.doc, list, len, "").map_err(|e| e.to_string())?;
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())?;
+        self.caret = Some(Selection::caret(id, 0));
+        self.cell = None;
+        Ok(())
+    }
+
+    fn remove_list_item(&mut self, list: BlockId, index: usize) -> Result<(), String> {
+        let ops = tpt_codex_core::lists::remove_item(&self.doc, list, index)
+            .map_err(|e| e.to_string())?;
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())?;
+        self.clamp_caret();
+        Ok(())
+    }
+
+    fn toggle_list_kind(&mut self, list: BlockId) -> Result<(), String> {
+        let ordered = match self.doc.get(list) {
+            Some(Block::List { ordered, .. }) => !*ordered,
+            _ => return Err(format!("block {} is not a list", list.0)),
+        };
+        let ops =
+            tpt_codex_core::lists::set_kind(&self.doc, list, ordered).map_err(|e| e.to_string())?;
+        self.history
+            .commit(&mut self.doc, ops)
+            .map_err(|e| e.to_string())
     }
 
     fn insert_table(&mut self, rows: u32, cols: u32) -> Result<(), String> {
@@ -863,9 +1101,13 @@ impl Editor {
             Some(Block::Container { children, .. }) => children.clone(),
             _ => Vec::new(),
         };
+        {
+            let live: BTreeSet<BlockId> = children.iter().copied().collect();
+            self.cache.borrow_mut().retain(|id, _| live.contains(id));
+        }
         UITree::container(|c| {
-            for id in children {
-                self.view_block(c, id);
+            for &id in &children {
+                self.view_cached_block(c, id);
             }
             c.button("Undo").on_click(Msg::Undo);
             c.button("Redo").on_click(Msg::Redo);
@@ -972,17 +1214,31 @@ impl Editor {
                     .class("text-block");
             }
             Block::List { items, ordered, .. } => {
+                let list = id;
                 for (n, item) in items.iter().enumerate() {
-                    if let Some(Block::Text { content, .. }) = self.doc.get(*item) {
+                    if let Some(Block::Text { content, style }) = self.doc.get(*item) {
                         let marker = if *ordered {
                             format!("{}. ", n + 1)
                         } else {
                             "• ".to_string()
                         };
-                        c.text(format!("{marker}{content}"))
-                            .on_click(Msg::Focus(*item));
+                        // Each item is edited like a paragraph, so typing and the caret work in it.
+                        c.container(|row| {
+                            row.text(marker);
+                            self.view_paragraph(row, *item, content, style);
+                            row.button("Remove item")
+                                .on_click(Msg::RemoveListItem { list, index: n });
+                        })
+                        .class("list-item");
                     }
                 }
+                c.button("Add item").on_click(Msg::AddListItem { list });
+                let kind = if *ordered {
+                    "Make bulleted"
+                } else {
+                    "Make numbered"
+                };
+                c.button(kind).on_click(Msg::ToggleListKind { list });
             }
             Block::Code { code, .. } => {
                 styled_text(c, code.clone(), "code");
@@ -994,8 +1250,14 @@ impl Editor {
                 styled_text(c, format!("$$ {source} $$"), "math");
             }
             Block::Media { source, alt_text } => {
-                if let MediaSource::Uri { uri } = source {
-                    c.image(uri.clone(), alt_text.clone().unwrap_or_default());
+                let alt = alt_text.clone().unwrap_or_default();
+                match source {
+                    MediaSource::Uri { uri } => {
+                        c.image(uri.clone(), alt);
+                    }
+                    MediaSource::Svg { markup } => {
+                        c.image(svg_data_uri(markup), alt);
+                    }
                 }
             }
             Block::Grid {
@@ -1038,12 +1300,15 @@ impl Editor {
         UITree::container(|c| {
             match slides.get(index) {
                 Some(&slide) => {
+                    // The stage takes focus so that its keys reach the editor.
                     c.container(|stage| self.view_block(stage, slide))
                         .class(if self.fullscreen {
                             "presenter fullscreen"
                         } else {
                             "presenter"
-                        });
+                        })
+                        .attr("tabindex", "0")
+                        .on_keydown(stage_key);
                     let section = self
                         .doc
                         .sections
@@ -1075,22 +1340,50 @@ impl Editor {
             .copied()
             .unwrap_or(Canvas::WIDESCREEN);
         let aspect = format!("aspect-ratio:{} / {};", canvas.width, canvas.height);
-        c.container(|slide| {
-            for &child in children {
-                match self.doc.frames.get(&child) {
-                    Some(frame) => {
-                        let style = format!(
-                            "{aspect} position:absolute; left:{}px; top:{}px; width:{}px; height:{}px;",
-                            frame.x, frame.y, frame.width, frame.height
-                        );
-                        slide.container(|wrap| self.view_block(wrap, child)).attr("style", style);
+        // Selection and keys are for editing only: a presented slide is read-only.
+        let editing = self.presenting.is_none();
+        let selected = if editing { self.selected_block } else { None };
+        // The selected child and its frame, for the arrow keys on this slide.
+        let target = selected
+            .filter(|b| children.contains(b))
+            .and_then(|b| self.doc.frames.get(&b).map(|f| (b, *f)));
+        let node = c
+            .container(|slide| {
+                for &child in children {
+                    match self.doc.frames.get(&child) {
+                        Some(frame) => {
+                            let style = format!(
+                                "{aspect} position:absolute; left:{}px; top:{}px; width:{}px; height:{}px;",
+                                frame.x, frame.y, frame.width, frame.height
+                            );
+                            let is_selected = selected == Some(child);
+                            let wrap = slide
+                                .container(|wrap| self.view_block(wrap, child))
+                                .attr("style", style)
+                                .class(if is_selected {
+                                    "slide-child selected"
+                                } else {
+                                    "slide-child"
+                                });
+                            if editing {
+                                wrap.on_pointer_down(move |_| Some(Msg::SelectBlock(Some(child))));
+                            }
+                        }
+                        None => self.view_block(slide, child),
                     }
-                    None => self.view_block(slide, child),
                 }
-            }
-        })
-        .class("slide")
-        .attr("style", format!("{aspect} position:relative; width:100%;"));
+            })
+            .class("slide")
+            .attr("style", format!("{aspect} position:relative; width:100%;"));
+        if editing {
+            let keys = move |key: KeyEvent| {
+                if key.key == "Escape" {
+                    return Some(Msg::SelectBlock(None));
+                }
+                target.and_then(|(block, frame)| nudge_key(&key, block, frame))
+            };
+            node.attr("tabindex", "0").on_keydown(keys);
+        }
     }
 
     /// A query shows one line for each block it matches, or why it could not run. The query runs
@@ -1215,6 +1508,43 @@ const NO_CARET: &str = "no caret: click a paragraph first";
 
 /// The arrow key a keydown reports (`ArrowUp` and so on), as a cell movement. Other keys are
 /// left alone, so they still edit the cell.
+/// Keys for a selected slide block. Arrows move it by one point, or ten with Shift. Alt with an
+/// arrow resizes it instead: right and down grow it, left and up shrink it. Keys with Ctrl or
+/// Meta are left to the browser.
+fn nudge_key(key: &KeyEvent, block: BlockId, frame: Rect) -> Option<Msg> {
+    if key.ctrl || key.meta {
+        return None;
+    }
+    let step = if key.shift { 10.0 } else { 1.0 };
+    let (dx, dy) = match key.key.as_str() {
+        "ArrowLeft" => (-step, 0.0),
+        "ArrowRight" => (step, 0.0),
+        "ArrowUp" => (0.0, -step),
+        "ArrowDown" => (0.0, step),
+        _ => return None,
+    };
+    if key.alt {
+        return Some(Msg::ResizeBlock {
+            block,
+            width: (frame.width + dx).max(1.0),
+            height: (frame.height + dy).max(1.0),
+        });
+    }
+    Some(Msg::MoveBlock { block, dx, dy })
+}
+
+/// Keys in presenter mode: the arrow keys, Page Up and Down and Space move between slides, and
+/// Escape stops presenting.
+fn stage_key(key: KeyEvent) -> Option<Msg> {
+    match key.key.as_str() {
+        "ArrowRight" | "ArrowDown" | "PageDown" | " " => Some(Msg::NextSlide),
+        "ArrowLeft" | "ArrowUp" | "PageUp" => Some(Msg::PreviousSlide),
+        "Escape" => Some(Msg::StopPresenting),
+        _ => None,
+    }
+}
+
+/// The arrow named by a keyboard key name, or `None` for other keys.
 pub fn arrow_of(key: &str) -> Option<Arrow> {
     match key {
         "ArrowUp" => Some(Arrow::Up),
@@ -1278,6 +1608,21 @@ fn block_text(block: &Block) -> String {
         Block::ThematicBreak => "—————".to_string(),
         Block::Container { .. } => "(container)".to_string(),
     }
+}
+
+/// A `data:` URI that shows `markup` as an SVG image. Every byte outside the unreserved set is
+/// percent-encoded, so the markup survives inside an attribute unchanged. An image shows an SVG
+/// without running its scripts.
+fn svg_data_uri(markup: &str) -> String {
+    let mut out = String::from("data:image/svg+xml,");
+    for b in markup.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// The column letters for a 1-based column number: 1 is `A`, 27 is `AA`.

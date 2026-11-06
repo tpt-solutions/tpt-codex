@@ -119,6 +119,8 @@ pub enum EditError {
     BlockExists(BlockId),
     /// The block is not a container, so it has no children.
     NotAContainer(BlockId),
+    /// The block is not a list, so it has no items or list kind.
+    NotAList(BlockId),
     /// A child position is outside the valid range.
     IndexOutOfBounds {
         /// The container.
@@ -183,6 +185,7 @@ impl fmt::Display for EditError {
             Self::NoSuchBlock(id) => write!(f, "block {} does not exist", id.0),
             Self::BlockExists(id) => write!(f, "block {} already exists", id.0),
             Self::NotAContainer(id) => write!(f, "block {} is not a container", id.0),
+            Self::NotAList(id) => write!(f, "block {} is not a list", id.0),
             Self::IndexOutOfBounds { parent, index, len } => write!(
                 f,
                 "index {index} is out of bounds for container {} (length {len})",
@@ -328,6 +331,12 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
                     index: *index,
                     len,
                 });
+            }
+            // A list holds text items only.
+            if matches!(doc.get(*parent), Some(Block::List { .. }))
+                && !matches!(doc.get(*child), Some(Block::Text { .. }))
+            {
+                return Err(EditError::NotText(*child));
             }
             if reaches(doc, *child, *parent) {
                 return Err(EditError::WouldCreateCycle {
@@ -518,7 +527,12 @@ fn children_of_id(doc: &Document, id: BlockId) -> &[BlockId] {
 
 fn children_mut(doc: &mut Document, id: BlockId) -> Result<&mut Vec<BlockId>, EditError> {
     match doc.blocks.get_mut(&id) {
-        Some(Block::Container { children, .. }) => Ok(children),
+        Some(
+            Block::Container { children, .. }
+            | Block::List {
+                items: children, ..
+            },
+        ) => Ok(children),
         Some(_) => Err(EditError::NotAContainer(id)),
         None => Err(EditError::NoSuchBlock(id)),
     }
@@ -526,7 +540,12 @@ fn children_mut(doc: &mut Document, id: BlockId) -> Result<&mut Vec<BlockId>, Ed
 
 fn container_len(doc: &Document, id: BlockId) -> Result<usize, EditError> {
     match doc.blocks.get(&id) {
-        Some(Block::Container { children, .. }) => Ok(children.len()),
+        Some(
+            Block::Container { children, .. }
+            | Block::List {
+                items: children, ..
+            },
+        ) => Ok(children.len()),
         Some(_) => Err(EditError::NotAContainer(id)),
         None => Err(EditError::NoSuchBlock(id)),
     }

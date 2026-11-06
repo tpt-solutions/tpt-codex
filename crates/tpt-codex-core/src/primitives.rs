@@ -55,6 +55,27 @@ impl Canvas {
     }
 }
 
+/// Attributes of a figure: an image block that can be referred to and sized.
+///
+/// Stored in `Document::figures`, keyed by the media block. Markdown writes it as
+/// `{#fig:id width=80%}` after the image.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Figure {
+    /// Label for cross-references, such as `fig:overview`. Letters, digits, and `-_:.` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Display width as a percentage of the column, from 1 to 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width_percent: Option<u8>,
+}
+
+impl Figure {
+    /// Whether the attributes are empty and the entry can be dropped.
+    pub fn is_empty(&self) -> bool {
+        self.id.is_none() && self.width_percent.is_none()
+    }
+}
+
 /// Character and paragraph styling for a `Block::Text`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextStyle {

@@ -16,6 +16,7 @@ mod document;
 mod error;
 mod history;
 mod id;
+pub mod lists;
 mod ops;
 mod platform;
 mod primitives;
@@ -29,20 +30,21 @@ mod tree_crdt;
 mod versions;
 
 pub use block::{Block, Query};
-pub use document::{Document, Metadata, SCHEMA_VERSION};
+pub use document::{Document, Metadata, SCHEMA_VERSION, is_figure_label};
 pub use error::ValidationError;
 pub use history::History;
 pub use id::{BlockId, SheetId};
 pub use ops::{EditError, Op, apply, changed_blocks};
 pub use platform::{Clock, FixedClock, MemoryStorage, Storage};
-pub use primitives::{Canvas, InlineRun, LayoutMode, MediaSource, Rect, TextStyle};
+pub use primitives::{Canvas, Figure, InlineRun, LayoutMode, MediaSource, Rect, TextStyle};
 pub use relay::{Publish, Relay};
 pub use selection::{Movement, Selection, delete_backward, delete_forward, insert_text};
 pub use sheet::{
     CellInput, Sheet, address_of, address_position, is_formula_source, is_valid_address,
 };
 pub use sync::{
-    Cursor, Envelope, Message, PresenceUpdate, Replica, ReplicaId, SyncError, SyncOp, Transport,
+    Ack, Cursor, Envelope, Message, PresenceUpdate, Replica, ReplicaId, Session, SyncError, SyncOp,
+    Transport,
 };
 pub use text::{clip_runs, edit_text, remap_runs, replace_chars};
 pub use text_crdt::{Stamp, TextCrdt, TextCrdtError, TextOp, materialize};
