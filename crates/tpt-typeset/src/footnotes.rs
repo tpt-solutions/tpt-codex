@@ -11,6 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use tpt_codex_core::{Block, BlockId, Document};
+use tpt_codex_views::{Note, TextMeasure, layout_note};
 
 /// One footnote reference found in the document.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,4 +109,36 @@ pub fn unreferenced_footnotes(doc: &Document) -> Vec<BlockId> {
         .collect();
     out.sort();
     out.into_iter().map(|(_, block)| block).collect()
+}
+
+/// The footnotes of `doc` as notes for the foot of their pages, laid out at `width`.
+///
+/// Each footnote is one note, anchored at its first reference, and numbered as in
+/// [`footnote_numbers`]. A footnote that is referenced again is not repeated. A note's text is
+/// its number, a period, a space, and the definition's text. Footnotes with no reference, and
+/// references with no definition, give no note.
+pub fn footnote_notes(doc: &Document, measure: &dyn TextMeasure, width: f64) -> Vec<Note> {
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut notes = Vec::new();
+    for reference in check_footnotes(doc) {
+        let (Some(definition), Some(number)) = (reference.definition, reference.number) else {
+            continue;
+        };
+        if !seen.insert(reference.label.clone()) {
+            continue;
+        }
+        let Some(Block::Text { content, style }) = doc.get(definition) else {
+            continue;
+        };
+        let text = alloc::format!("{number}. {content}");
+        notes.push(layout_note(
+            reference.block,
+            definition,
+            &text,
+            style,
+            measure,
+            width,
+        ));
+    }
+    notes
 }

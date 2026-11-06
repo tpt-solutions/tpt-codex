@@ -18,10 +18,10 @@ use tpt_codex_core::{
 };
 use tpt_codex_grid::{CellResult, evaluate_sheet};
 use tpt_codex_views::{
-    FlowKind, FlowOptions, PageChrome, PageGeometry, TextMeasure, layout_flow, paginate,
+    FlowKind, FlowOptions, PageChrome, PageGeometry, TextMeasure, layout_flow, paginate_with_notes,
     render_chrome,
 };
-use tpt_typeset::{document_entities, run_query};
+use tpt_typeset::{document_entities, footnote_notes, run_query};
 
 /// Something the user did.
 #[derive(Debug, Clone, PartialEq)]
@@ -1187,7 +1187,8 @@ impl Editor {
         chrome: &PageChrome,
     ) -> Result<UITree<Msg>, String> {
         let layout = layout_flow(&self.doc, measure, flow).map_err(|e| e.to_string())?;
-        let pages = paginate(&layout, geometry).map_err(|e| e.to_string())?;
+        let notes = footnote_notes(&self.doc, measure, flow.width);
+        let pages = paginate_with_notes(&layout, geometry, &notes).map_err(|e| e.to_string())?;
         let rendered = render_chrome(&pages, chrome);
         Ok(UITree::container(|c| {
             for (page, marks) in pages.iter().zip(&rendered) {
@@ -1217,6 +1218,11 @@ impl Editor {
                                 let class = if *header { "grid-header" } else { "grid-row" };
                                 styled_text(p, format!("row {row}"), class);
                             }
+                        }
+                    }
+                    for note in &page.notes {
+                        if let FlowKind::Line { text, .. } = &note.kind {
+                            styled_text(p, text.clone(), "page-note");
                         }
                     }
                     if let Some(footer) = &marks.footer {

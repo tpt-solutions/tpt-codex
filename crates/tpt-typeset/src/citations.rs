@@ -4,7 +4,8 @@
 //! A citation is a link whose address starts with `@`, so `[Smith 2020](@smith2020)` cites the
 //! entry `smith2020`. The Markdown reader also reads the bare form `[@smith2020]`, which shows the
 //! key until the text is replaced. Entries come from a CSL-JSON array, the format that most
-//! reference managers export. Only the fields used for author-year citations are read.
+//! reference managers export, or from a BibTeX file (see `Library::from_bibtex`). Only the fields
+//! used for author-year citations are read.
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
@@ -102,6 +103,24 @@ impl Library {
                     "give each entry a different id",
                 ));
             }
+        }
+        Ok(Library { entries })
+    }
+
+    /// Reads BibTeX entries. Only the `author`, `title`, and `year` (or `date`) fields are kept.
+    /// Two entries with the same key are an error, as in CSL-JSON.
+    pub fn from_bibtex(src: &str) -> Result<Library, CslError> {
+        let mut entries = BTreeMap::new();
+        for ((line, column), reference) in crate::bibtex::parse(src)? {
+            if entries.contains_key(&reference.id) {
+                return Err(CslError {
+                    line,
+                    column,
+                    message: "two entries share an id",
+                    hint: "give each entry a different key",
+                });
+            }
+            entries.insert(reference.id.clone(), reference);
         }
         Ok(Library { entries })
     }

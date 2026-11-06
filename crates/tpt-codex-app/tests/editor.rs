@@ -835,6 +835,42 @@ fn the_paginated_view_cuts_the_document_into_pages() {
 }
 
 #[test]
+fn footnotes_show_once_at_the_foot_of_their_page_in_the_paginated_view() {
+    use tpt_codex_views::{FlowOptions, MonospaceMeasure, PageGeometry};
+    let doc = tpt_codex_markdown::from_markdown(
+        "Body with a note[^a].
+
+[^a]: The note text.
+",
+    )
+    .unwrap();
+    let measure = MonospaceMeasure {
+        char_width: 6.0,
+        line_height: 10.0,
+    };
+    let flow = FlowOptions {
+        width: 300.0,
+        block_spacing: 0.0,
+        box_height: 10.0,
+        row_height: 10.0,
+    };
+    let geometry = PageGeometry {
+        height: 200.0,
+        margin_top: 0.0,
+        margin_bottom: 0.0,
+        min_lines: 1,
+    };
+    let html = render(
+        &Editor::new(doc)
+            .paginated_view(&measure, flow, geometry)
+            .unwrap(),
+    );
+    assert!(html.contains("page-note"), "{html}");
+    assert!(html.contains("1. The note text."), "{html}");
+    assert_eq!(html.matches("The note text.").count(), 1, "{html}");
+}
+
+#[test]
 fn slides_can_be_reordered_and_the_move_undoes() {
     let mut e = Editor::new(doc());
     for _ in 0..3 {

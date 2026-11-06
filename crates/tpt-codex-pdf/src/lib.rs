@@ -25,10 +25,12 @@ use tpt_codex_grid::{CellResult, evaluate_sheet};
 use tpt_codex_text::{FontMeasure, GlyphLine, GlyphRun, TextError};
 use tpt_codex_views::{
     CanvasError, FlowItem, FlowKind, FlowOptions, LayoutError, PageChrome, PageError, PageGeometry,
-    PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow, paginate, render_chrome,
+    PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow, paginate_with_notes,
+    render_chrome,
 };
 use tpt_text::PathSegment;
 use tpt_text::fx::Fx;
+use tpt_typeset::footnote_notes;
 
 /// Margins, in points, from the edges of the paper.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -422,7 +424,8 @@ pub fn export_document_with_chrome(
             row_height: ROW_HEIGHT,
         },
     )?;
-    let pages = paginate(
+    let notes = footnote_notes(doc, measure, column);
+    let pages = paginate_with_notes(
         &flow,
         PageGeometry {
             height: paper.height,
@@ -430,6 +433,7 @@ pub fn export_document_with_chrome(
             margin_bottom: margins.bottom,
             min_lines: MIN_LINES,
         },
+        &notes,
     )?;
     let rendered = render_chrome(&pages, chrome);
 
@@ -452,7 +456,7 @@ pub fn export_document_with_chrome(
         }
         let mut ctx = Context::new(backend);
         ctx.set_glyph_source(Box::new(outlines.clone()));
-        for item in &page.items {
+        for item in page.items.iter().chain(&page.notes) {
             page_context.draw_flow_item(&mut ctx, item)?;
         }
         draw_page_chrome(&mut ctx, &outlines, measure, chrome_page, paper, margins)?;

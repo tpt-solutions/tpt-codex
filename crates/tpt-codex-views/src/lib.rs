@@ -31,7 +31,9 @@ pub use flow::{
     grid_rows_shown, layout_flow, layout_flow_cached,
 };
 pub use measure::{MonospaceMeasure, TextMeasure};
-pub use paginate::{Page, PageError, PageGeometry, paginate};
+pub use paginate::{
+    Note, Page, PageError, PageGeometry, layout_note, paginate, paginate_with_notes,
+};
 pub use svg::render_slide_svg;
 
 pub use tpt_codex_core as core;

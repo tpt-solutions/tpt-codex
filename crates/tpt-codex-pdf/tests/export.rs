@@ -151,6 +151,24 @@ fn an_empty_chrome_draws_the_same_as_no_chrome() {
 }
 
 #[test]
+fn a_footnote_is_drawn_at_the_foot_of_its_page() {
+    let with_note = document(
+        "A claim[^a].
+
+[^a]: The source for the claim.
+",
+    );
+    let without = document(
+        "A claim.
+",
+    );
+    let with_note = export_document(&with_note, PaperSize::A4, margins(), &measure()).unwrap();
+    let without = export_document(&without, PaperSize::A4, margins(), &measure()).unwrap();
+    assert_ne!(with_note, without, "the note should be drawn");
+    assert_eq!(page_count(&with_note), 1, "a note does not add a page");
+}
+
+#[test]
 fn lists_export_as_text_and_differ_from_plain_paragraphs() {
     let listed = document("- first item\n- second item\n");
     let plain = document("first item\n\nsecond item\n");

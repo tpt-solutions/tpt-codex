@@ -30,3 +30,4 @@ web-sys = { version = "0.3", features = ["Document", "Element", "Window"] }
 [dev-dependencies]
 # Tests only: the relay that the presence test talks through. Not part of the wasm build.
 tpt-codex-sync = { path = "../tpt-codex-sync" }
+tpt-codex-markdown.workspace = true

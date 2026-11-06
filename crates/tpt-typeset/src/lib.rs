@@ -27,6 +27,7 @@
 
 extern crate alloc;
 
+mod bibtex;
 mod bindings;
 mod boxes;
 mod citations;
@@ -54,7 +55,8 @@ pub use citations::{
 pub use class::{ClassSpec, DocumentClass, UnknownClass, class_of};
 pub use figures::{FigureEntry, FigureReferenceCheck, check_figure_references, figure_entries};
 pub use footnotes::{
-    FootnoteRef, check_footnotes, footnote_numbers, reading_order, unreferenced_footnotes,
+    FootnoteRef, check_footnotes, footnote_notes, footnote_numbers, reading_order,
+    unreferenced_footnotes,
 };
 pub use labels::{
     LabelEntry, LabelReferenceCheck, LabelTarget, check_label_references, label_entries,
