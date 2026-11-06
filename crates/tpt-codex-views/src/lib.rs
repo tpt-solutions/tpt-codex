@@ -27,8 +27,8 @@ mod svg;
 pub use canvas::{CanvasError, CanvasItem, CanvasLayout, layout_canvas, slide_ids};
 pub use chrome::{PageChrome, PaperSize, RenderedChrome, render_chrome, render_template};
 pub use flow::{
-    FlowCache, FlowItem, FlowKind, FlowLayout, FlowOptions, LayoutError, grid_rows_shown,
-    layout_flow, layout_flow_cached,
+    FlowCache, FlowItem, FlowKind, FlowLayout, FlowOptions, LIST_INDENT, LayoutError,
+    grid_rows_shown, layout_flow, layout_flow_cached,
 };
 pub use measure::{MonospaceMeasure, TextMeasure};
 pub use paginate::{Page, PageError, PageGeometry, paginate};

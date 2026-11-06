@@ -9,6 +9,10 @@ use tpt_codex_core::{Block, BlockId, Document, LayoutMode, SheetId, TextStyle};
 
 use crate::measure::TextMeasure;
 
+/// Indent of list item text from the left edge of the column, in points. The marker sits in
+/// this space.
+pub const LIST_INDENT: f64 = 18.0;
+
 /// Options for the flow projection.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlowOptions {
@@ -26,12 +30,18 @@ pub struct FlowOptions {
 /// What a flow item draws.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlowKind {
-    /// One line of wrapped text.
+    /// One line of wrapped text. Text in a list item is indented by `indent`, and the first line
+    /// of an item carries its marker (a bullet, or a number such as `2.`).
     Line {
         /// The text of this line.
         text: String,
         /// The style it is set in.
         style: TextStyle,
+        /// The list marker, on the first line of a list item. `None` for other text.
+        marker: Option<String>,
+        /// Space before the text, in points, from the left edge of the column. `0.0` for other
+        /// text.
+        indent: f64,
     },
     /// A non-text block, reserved as an opaque box.
     Box,
@@ -258,11 +268,49 @@ fn flow_children(
                         kind: FlowKind::Line {
                             text,
                             style: style.clone(),
+                            marker: None,
+                            indent: 0.0,
                         },
                     });
                     out.height += height;
                 }
                 *pending = bottom;
+            }
+            Block::List {
+                ordered,
+                start,
+                items,
+            } => {
+                // The items of a list stack with no gap between them. Each item's text is wrapped
+                // to the width left after the marker indent, and its first line carries the marker.
+                start_block(out, pending, 0.0);
+                let width = (options.width - LIST_INDENT).max(1.0);
+                for (index, &item) in items.iter().enumerate() {
+                    let Some(Block::Text { content, style }) = doc.get(item) else {
+                        continue;
+                    };
+                    let (lines, height) = wrapped_text(item, content, style, measure, width, cache);
+                    let marker = if *ordered {
+                        alloc::format!("{}.", start.saturating_add(index as u32))
+                    } else {
+                        String::from("\u{2022}")
+                    };
+                    for (line, text) in lines.into_iter().enumerate() {
+                        out.items.push(FlowItem {
+                            block: item,
+                            y: out.height,
+                            height,
+                            kind: FlowKind::Line {
+                                text,
+                                style: style.clone(),
+                                marker: (line == 0).then(|| marker.clone()),
+                                indent: LIST_INDENT,
+                            },
+                        });
+                        out.height += height;
+                    }
+                }
+                *pending = options.block_spacing;
             }
             Block::Container {
                 layout_mode: LayoutMode::Flow,

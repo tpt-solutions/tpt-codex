@@ -1199,9 +1199,13 @@ impl Editor {
                         .class("page-number");
                     for item in &page.items {
                         match &item.kind {
-                            FlowKind::Line { text, .. } => {
+                            FlowKind::Line { text, marker, .. } => {
+                                let shown = match marker {
+                                    Some(marker) => format!("{marker} {text}"),
+                                    None => text.clone(),
+                                };
                                 p.container(|s| {
-                                    s.text(text.clone());
+                                    s.text(shown);
                                 })
                                 .class("page-line")
                                 .on_click(Msg::Focus(item.block));

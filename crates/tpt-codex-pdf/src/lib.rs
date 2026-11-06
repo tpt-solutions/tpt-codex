@@ -5,8 +5,9 @@
 //! `tpt-text`), and drawn with `tpt-canvas` as glyph outlines. `tpt-canvas-pdf` writes the file.
 //!
 //! Because text is drawn as outlines, the PDF shows the text as laid out, but the text cannot be
-//! selected or searched. Bold text is drawn at regular weight (see
-//! [`FontMeasure::faces`](tpt_codex_text::FontMeasure::faces)).
+//! selected or searched. Bold text is drawn with the regular outlines, stroked with a thin line to
+//! thicken them. The bundled font has no bold outlines of its own, so this is an approximation of
+//! the bold weight that the layout measured.
 //!
 //! The output is deterministic: the same document and options give the same bytes.
 
@@ -14,14 +15,17 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use tpt_canvas::{Color, Context, GlyphSource, Paint, Path, PathBuilder, ShapedRun, Vec2};
+use tpt_canvas::{
+    Affine2, Color, Context, GlyphSource, LineJoin, Paint, Path, PathBuilder, ShapedRun,
+    StrokeStyle, Vec2,
+};
 use tpt_canvas_pdf::PdfBackend;
 use tpt_codex_core::{Block, BlockId, Document, SheetId, TextStyle};
 use tpt_codex_grid::{CellResult, evaluate_sheet};
-use tpt_codex_text::{FontMeasure, GlyphLine, TextError};
+use tpt_codex_text::{FontMeasure, GlyphLine, GlyphRun, TextError};
 use tpt_codex_views::{
-    CanvasError, FlowItem, FlowKind, FlowOptions, LayoutError, PageError, PageGeometry, PaperSize,
-    layout_canvas, layout_flow, paginate,
+    CanvasError, FlowItem, FlowKind, FlowOptions, LayoutError, PageChrome, PageError, PageGeometry,
+    PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow, paginate, render_chrome,
 };
 use tpt_text::PathSegment;
 use tpt_text::fx::Fx;
@@ -61,6 +65,12 @@ const ROW_HEIGHT: f64 = 16.0;
 const MIN_LINES: usize = 2;
 /// Fill of placeholder boxes.
 const BOX_FILL: Color = Color::rgba(0.9, 0.9, 0.9, 1.0);
+/// Colour of text and of the stroke that thickens bold text.
+const INK: Color = Color::rgba(0.0, 0.0, 0.0, 1.0);
+/// Width of the stroke that thickens bold text, as a fraction of the font size.
+const BOLD_STROKE_EM: f32 = 0.03;
+/// Height of a header or footer line, in points. Used to centre it in its margin.
+const CHROME_LINE: f64 = 14.0;
 
 /// Why an export failed.
 #[derive(Debug)]
@@ -117,6 +127,7 @@ impl From<TextError> for ExportError {
 /// `tpt-text` returns outlines in layout units with y down. `tpt-canvas` wants font units with
 /// y up, and scales them by `font_size / units_per_em` itself. So this asks for the outline at a
 /// size equal to units-per-em, which makes layout units equal font units, and then flips y.
+#[derive(Clone)]
 struct FaceOutlines {
     faces: Vec<Arc<tpt_text::font::FontFace>>,
 }
@@ -158,9 +169,17 @@ impl GlyphSource for FaceOutlines {
     }
 }
 
-/// Draws laid-out lines with their baseline at `(x, y)`, the top of the block.
-fn draw_lines(ctx: &mut Context<PdfBackend>, lines: &[GlyphLine], x: f32, y: f32) {
-    ctx.set_fill_paint(Paint::Solid(Color::rgba(0.0, 0.0, 0.0, 1.0)));
+/// Draws laid-out lines with their baseline at `(x, y)`, the top of the block. Bold lines are
+/// thickened by stroking each glyph's outline with the ink colour.
+fn draw_lines(
+    ctx: &mut Context<PdfBackend>,
+    outlines: &FaceOutlines,
+    lines: &[GlyphLine],
+    x: f32,
+    y: f32,
+    bold: bool,
+) {
+    ctx.set_fill_paint(Paint::Solid(INK));
     for line in lines {
         for run in &line.runs {
             let mut shaped = ShapedRun::new(run.face as u32, run.size);
@@ -176,8 +195,34 @@ fn draw_lines(ctx: &mut Context<PdfBackend>, lines: &[GlyphLine], x: f32, y: f32
             ctx.save();
             ctx.translate(x, y + line.baseline);
             ctx.draw_glyphs(&shaped);
+            if bold {
+                stroke_bold(ctx, outlines, run);
+            }
             ctx.restore();
         }
+    }
+}
+
+/// Strokes the outlines of a run's glyphs, in the same place [`Context::draw_glyphs`] fills them.
+/// The stroke adds weight to the regular glyphs, which approximates bold.
+fn stroke_bold(ctx: &mut Context<PdfBackend>, outlines: &FaceOutlines, run: &GlyphRun) {
+    let font = run.face as u32;
+    let Some(upem) = outlines.units_per_em(font).filter(|u| *u > 0.0) else {
+        return;
+    };
+    let scale = run.size / upem;
+    ctx.set_stroke_paint(Paint::Solid(INK));
+    ctx.set_stroke_style(StrokeStyle {
+        width: run.size * BOLD_STROKE_EM,
+        join: LineJoin::Round,
+        ..StrokeStyle::default()
+    });
+    for glyph in &run.glyphs {
+        let Some(outline) = outlines.outline(font, glyph.glyph) else {
+            continue;
+        };
+        let m = Affine2::translate(glyph.x, glyph.y) * Affine2::scale(scale, -scale);
+        ctx.stroke_path(&outline.transform(&m));
     }
 }
 
@@ -217,6 +262,7 @@ fn cell_address(col: u32, row: u32) -> String {
 struct PageContext<'a> {
     doc: &'a Document,
     measure: &'a FontMeasure,
+    outlines: &'a FaceOutlines,
     margins: Margins,
     column: f64,
     /// Computed cell values per sheet, filled on first use.
@@ -232,9 +278,26 @@ impl PageContext<'_> {
         let x = self.margins.left as f32;
         let y = (self.margins.top + item.y) as f32;
         match &item.kind {
-            FlowKind::Line { text, style } => {
+            FlowKind::Line {
+                text,
+                style,
+                marker,
+                indent,
+            } => {
                 let lines = self.measure.shape_lines(text, style, None)?;
-                draw_lines(ctx, &lines, x, y);
+                draw_lines(
+                    ctx,
+                    self.outlines,
+                    &lines,
+                    x + *indent as f32,
+                    y,
+                    style.bold,
+                );
+                // The marker shares the first line's baseline, since it is set in the same style.
+                if let Some(marker) = marker {
+                    let marks = self.measure.shape_lines(marker, style, None)?;
+                    draw_lines(ctx, self.outlines, &marks, x, y, style.bold);
+                }
             }
             FlowKind::Box => draw_box(ctx, x, y, self.column as f32, item.height as f32),
             FlowKind::GridRow { sheet, row, header } => {
@@ -278,21 +341,75 @@ impl PageContext<'_> {
                 &style,
                 Some((cell_width - 4.0).max(1.0) as f32),
             )?;
-            draw_lines(ctx, &lines, cell_x + 2.0, y);
+            draw_lines(ctx, self.outlines, &lines, cell_x + 2.0, y, style.bold);
         }
         Ok(())
     }
 }
 
+/// Draws one line of header or footer text at `x`, its block top at `y`.
+fn draw_chrome_text(
+    ctx: &mut Context<PdfBackend>,
+    outlines: &FaceOutlines,
+    measure: &FontMeasure,
+    text: &str,
+    x: f32,
+    y: f32,
+) -> Result<(), ExportError> {
+    let lines = measure.shape_lines(text, &TextStyle::default(), None)?;
+    draw_lines(ctx, outlines, &lines, x, y, false);
+    Ok(())
+}
+
+/// Draws the header and footer of one page. The header sits at the left of the top margin, and
+/// the footer is centred in the bottom margin. Each is centred vertically in its margin.
+fn draw_page_chrome(
+    ctx: &mut Context<PdfBackend>,
+    outlines: &FaceOutlines,
+    measure: &FontMeasure,
+    rendered: &RenderedChrome,
+    paper: PaperSize,
+    margins: Margins,
+) -> Result<(), ExportError> {
+    if let Some(header) = &rendered.header {
+        let top = ((margins.top - CHROME_LINE).max(0.0) / 2.0) as f32;
+        draw_chrome_text(ctx, outlines, measure, header, margins.left as f32, top)?;
+    }
+    if let Some(footer) = &rendered.footer {
+        let width = measure.width(footer, &TextStyle::default()) as f32;
+        let x = ((paper.width as f32) - width) / 2.0;
+        let top =
+            (paper.height - margins.bottom + (margins.bottom - CHROME_LINE).max(0.0) / 2.0) as f32;
+        draw_chrome_text(ctx, outlines, measure, footer, x, top)?;
+    }
+    Ok(())
+}
+
 /// Exports a paginated document as a PDF.
 ///
 /// The document is laid out as one column of width `paper.width - margins`, split into pages of
-/// `paper.height`, and drawn page by page. Headers and footers are not drawn.
+/// `paper.height`, and drawn page by page. No headers or footers are drawn; use
+/// [`export_document_with_chrome`] for those.
 pub fn export_document(
     doc: &Document,
     paper: PaperSize,
     margins: Margins,
     measure: &FontMeasure,
+) -> Result<Vec<u8>, ExportError> {
+    export_document_with_chrome(doc, paper, margins, measure, &PageChrome::default())
+}
+
+/// Exports a paginated document as a PDF, with a header and footer on every page.
+///
+/// The header and footer templates are those of [`PageChrome`]: `{page}` is the page number and
+/// `{pages}` the total. They are drawn in the top and bottom margins, so they never overlap the
+/// content. The content is laid out exactly as in [`export_document`].
+pub fn export_document_with_chrome(
+    doc: &Document,
+    paper: PaperSize,
+    margins: Margins,
+    measure: &FontMeasure,
+    chrome: &PageChrome,
 ) -> Result<Vec<u8>, ExportError> {
     let column = paper.width - margins.left - margins.right;
     let flow = layout_flow(
@@ -314,27 +431,31 @@ pub fn export_document(
             min_lines: MIN_LINES,
         },
     )?;
+    let rendered = render_chrome(&pages, chrome);
 
+    let outlines = FaceOutlines {
+        faces: measure.faces(),
+    };
     let (width, height) = (paper.width as f32, paper.height as f32);
     let mut backend = PdfBackend::new(width, height);
     let mut page_context = PageContext {
         doc,
         measure,
+        outlines: &outlines,
         margins,
         column,
         results: BTreeMap::new(),
     };
-    for (index, page) in pages.iter().enumerate() {
+    for (index, (page, chrome_page)) in pages.iter().zip(&rendered).enumerate() {
         if index > 0 {
             backend.new_page(width, height);
         }
         let mut ctx = Context::new(backend);
-        ctx.set_glyph_source(Box::new(FaceOutlines {
-            faces: measure.faces(),
-        }));
+        ctx.set_glyph_source(Box::new(outlines.clone()));
         for item in &page.items {
             page_context.draw_flow_item(&mut ctx, item)?;
         }
+        draw_page_chrome(&mut ctx, &outlines, measure, chrome_page, paper, margins)?;
         backend = ctx.into_backend();
     }
     Ok(backend.finish())
@@ -352,17 +473,18 @@ pub fn export_slide(
 ) -> Result<Vec<u8>, ExportError> {
     let layout = layout_canvas(doc, slide)?;
     let backend = PdfBackend::new(layout.width as f32, layout.height as f32);
-    let mut ctx = Context::new(backend);
-    ctx.set_glyph_source(Box::new(FaceOutlines {
+    let outlines = FaceOutlines {
         faces: measure.faces(),
-    }));
+    };
+    let mut ctx = Context::new(backend);
+    ctx.set_glyph_source(Box::new(outlines.clone()));
     for item in &layout.items {
         let Some(frame) = item.frame else { continue };
         let (x, y) = (frame.x as f32, frame.y as f32);
         match doc.get(item.block) {
             Some(Block::Text { content, style }) => {
                 let lines = measure.shape_lines(content, style, Some(frame.width as f32))?;
-                draw_lines(&mut ctx, &lines, x, y);
+                draw_lines(&mut ctx, &outlines, &lines, x, y, style.bold);
             }
             _ => draw_box(&mut ctx, x, y, frame.width as f32, frame.height as f32),
         }

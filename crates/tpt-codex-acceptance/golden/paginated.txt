@@ -1,33 +1,33 @@
 page 1
-  block 1 y 0.00 h 22.40 Line { text: "Section 1", style: TextStyle { bold: false, italic: false, heading_level: Some(2), runs: [] } }
-  block 2 y 22.40 h 14.00 Line { text: "Paragraph 2. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 2 y 36.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 2 y 50.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 3 y 64.40 h 14.00 Line { text: "Paragraph 3. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 3 y 78.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 3 y 92.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 4 y 106.40 h 14.00 Line { text: "Paragraph 4. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 4 y 120.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 4 y 134.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
+  block 1 y 0.00 h 22.40 Line { text: "Section 1", style: TextStyle { bold: false, italic: false, heading_level: Some(2), runs: [] }, marker: None, indent: 0.0 }
+  block 2 y 22.40 h 14.00 Line { text: "Paragraph 2. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 2 y 36.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 2 y 50.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 3 y 64.40 h 14.00 Line { text: "Paragraph 3. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 3 y 78.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 3 y 92.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 4 y 106.40 h 14.00 Line { text: "Paragraph 4. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 4 y 120.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 4 y 134.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
 page 2
-  block 5 y 0.00 h 22.40 Line { text: "Section 2", style: TextStyle { bold: false, italic: false, heading_level: Some(2), runs: [] } }
-  block 6 y 22.40 h 14.00 Line { text: "Paragraph 6. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 6 y 36.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 6 y 50.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 7 y 64.40 h 14.00 Line { text: "Paragraph 7. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 7 y 78.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 7 y 92.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 8 y 106.40 h 14.00 Line { text: "Paragraph 8. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 8 y 120.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 8 y 134.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
+  block 5 y 0.00 h 22.40 Line { text: "Section 2", style: TextStyle { bold: false, italic: false, heading_level: Some(2), runs: [] }, marker: None, indent: 0.0 }
+  block 6 y 22.40 h 14.00 Line { text: "Paragraph 6. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 6 y 36.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 6 y 50.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 7 y 64.40 h 14.00 Line { text: "Paragraph 7. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 7 y 78.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 7 y 92.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 8 y 106.40 h 14.00 Line { text: "Paragraph 8. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 8 y 120.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 8 y 134.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
 page 3
-  block 9 y 0.00 h 22.40 Line { text: "Section 3", style: TextStyle { bold: false, italic: false, heading_level: Some(2), runs: [] } }
-  block 10 y 22.40 h 14.00 Line { text: "Paragraph 10. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 10 y 36.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 10 y 50.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 11 y 64.40 h 14.00 Line { text: "Paragraph 11. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 11 y 78.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 11 y 92.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 12 y 106.40 h 14.00 Line { text: "Paragraph 12. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 12 y 120.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
-  block 12 y 134.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] } }
+  block 9 y 0.00 h 22.40 Line { text: "Section 3", style: TextStyle { bold: false, italic: false, heading_level: Some(2), runs: [] }, marker: None, indent: 0.0 }
+  block 10 y 22.40 h 14.00 Line { text: "Paragraph 10. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 10 y 36.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 10 y 50.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 11 y 64.40 h 14.00 Line { text: "Paragraph 11. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 11 y 78.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 11 y 92.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 12 y 106.40 h 14.00 Line { text: "Paragraph 12. The text wraps across lines at this", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 12 y 120.40 h 14.00 Line { text: "width so that the layout must break it and carry", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }
+  block 12 y 134.40 h 14.00 Line { text: "the rest to the next line.", style: TextStyle { bold: false, italic: false, heading_level: None, runs: [] }, marker: None, indent: 0.0 }

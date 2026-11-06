@@ -11,9 +11,11 @@ use tpt_codex_core::{
     Block, BlockId, Canvas, Document, LayoutMode, Rect, Sheet, SheetId, TextStyle,
 };
 use tpt_codex_markdown::from_markdown;
-use tpt_codex_pdf::{ExportError, Margins, export_document, export_slide};
+use tpt_codex_pdf::{
+    ExportError, Margins, export_document, export_document_with_chrome, export_slide,
+};
 use tpt_codex_text::FontMeasure;
-use tpt_codex_views::{PaperSize, layout_canvas};
+use tpt_codex_views::{PageChrome, PaperSize, layout_canvas};
 
 fn measure() -> FontMeasure {
     FontMeasure::bundled().expect("bundled font loads")
@@ -85,6 +87,76 @@ fn the_same_document_gives_the_same_bytes() {
     let first = export_document(&doc, PaperSize::A4, margins(), &measure()).unwrap();
     let second = export_document(&doc, PaperSize::A4, margins(), &measure()).unwrap();
     assert_eq!(first, second);
+}
+
+#[test]
+fn bold_text_is_drawn_differently_from_regular() {
+    let regular = document("A line of text.\n");
+    let mut bold = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: vec![BlockId(1)],
+        },
+    );
+    bold.insert(
+        BlockId(1),
+        Block::Text {
+            content: "A line of text.".into(),
+            style: TextStyle {
+                bold: true,
+                ..TextStyle::default()
+            },
+        },
+    );
+    let regular = export_document(&regular, PaperSize::A4, margins(), &measure()).unwrap();
+    let bold = export_document(&bold, PaperSize::A4, margins(), &measure()).unwrap();
+    assert_ne!(regular, bold, "bold text should be thickened");
+}
+
+#[test]
+fn headers_and_footers_are_drawn_on_every_page() {
+    let markdown: String = (0..200)
+        .map(|i| format!("Paragraph {i} with a little text.\n\n"))
+        .collect();
+    let doc = document(&markdown);
+    let chrome = PageChrome {
+        header: Some("Quarterly report".into()),
+        footer: Some("Page {page} of {pages}".into()),
+    };
+    let plain = export_document(&doc, PaperSize::A4, margins(), &measure()).unwrap();
+    let with =
+        export_document_with_chrome(&doc, PaperSize::A4, margins(), &measure(), &chrome).unwrap();
+    assert!(page_count(&plain) > 1, "{} pages", page_count(&plain));
+    assert_eq!(page_count(&with), page_count(&plain));
+    assert_ne!(plain, with, "the header and footer should be drawn");
+    let again =
+        export_document_with_chrome(&doc, PaperSize::A4, margins(), &measure(), &chrome).unwrap();
+    assert_eq!(with, again);
+}
+
+#[test]
+fn an_empty_chrome_draws_the_same_as_no_chrome() {
+    let doc = document("# Title\n\nBody.\n");
+    let plain = export_document(&doc, PaperSize::A4, margins(), &measure()).unwrap();
+    let empty = export_document_with_chrome(
+        &doc,
+        PaperSize::A4,
+        margins(),
+        &measure(),
+        &PageChrome::default(),
+    )
+    .unwrap();
+    assert_eq!(plain, empty);
+}
+
+#[test]
+fn lists_export_as_text_and_differ_from_plain_paragraphs() {
+    let listed = document("- first item\n- second item\n");
+    let plain = document("first item\n\nsecond item\n");
+    let listed = export_document(&listed, PaperSize::A4, margins(), &measure()).unwrap();
+    let plain = export_document(&plain, PaperSize::A4, margins(), &measure()).unwrap();
+    assert_ne!(listed, plain, "the bullets should be drawn");
 }
 
 #[test]
