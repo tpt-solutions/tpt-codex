@@ -112,6 +112,108 @@ pub fn bound_text(doc: &Document, block: BlockId, bindings: &Bindings) -> Option
     Some(out)
 }
 
+/// A copy of `doc` in which every bound `[[name]]` is replaced by its value, for output that has no
+/// live values (a PDF, a Word file, a printed page). A binding with no value keeps its name.
+/// Other runs in the same text move with it. Block ids do not change.
+///
+/// Returns `None` when no text block has a binding with a value, so a caller can keep using `doc`
+/// without a copy.
+pub fn resolve_bindings(doc: &Document, bindings: &Bindings) -> Option<Document> {
+    let mut out: Option<Document> = None;
+    for (&id, block) in &doc.blocks {
+        let Block::Text { style, .. } = block else {
+            continue;
+        };
+        if !style
+            .runs
+            .iter()
+            .any(|r| binding_name(r).is_some_and(|n| bindings.get(n).is_some()))
+        {
+            continue;
+        }
+        let Some(Block::Text { content, style }) = doc.get(id) else {
+            continue;
+        };
+        let (content, runs) = substitute(content, &style.runs, bindings);
+        let target = out.get_or_insert_with(|| doc.clone());
+        target.insert(
+            id,
+            Block::Text {
+                content,
+                style: tpt_codex_core::TextStyle {
+                    runs,
+                    ..style.clone()
+                },
+            },
+        );
+    }
+    out
+}
+
+/// Replaces the bound runs of one text, and moves the other runs to follow the new offsets.
+fn substitute(
+    content: &str,
+    runs: &[tpt_codex_core::InlineRun],
+    bindings: &Bindings,
+) -> (String, Vec<tpt_codex_core::InlineRun>) {
+    let chars: Vec<char> = content.chars().collect();
+    // (start, end, value length in characters, value), in text order, without overlaps.
+    let mut bound: Vec<(usize, usize, usize, &str)> = runs
+        .iter()
+        .filter_map(|run| {
+            let value = bindings.get(binding_name(run)?)?;
+            (run.start < run.end && run.end <= chars.len())
+                .then(|| (run.start, run.end, value.chars().count(), value))
+        })
+        .collect();
+    bound.sort_by_key(|&(start, ..)| start);
+    let mut kept: Vec<(usize, usize, usize, &str)> = Vec::new();
+    for b in bound {
+        if kept.last().is_none_or(|last| last.1 <= b.0) {
+            kept.push(b);
+        }
+    }
+
+    let mut text = String::new();
+    let mut cursor = 0;
+    for &(start, end, _, value) in &kept {
+        text.extend(&chars[cursor..start]);
+        text.push_str(value);
+        cursor = end;
+    }
+    text.extend(&chars[cursor..]);
+
+    // Where an old offset lands. An offset inside a replaced span goes to its start (for a run's
+    // start) or its end (for a run's end).
+    let map = |p: usize, is_end: bool| -> usize {
+        let mut shift: isize = 0;
+        for &(start, end, len, _) in &kept {
+            if p >= end {
+                shift += len as isize - (end - start) as isize;
+            } else if p > start {
+                let new_start = (start as isize + shift) as usize;
+                return if is_end { new_start + len } else { new_start };
+            } else {
+                break;
+            }
+        }
+        (p as isize + shift) as usize
+    };
+    let out = runs
+        .iter()
+        .filter(|run| !binding_name(run).is_some_and(|n| bindings.get(n).is_some()))
+        .filter_map(|run| {
+            let (start, end) = (map(run.start, false), map(run.end, true));
+            (start < end).then(|| tpt_codex_core::InlineRun {
+                start,
+                end,
+                ..run.clone()
+            })
+        })
+        .collect();
+    (text, out)
+}
+
 /// The name of a binding run, from its `var:` link. `None` for any other run.
 fn binding_name(run: &tpt_codex_core::InlineRun) -> Option<&str> {
     run.link.as_deref()?.strip_prefix(BINDING_PREFIX)

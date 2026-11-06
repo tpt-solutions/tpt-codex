@@ -310,3 +310,30 @@ fn a_flow_block_is_not_a_slide() {
     let error = export_slide(&doc, BlockId(0), &measure()).unwrap_err();
     assert!(matches!(error, ExportError::Canvas(_)), "{error}");
 }
+
+const LIVE: &str = "# Budget
+
+::: grid { id=\"1\" }
+| Item | Cost |
+| --- | --- |
+| Design | 1200 |
+| Build | 3400 |
+| Total | =SUM(B2:B3) |
+:::
+
+The total is [[sheet1.B4]].
+";
+
+/// `[[sheet1.B4]]` is drawn as that cell's value: the file is the same as for a document that
+/// has the number typed in.
+#[test]
+fn a_binding_is_drawn_as_its_computed_value() {
+    let live = from_markdown(LIVE).unwrap();
+    let typed = from_markdown(&LIVE.replace("[[sheet1.B4]]", "4600")).unwrap();
+    let other = from_markdown(&LIVE.replace("[[sheet1.B4]]", "4601")).unwrap();
+    let export = |doc: &Document| {
+        export_document(doc, PaperSize::A4, margins(), &measure()).expect("exports")
+    };
+    assert_eq!(export(&live), export(&typed));
+    assert_ne!(export(&live), export(&other), "the number is really drawn");
+}

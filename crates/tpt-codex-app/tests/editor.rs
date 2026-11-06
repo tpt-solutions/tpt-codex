@@ -1320,3 +1320,42 @@ fn presenting_is_read_only_and_its_keys_change_slides() {
             .contains(&("tabindex".to_string(), "0".to_string()))
     );
 }
+
+#[test]
+fn the_paginated_view_shows_a_binding_as_its_cell_value_and_the_editor_keeps_the_name() {
+    use tpt_codex_views::{FlowOptions, MonospaceMeasure, PageGeometry};
+    let doc = tpt_codex_markdown::from_markdown(
+        "::: grid { id=\"1\" }
+| a | b |
+| --- | --- |
+| 20 | 22 |
+| =SUM(A2:B2) | 0 |
+:::
+
+The answer is [[sheet1.A3]].
+",
+    )
+    .unwrap();
+    let measure = MonospaceMeasure {
+        char_width: 6.0,
+        line_height: 10.0,
+    };
+    let flow = FlowOptions {
+        width: 300.0,
+        block_spacing: 0.0,
+        box_height: 10.0,
+        row_height: 10.0,
+    };
+    let geometry = PageGeometry {
+        height: 400.0,
+        margin_top: 0.0,
+        margin_bottom: 0.0,
+        min_lines: 1,
+    };
+    let e = Editor::new(doc);
+    let pages = render(&e.paginated_view(&measure, flow, geometry).unwrap());
+    assert!(pages.contains("The answer is 42."), "{pages}");
+    // While editing, the paragraph still shows the name, so it can be changed.
+    let editing = render(&e.view());
+    assert!(editing.contains("sheet1.A3"), "{editing}");
+}

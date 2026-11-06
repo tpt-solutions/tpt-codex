@@ -206,6 +206,13 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] Versioning policy (`0.1.0-spec` → `0.1.0`) — _`docs/versioning.md`_
 - [ ] Publish crates once all TPT deps are on crates.io (git deps can't be published)
 
+## Live-calc documents
+- [x] `[[sheet1.B4]]` in prose shows the grid cell's computed value in PDF, `.docx` and the paginated view; the editor view keeps the name — _`tpt-typeset::resolve_bindings`, `tpt-codex-grid::{grid_bindings, resolve_document}`_
+- [x] Excel range syntax in formulas (`B2:B9`, `$B$2:$B$9`) — _rewritten to `RANGE(B2, B9)`, which is what `tpt-lattice` parses; found because the starter templates' formulas were parse errors_
+- [x] `tpt check` evaluates grids: formula errors and bindings with no value are errors
+- [ ] Names for cells other than `sheet<id>.<address>`, and inline formulas in prose
+- [ ] Query results as bindings (`[[q1]]`)
+
 ## Adoption tooling
 - [x] `tpt` CLI: `convert`, `check`, `watch`, `diff`, `new` — _`crates/tpt-codex-cli`, 13 integration tests; templates are `article`, `report`, `slides`, `budget`_
 - [x] Quickstart, `.cdx` cheat-sheet, migrating-from-Office guide — _`docs/`_

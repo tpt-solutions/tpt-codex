@@ -17,6 +17,7 @@ tpt-codex-core.workspace = true
 tpt-codex-markdown.workspace = true
 tpt-codex-interop.workspace = true
 tpt-codex-pdf.workspace = true
+tpt-codex-grid.workspace = true
 tpt-typeset.workspace = true
 serde_json = { workspace = true, features = ["std"] }
 

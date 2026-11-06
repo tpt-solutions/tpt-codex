@@ -615,6 +615,7 @@ version = "0.1.0-spec"
 dependencies = [
  "serde_json",
  "tpt-codex-core",
+ "tpt-codex-grid",
  "tpt-codex-interop",
  "tpt-codex-markdown",
  "tpt-codex-pdf",
@@ -634,8 +635,10 @@ name = "tpt-codex-grid"
 version = "0.1.0-spec"
 dependencies = [
  "tpt-codex-core",
+ "tpt-codex-markdown",
  "tpt-lattice-core",
  "tpt-lattice-evaluator",
+ "tpt-typeset",
 ]
 
 [[package]]

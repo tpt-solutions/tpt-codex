@@ -81,3 +81,72 @@ fn bindings_write_back_as_double_brackets() {
     let again = from_markdown(&written).unwrap();
     assert_eq!(to_markdown(&again).unwrap(), written);
 }
+
+#[test]
+fn resolving_replaces_each_bound_name_and_moves_the_other_runs() {
+    use tpt_codex_core::{Block, BlockId};
+    use tpt_typeset::resolve_bindings;
+
+    let doc = from_markdown("A **bold** [[x]] then *tail* and [[y]] end.\n").unwrap();
+    let mut bindings = Bindings::new();
+    bindings.set("x", "12345");
+    bindings.set("y", "7");
+    let resolved = resolve_bindings(&doc, &bindings).expect("two bindings have values");
+
+    let Some(Block::Text { content, style }) = resolved.get(BlockId(1)) else {
+        panic!("not text");
+    };
+    assert_eq!(content, "A bold 12345 then tail and 7 end.");
+    let spans: Vec<(String, bool, bool)> = style
+        .runs
+        .iter()
+        .map(|r| {
+            let text: String = content
+                .chars()
+                .skip(r.start)
+                .take(r.end - r.start)
+                .collect();
+            (text, r.bold, r.italic)
+        })
+        .collect();
+    assert_eq!(
+        spans,
+        [
+            ("bold".to_string(), true, false),
+            ("tail".to_string(), false, true)
+        ],
+        "the binding runs are gone and the emphasis still covers its words"
+    );
+    // The original is untouched, and other blocks keep their ids.
+    assert!(
+        matches!(doc.get(BlockId(1)), Some(Block::Text { content, .. }) if content.contains("[[")
+        || content.contains("x"))
+    );
+    assert_eq!(resolved.root, doc.root);
+}
+
+#[test]
+fn resolving_with_nothing_to_replace_returns_none() {
+    use tpt_typeset::resolve_bindings;
+    let doc = from_markdown("No bindings here.\n\nMissing [[nope]].\n").unwrap();
+    assert!(resolve_bindings(&doc, &Bindings::new()).is_none());
+    let mut other = Bindings::new();
+    other.set("different", "1");
+    assert!(resolve_bindings(&doc, &other).is_none());
+}
+
+#[test]
+fn an_unbound_name_keeps_its_text_when_others_are_resolved() {
+    use tpt_codex_core::{Block, BlockId};
+    use tpt_typeset::resolve_bindings;
+    let doc = from_markdown("[[a]] and [[b]]\n").unwrap();
+    let mut bindings = Bindings::new();
+    bindings.set("b", "two");
+    let resolved = resolve_bindings(&doc, &bindings).unwrap();
+    let Some(Block::Text { content, style }) = resolved.get(BlockId(1)) else {
+        panic!();
+    };
+    assert_eq!(content, "a and two");
+    assert_eq!(style.runs.len(), 1, "[[a]] is still a binding run");
+    assert_eq!((style.runs[0].start, style.runs[0].end), (0, 1));
+}

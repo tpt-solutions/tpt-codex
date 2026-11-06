@@ -187,7 +187,10 @@ pub fn save(doc: &Document, path: &Path) -> Result<Option<FidelityReport>, Strin
             None,
         ),
         Format::Docx => {
-            let export = export_docx(doc).map_err(|e| format!("{name}: {e}"))?;
+            // A Word file has no live values, so `[[sheet1.B4]]` is written as that cell's value.
+            let resolved = tpt_codex_grid::resolve_document(doc);
+            let export = export_docx(resolved.as_ref().unwrap_or(doc))
+                .map_err(|e| format!("{name}: {e}"))?;
             (export.bytes, Some(export.report))
         }
         Format::Xlsx => {

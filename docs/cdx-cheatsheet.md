@@ -81,6 +81,21 @@ See [the costs](#tab:costs).
 Cells starting with `=` are formulas. The `| --- |` line marks the rows above it as header rows,
 which repeat on each page. Each grid needs its own `id`.
 
+## Live values in text
+
+A grid cell can be shown in a sentence. Cells are named `sheet<id>.<address>`:
+
+```
+The total is [[sheet1.B4]].
+```
+
+The PDF, the Word file and the paginated view show the cell's computed value (`The total is 4600.`),
+and change when the cell does. The editor keeps showing the name while you edit. `tpt check` reports
+a name that has no value: a cell that does not exist, is empty, or has a formula error.
+
+Formulas use Excel's range syntax (`=SUM(B2:B3)`, `=AVERAGE($B$2:$B$9)`), and also `RANGE(B2, B3)`.
+`tpt check` reports a formula that does not evaluate.
+
 ## Slides
 
 ```

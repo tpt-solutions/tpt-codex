@@ -38,4 +38,4 @@ A live table. Cells starting with `=` are formulas.
 | Total | =SUM(B2:B3) |
 :::
 
-See [the table](#tab:totals).
+See [the table](#tab:totals): the total is [[sheet1.B4]].

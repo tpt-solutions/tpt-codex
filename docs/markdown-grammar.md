@@ -95,7 +95,8 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
   text. A link to `#anchor` is a cross-reference to a heading.
 - `[[name]]` is a binding. It reads as a run whose text is the name, and the typesetter replaces
   it with the value the host supplies for that name. A grid cell is named `sheet<id>.<address>`,
-  such as `[[sheet1.B2]]`. The writer writes it back as `[[name]]` only while its text is still the
+  such as `[[sheet1.B2]]`. PDF and Word export, and the paginated view, show a grid cell's computed
+  value in its place (`tpt-codex-grid::resolve_document`). The writer writes it back as `[[name]]` only while its text is still the
   name. A binding inside emphasis or a link is an error, and so is an unclosed `[[`.
 - A paragraph that starts `[^label]: ` is a footnote definition. Its text becomes the footnote's
   block, and it is written back in the same form. A plain paragraph that starts that way is escaped,

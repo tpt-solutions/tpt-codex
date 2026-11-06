@@ -8,6 +8,9 @@
 //! The core stores the inputs; this crate computes the results. It is `std` because
 //! `tpt-lattice-evaluator` is.
 //!
+//! [`resolve_document`] fills `[[sheet1.B4]]` in prose with that cell's computed value, for output
+//! that is not live.
+//!
 //! Errors stay in their cell. A formula that does not parse, a cycle, or a bad reference shows
 //! as [`CellResult::Error`] in that cell, and the other cells still compute.
 
@@ -16,9 +19,10 @@
 
 use std::collections::BTreeMap;
 
-use tpt_codex_core::{CellInput, Sheet, is_valid_address};
+use tpt_codex_core::{CellInput, Document, Sheet, is_valid_address};
 use tpt_lattice_core::{CellId, CellValue};
 use tpt_lattice_evaluator::Evaluator;
+use tpt_typeset::{Bindings, check_bindings, grid_cell_name, resolve_bindings};
 
 pub use tpt_codex_core as core;
 
@@ -110,7 +114,7 @@ impl GridSession {
                 self.evaluator.set_value(id, CellValue::Boolean(*value))
             }
             CellInput::Formula { source } => {
-                if let Err(e) = self.evaluator.set_formula(id, source) {
+                if let Err(e) = self.evaluator.set_formula(id, &translate_ranges(source)) {
                     // Drop any previous value or formula in the cell, and remember the error.
                     self.evaluator.set_value(id, CellValue::Empty);
                     self.parse_errors
@@ -162,6 +166,114 @@ pub fn evaluate_sheet(sheet: &Sheet) -> BTreeMap<String, CellResult> {
         }
     }
     results
+}
+
+/// Rewrites spreadsheet ranges to the evaluator's own syntax: `B2:B9` becomes `RANGE(B2, B9)`, so
+/// `=SUM(B2:B9)` works as it does in Excel. Dollar signs in a reference (`$B$2:$B$9`) are dropped,
+/// and references are upper-cased. Text inside double quotes is left alone.
+pub fn translate_ranges(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len() + 16);
+    let mut i = 0;
+    let mut in_text = false;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' {
+            in_text = !in_text;
+        }
+        let at_boundary = i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
+        if !in_text && at_boundary {
+            if let Some((first, next)) = cell_reference(&chars, i) {
+                if chars.get(next) == Some(&':') {
+                    if let Some((second, end)) = cell_reference(&chars, next + 1) {
+                        let boundary = chars
+                            .get(end)
+                            .is_none_or(|c| !(c.is_alphanumeric() || *c == '_' || *c == '('));
+                        if boundary {
+                            out.push_str(&format!("RANGE({first}, {second})"));
+                            i = end;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+/// A cell reference at `at`: optional `$`, one to three letters, optional `$`, then digits.
+/// Returns it upper-cased without dollar signs, and the index after it.
+fn cell_reference(chars: &[char], at: usize) -> Option<(String, usize)> {
+    let mut i = at;
+    let mut text = String::new();
+    if chars.get(i) == Some(&'$') {
+        i += 1;
+    }
+    let letters = chars[i..]
+        .iter()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .count();
+    if !(1..=3).contains(&letters) {
+        return None;
+    }
+    text.extend(chars[i..i + letters].iter().map(|c| c.to_ascii_uppercase()));
+    i += letters;
+    if chars.get(i) == Some(&'$') {
+        i += 1;
+    }
+    let digits = chars[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return None;
+    }
+    text.extend(&chars[i..i + digits]);
+    Some((text, i + digits))
+}
+
+/// A number as it reads in prose: whole numbers without a decimal point, and other numbers to at
+/// most ten decimals with no trailing zeros, so `0.1 + 0.2` shows as `0.3`.
+pub fn format_number(n: f64) -> String {
+    if !n.is_finite() {
+        return format!("{n}");
+    }
+    let text = format!("{n:.10}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" || text.is_empty() {
+        return String::from("0");
+    }
+    text.to_string()
+}
+
+/// The values of every grid cell in `doc`, bound under `sheet<id>.<address>` (for example
+/// `sheet1.B4`), so that `[[sheet1.B4]]` in a text block can show them. Formulas are evaluated.
+/// Empty cells and cells with an error are not bound.
+pub fn grid_bindings(doc: &Document) -> Bindings {
+    let mut bindings = Bindings::new();
+    for (&id, sheet) in &doc.sheets {
+        for (address, result) in evaluate_sheet(sheet) {
+            let value = match result {
+                CellResult::Number(n) => format_number(n),
+                CellResult::Text(s) => s,
+                CellResult::Boolean(true) => String::from("TRUE"),
+                CellResult::Boolean(false) => String::from("FALSE"),
+                CellResult::Empty | CellResult::Error(_) => continue,
+            };
+            bindings.set(&grid_cell_name(id, &address), &value);
+        }
+    }
+    bindings
+}
+
+/// `doc` with each `[[sheet<id>.<address>]]` replaced by that cell's computed value, for output
+/// that is not live (a PDF, a Word file). `None` when the document has no such binding, so
+/// nothing is evaluated or copied in the common case.
+pub fn resolve_document(doc: &Document) -> Option<Document> {
+    if check_bindings(doc, &Bindings::new()).is_empty() {
+        return None;
+    }
+    resolve_bindings(doc, &grid_bindings(doc))
 }
 
 fn to_result(value: CellValue) -> CellResult {

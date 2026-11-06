@@ -10,8 +10,12 @@ publish.workspace = true
 
 [dependencies]
 tpt-codex-core.workspace = true
+tpt-typeset.workspace = true
 tpt-lattice-core.workspace = true
 tpt-lattice-evaluator.workspace = true
+
+[dev-dependencies]
+tpt-codex-markdown.workspace = true
 
 [lints]
 workspace = true

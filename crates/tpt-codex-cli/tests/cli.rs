@@ -320,3 +320,60 @@ fn watcher_reports_the_first_look_and_each_change() {
     fs::remove_file(&file).unwrap();
     assert!(!watcher.changed(&file), "a missing file is not a change");
 }
+
+#[test]
+fn live_values_reach_the_word_file_and_edits_change_them() {
+    let dir = scratch("live");
+    let cdx = dir.join("budget.cdx");
+    tpt(&["new", "budget", "-o", s(&cdx)]);
+    let to_json = |from: &Path| {
+        let docx = dir.join("b.docx");
+        assert_eq!(tpt(&["convert", s(from), "-o", s(&docx)]).status, 0);
+        let json = dir.join("b.json");
+        assert_eq!(tpt(&["convert", s(&docx), "-o", s(&json)]).status, 0);
+        fs::read_to_string(json).unwrap()
+    };
+    let before = to_json(&cdx);
+    assert!(
+        before.contains("The figures are in the budget table. The grand total is 21700."),
+        "{before}"
+    );
+
+    // Change a cell and the number in the sentence follows.
+    let text = fs::read_to_string(&cdx)
+        .unwrap()
+        .replace("| 10000 | 10000 |", "| 10000 | 20000 |");
+    fs::write(&cdx, text).unwrap();
+    let after = to_json(&cdx);
+    assert!(after.contains("The grand total is 31700."), "{after}");
+}
+
+#[test]
+fn check_reports_formula_errors_and_unresolved_values() {
+    let dir = scratch("live-check");
+    let file = dir.join("bad.cdx");
+    fs::write(
+        &file,
+        "# T\n\n::: grid { id=\"1\" }\n| a | b |\n| --- | --- |\n| 1 | =1/0 |\n| 2 | =NOSUCH(A1) |\n:::\n\nValue [[sheet1.A2]], empty [[sheet1.Z9]], broken [[sheet1.B2]].\n",
+    )
+    .unwrap();
+    let out = tpt(&["check", s(&file)]);
+    assert_eq!(out.status, 1, "{}", out.out);
+    assert!(out.out.contains("cell B2: formula error"), "{}", out.out);
+    assert!(out.out.contains("cell B3: formula error"), "{}", out.out);
+    assert!(
+        out.out.contains("[[sheet1.Z9]] has no value"),
+        "{}",
+        out.out
+    );
+    assert!(
+        out.out.contains("[[sheet1.B2]] has no value"),
+        "{}",
+        out.out
+    );
+    assert!(
+        !out.out.contains("[[sheet1.A2]]"),
+        "a good binding is not reported: {}",
+        out.out
+    );
+}

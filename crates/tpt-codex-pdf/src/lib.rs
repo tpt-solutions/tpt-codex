@@ -436,6 +436,9 @@ pub fn export_document_with_chrome(
     measure: &FontMeasure,
     chrome: &PageChrome,
 ) -> Result<Vec<u8>, ExportError> {
+    // `[[sheet1.B4]]` in the text shows that cell's value in the file.
+    let resolved = tpt_codex_grid::resolve_document(doc);
+    let doc = resolved.as_ref().unwrap_or(doc);
     let column = paper.width - margins.left - margins.right;
     let flow = layout_flow_hyphenated(
         doc,

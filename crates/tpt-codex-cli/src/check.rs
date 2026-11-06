@@ -3,8 +3,9 @@
 
 use tpt_codex_core::{Block, BlockId, Document};
 use tpt_typeset::{
-    Library, check_citations, check_figure_references, check_footnotes, check_inline_math,
-    check_label_references, check_math_blocks, check_references, unreferenced_footnotes,
+    Library, check_bindings, check_citations, check_figure_references, check_footnotes,
+    check_inline_math, check_label_references, check_math_blocks, check_references,
+    unreferenced_footnotes,
 };
 
 /// How serious a finding is.
@@ -105,6 +106,38 @@ pub fn check_document(doc: &Document, library: Option<&Library>) -> Vec<Finding>
                 Severity::Error,
                 r.block,
                 format!("reference to #{} but nothing has that label", r.label),
+            );
+        }
+    }
+    for (&sheet, data) in &doc.sheets {
+        // The first grid block that shows the sheet, so the finding points somewhere.
+        let block = doc
+            .blocks
+            .iter()
+            .find_map(|(&id, b)| {
+                matches!(b, Block::Grid { sheet_id, .. } if *sheet_id == sheet).then_some(id)
+            })
+            .unwrap_or(doc.root);
+        for (address, result) in tpt_codex_grid::evaluate_sheet(data) {
+            if let tpt_codex_grid::CellResult::Error(message) = result {
+                add(
+                    Severity::Error,
+                    block,
+                    format!("grid {}, cell {address}: formula error: {message}", sheet.0),
+                );
+            }
+        }
+    }
+    let values = tpt_codex_grid::grid_bindings(doc);
+    for b in check_bindings(doc, &values) {
+        if b.value.is_none() {
+            add(
+                Severity::Error,
+                b.block,
+                format!(
+                    "[[{}]] has no value: no grid cell has that name, or the cell is empty or has an error (cells are named like sheet1.B4)",
+                    b.name
+                ),
             );
         }
     }

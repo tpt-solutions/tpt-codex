@@ -16,4 +16,4 @@ Edit the cells; formulas start with `=`.
 | Total | =SUM(B2:B3) | =SUM(C2:C3) | =SUM(D2:D3) |
 :::
 
-The figures are in [the budget table](#tab:budget).
+The figures are in [the budget table](#tab:budget). The grand total is [[sheet1.D4]].

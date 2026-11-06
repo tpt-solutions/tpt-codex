@@ -1288,8 +1288,11 @@ impl Editor {
         geometry: PageGeometry,
         chrome: &PageChrome,
     ) -> Result<UITree<Msg>, String> {
-        let layout = layout_flow_hyphenated(&self.doc, measure, flow).map_err(|e| e.to_string())?;
-        let notes = footnote_notes(&self.doc, measure, flow.width);
+        // The pages are for reading, so `[[sheet1.B4]]` shows that cell's value.
+        let resolved = tpt_codex_grid::resolve_document(&self.doc);
+        let doc = resolved.as_ref().unwrap_or(&self.doc);
+        let layout = layout_flow_hyphenated(doc, measure, flow).map_err(|e| e.to_string())?;
+        let notes = footnote_notes(doc, measure, flow.width);
         let pages = paginate_with_notes(&layout, geometry, &notes).map_err(|e| e.to_string())?;
         let rendered = render_chrome(&pages, chrome);
         Ok(UITree::container(|c| {

@@ -50,7 +50,9 @@ mod references;
 mod sections;
 mod semantic;
 
-pub use bindings::{BindingCheck, Bindings, bound_text, check_bindings, grid_cell_name};
+pub use bindings::{
+    BindingCheck, Bindings, bound_text, check_bindings, grid_cell_name, resolve_bindings,
+};
 pub use boxes::{SectionBox, section_boxes};
 pub use citations::{
     CitationCheck, CslError, Library, Name, Reference, author_year, bibliography, check_citations,

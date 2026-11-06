@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
 
 - Release workflow, `scripts/build-web.sh` and `.ps1`, a `justfile`, and a devcontainer.
 
+- Live values in text: `[[sheet1.B4]]` shows that grid cell's computed value in the PDF, the Word export
+  and the editor's paginated view (`tpt_typeset::resolve_bindings`, `tpt_codex_grid::grid_bindings` and
+  `resolve_document`). `tpt check` reports a binding with no value.
+- Formulas accept Excel's range syntax: `=SUM(B2:B9)`, with `$` references, is rewritten to the
+  evaluator's `RANGE(B2, B9)` (`tpt_codex_grid::translate_ranges`). `tpt check` reports formula errors.
 - Markdown: bold and italic on the same text, written and read as `***text***`. A block's own bold or
   italic flag is written as emphasis around its text (paragraphs, headings and list items), so a styled
   `.docx` converts to `.cdx`.
