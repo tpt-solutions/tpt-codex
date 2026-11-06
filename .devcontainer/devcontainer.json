@@ -1,0 +1,14 @@
+{
+  "name": "tpt-codex",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/python:1": {}
+  },
+  "postCreateCommand": "rustup target add wasm32-unknown-unknown thumbv7m-none-eabi && cargo install wasm-bindgen-cli --version 0.2.130 --locked && cargo install --path crates/tpt-codex-cli --locked",
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer", "tamasfe.even-better-toml"]
+    }
+  }
+}

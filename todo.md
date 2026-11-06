@@ -209,8 +209,9 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 ## Adoption tooling
 - [x] `tpt` CLI: `convert`, `check`, `watch`, `diff`, `new` — _`crates/tpt-codex-cli`, 13 integration tests; templates are `article`, `report`, `slides`, `budget`_
 - [x] Quickstart, `.cdx` cheat-sheet, migrating-from-Office guide — _`docs/`_
-- [ ] Release workflow (prebuilt `tpt` and relay binaries), build-web script, justfile, devcontainer
-- [ ] Relay: stop on ctrl-c
+- [x] Release workflow (`.github/workflows/release.yml`: `tpt` and the relay for Linux, Windows and macOS on a `v*` tag, with checksums) — _written, not yet run on GitHub_
+- [x] `scripts/build-web.sh` and `.ps1` (check the `wasm-bindgen` version, build, copy the page), `justfile`, `.devcontainer`
+- [x] Relay stop on ctrl-c — _not needed: ctrl-c ends the process and the relay keeps no state on disk. No dependency added for it_
 - [ ] Web demo opens and saves real files (today it mounts a sample document)
 - [ ] `.cdx` writer: whole-paragraph bold or italic and bold+italic (blocks `docx` → `.cdx` for such files)
 

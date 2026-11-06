@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 - `tpt_codex_pdf::export_with_defaults`: the app's one-click export (A4, class margins, `Page N of M`
   footer), shared by the app and the CLI.
 
+- Release workflow, `scripts/build-web.sh` and `.ps1`, a `justfile`, and a devcontainer.
+
 ### Fixed
 
 - `.docx` import no longer puts spaces at the edge of a bold or italic run, which Markdown cannot write.

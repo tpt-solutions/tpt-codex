@@ -20,9 +20,8 @@ By default it listens on `127.0.0.1:8787`. Options:
 Run `tpt-codex-relay --help` for the usage text. Flags must be positive whole numbers where they
 take a number.
 
-The relay stops accepting new connections when its serving loop is asked to stop
-(`tpt_codex_sync::serve_until`). The binary does not yet wire that to ctrl-c: stop it by ending the
-process. See the open items below.
+Stop the relay with ctrl-c, which ends the process. Nothing needs saving: the relay keeps its
+operations in memory only. Embedders that want a graceful stop can use `tpt_codex_sync::serve_until`.
 
 ## How the limits behave
 

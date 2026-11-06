@@ -4,6 +4,15 @@ The browser entry point: a `cdylib` that mounts the sample editor in a page.
 
 ## Build the demo
 
+The script does the steps below and checks the `wasm-bindgen` version for you:
+
+```sh
+scripts/build-web.sh            # or: scriptsuild-web.ps1   (add `release` / `-Profile release`)
+just serve                      # builds, then serves http://localhost:8000
+```
+
+By hand:
+
 ```sh
 cargo build -p tpt-codex-web --target wasm32-unknown-unknown
 wasm-bindgen --target web --out-dir target/web/pkg target/wasm32-unknown-unknown/debug/tpt_codex_web.wasm

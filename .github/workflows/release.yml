@@ -1,0 +1,78 @@
+name: Release
+
+# Builds the `tpt` command and the collaboration relay for each OS when a version tag is pushed,
+# and attaches them, with checksums, to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+            archive: zip
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p tpt-codex-cli -p tpt-codex-sync
+      - name: Package
+        shell: bash
+        run: |
+          name="tpt-codex-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          cp "target/${{ matrix.target }}/release/tpt${{ matrix.ext }}" "$name/"
+          cp "target/${{ matrix.target }}/release/tpt-codex-relay${{ matrix.ext }}" "$name/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "$name/"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a "$name.zip" "$name" > /dev/null
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+          echo "ARCHIVE=$name.${{ matrix.archive }}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
