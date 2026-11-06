@@ -18,19 +18,9 @@ allow = [
     "Unicode-3.0",
     "Zlib",
 ]
-deny = [
-    "GPL-2.0",
-    "GPL-2.0-only",
-    "GPL-2.0-or-later",
-    "GPL-3.0",
-    "GPL-3.0-only",
-    "GPL-3.0-or-later",
-    "AGPL-3.0",
-    "AGPL-3.0-only",
-    "AGPL-3.0-or-later",
-    "SSPL-1.0",
-    "BUSL-1.1",
-]
+# Copyleft and source-available licenses (GPL-*, AGPL-*, SSPL-1.0, BUSL-1.1) are
+# not listed in `allow`, so they are rejected. cargo-deny removed the `deny` key
+# under [licenses] (deprecated, now a config error), so they are not repeated here.
 confidence-threshold = 0.93
 
 [bans]
