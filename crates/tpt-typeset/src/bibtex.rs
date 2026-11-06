@@ -6,8 +6,9 @@
 //! `@preamble` and `@string` are handled. Only the fields used for author-year citations are kept:
 //! `author`, `title`, and `year` (or the year of `date`).
 //!
-//! Not read: the name particles beyond the common `von` rule, and TeX accents. A backslash is
-//! dropped, so `{\"O}zt\"urk` reads as `Oztrk`. Such values need to be written as UTF-8.
+//! TeX accents and letter commands become characters for the common letters, so `{\"O}zt\"urk`
+//! reads as `Öztürk` and `\ss` as `ß`. Other commands are dropped. Not read: the name particles
+//! beyond the common `von` rule.
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
@@ -330,21 +331,225 @@ fn top_level_find(s: &str, needle: char) -> Option<usize> {
     None
 }
 
-/// Removes braces and TeX backslashes, and collapses whitespace.
+/// Removes braces, turns TeX accents and letter commands into characters, and collapses
+/// whitespace. An accent with no precomposed character for its letter leaves the letter.
 fn clean(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
     let mut out = String::new();
-    let mut escaped = false;
-    for c in s.chars() {
-        if escaped {
-            out.push(c);
-            escaped = false;
-        } else if c == '\\' {
-            escaped = true;
-        } else if c != '{' && c != '}' {
-            out.push(c);
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '{' | '}' => i += 1,
+            '\\' => {
+                i += 1;
+                let Some(&next) = chars.get(i) else { break };
+                if next.is_ascii_alphabetic() {
+                    let start = i;
+                    while chars.get(i).is_some_and(|c| c.is_ascii_alphabetic()) {
+                        i += 1;
+                    }
+                    let name: String = chars[start..i].iter().collect();
+                    skip_spaces(&chars, &mut i);
+                    if let Some(letter) = letter_command(&name) {
+                        skip_empty_group(&chars, &mut i);
+                        out.push(letter);
+                    } else if let Some(accent) = accent_letter(&name) {
+                        if let Some(base) = argument(&chars, &mut i) {
+                            out.push(compose(accent, base));
+                        }
+                    }
+                    // Any other command name is dropped, with its backslash.
+                } else if ACCENT_SYMBOLS.contains(&next) {
+                    i += 1;
+                    if let Some(base) = argument(&chars, &mut i) {
+                        out.push(compose(next, base));
+                    }
+                } else {
+                    // An escaped character, such as \& or \%.
+                    out.push(next);
+                    i += 1;
+                }
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The accents of TeX's symbol form: `\'e`, `\"o`, `\^a`, `\~n`, `` \`a ``, `\=a`.
+const ACCENT_SYMBOLS: &[char] = &['\'', '`', '^', '"', '~', '='];
+
+/// The accent that a letter command names: `\c{c}` (cedilla), `\v{s}` (caron), `\r{a}` (ring).
+/// Cedilla is stored under `,`, the character of its accent symbol in the table.
+fn accent_letter(name: &str) -> Option<char> {
+    match name {
+        "c" => Some(','),
+        "v" => Some('v'),
+        "r" => Some('r'),
+        _ => None,
+    }
+}
+
+/// The character for a letter command such as `\ss` or `\o`.
+fn letter_command(name: &str) -> Option<char> {
+    Some(match name {
+        "ss" => 'ß',
+        "o" => 'ø',
+        "O" => 'Ø',
+        "ae" => 'æ',
+        "AE" => 'Æ',
+        "oe" => 'œ',
+        "OE" => 'Œ',
+        "aa" => 'å',
+        "AA" => 'Å',
+        "l" => 'ł',
+        "L" => 'Ł',
+        "i" => 'ı',
+        _ => return None,
+    })
+}
+
+/// The letter an accent applies to: one letter, or one letter in braces, read from `i`.
+fn argument(chars: &[char], i: &mut usize) -> Option<char> {
+    skip_spaces(chars, i);
+    match chars.get(*i)? {
+        '{' => {
+            let inner: Vec<char> = chars[*i + 1..]
+                .iter()
+                .take_while(|c| **c != '}')
+                .copied()
+                .collect();
+            *i += inner.len() + 2;
+            match inner.as_slice() {
+                [c] => Some(*c),
+                _ => None,
+            }
+        }
+        c => {
+            let c = *c;
+            *i += 1;
+            Some(c)
+        }
+    }
+}
+
+/// Skips the empty group that ends some command names, as in `\ss{}`.
+fn skip_empty_group(chars: &[char], i: &mut usize) {
+    if chars.get(*i) == Some(&'{') && chars.get(*i + 1) == Some(&'}') {
+        *i += 2;
+    }
+}
+
+fn skip_spaces(chars: &[char], i: &mut usize) {
+    while chars.get(*i).is_some_and(|c| *c == ' ') {
+        *i += 1;
+    }
+}
+
+/// The precomposed character for an accent and a letter, or the letter itself if there is none.
+fn compose(accent: char, base: char) -> char {
+    const TABLE: &[(char, char, char)] = &[
+        ('\'', 'a', 'á'),
+        ('\'', 'e', 'é'),
+        ('\'', 'i', 'í'),
+        ('\'', 'o', 'ó'),
+        ('\'', 'u', 'ú'),
+        ('\'', 'y', 'ý'),
+        ('\'', 'A', 'Á'),
+        ('\'', 'E', 'É'),
+        ('\'', 'I', 'Í'),
+        ('\'', 'O', 'Ó'),
+        ('\'', 'U', 'Ú'),
+        ('\'', 'Y', 'Ý'),
+        ('\'', 'c', 'ć'),
+        ('\'', 'C', 'Ć'),
+        ('\'', 'n', 'ń'),
+        ('\'', 'N', 'Ń'),
+        ('\'', 's', 'ś'),
+        ('\'', 'S', 'Ś'),
+        ('\'', 'z', 'ź'),
+        ('\'', 'Z', 'Ź'),
+        ('`', 'a', 'à'),
+        ('`', 'e', 'è'),
+        ('`', 'i', 'ì'),
+        ('`', 'o', 'ò'),
+        ('`', 'u', 'ù'),
+        ('`', 'A', 'À'),
+        ('`', 'E', 'È'),
+        ('`', 'I', 'Ì'),
+        ('`', 'O', 'Ò'),
+        ('`', 'U', 'Ù'),
+        ('^', 'a', 'â'),
+        ('^', 'e', 'ê'),
+        ('^', 'i', 'î'),
+        ('^', 'o', 'ô'),
+        ('^', 'u', 'û'),
+        ('^', 'A', 'Â'),
+        ('^', 'E', 'Ê'),
+        ('^', 'I', 'Î'),
+        ('^', 'O', 'Ô'),
+        ('^', 'U', 'Û'),
+        ('^', 'c', 'ĉ'),
+        ('^', 'g', 'ĝ'),
+        ('^', 's', 'ŝ'),
+        ('^', 'w', 'ŵ'),
+        ('^', 'y', 'ŷ'),
+        ('"', 'a', 'ä'),
+        ('"', 'e', 'ë'),
+        ('"', 'i', 'ï'),
+        ('"', 'o', 'ö'),
+        ('"', 'u', 'ü'),
+        ('"', 'y', 'ÿ'),
+        ('"', 'A', 'Ä'),
+        ('"', 'E', 'Ë'),
+        ('"', 'I', 'Ï'),
+        ('"', 'O', 'Ö'),
+        ('"', 'U', 'Ü'),
+        ('"', 'Y', 'Ÿ'),
+        ('~', 'a', 'ã'),
+        ('~', 'n', 'ñ'),
+        ('~', 'o', 'õ'),
+        ('~', 'A', 'Ã'),
+        ('~', 'N', 'Ñ'),
+        ('~', 'O', 'Õ'),
+        (',', 'c', 'ç'),
+        (',', 'C', 'Ç'),
+        (',', 's', 'ş'),
+        (',', 'S', 'Ş'),
+        ('v', 'c', 'č'),
+        ('v', 'C', 'Č'),
+        ('v', 's', 'š'),
+        ('v', 'S', 'Š'),
+        ('v', 'z', 'ž'),
+        ('v', 'Z', 'Ž'),
+        ('v', 'r', 'ř'),
+        ('v', 'R', 'Ř'),
+        ('v', 'e', 'ě'),
+        ('v', 'E', 'Ě'),
+        ('v', 'n', 'ň'),
+        ('v', 'N', 'Ň'),
+        ('r', 'a', 'å'),
+        ('r', 'A', 'Å'),
+        ('r', 'u', 'ů'),
+        ('r', 'U', 'Ů'),
+        ('=', 'a', 'ā'),
+        ('=', 'e', 'ē'),
+        ('=', 'i', 'ī'),
+        ('=', 'o', 'ō'),
+        ('=', 'u', 'ū'),
+        ('=', 'A', 'Ā'),
+        ('=', 'E', 'Ē'),
+        ('=', 'I', 'Ī'),
+        ('=', 'O', 'Ō'),
+        ('=', 'U', 'Ū'),
+    ];
+    TABLE
+        .iter()
+        .find(|(a, b, _)| *a == accent && *b == base)
+        .map_or(base, |(_, _, out)| *out)
 }
 
 /// A character reader that keeps the line and column of its position for errors.

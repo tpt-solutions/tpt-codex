@@ -128,3 +128,34 @@ fn duplicate_keys_are_an_error_at_the_second_entry() {
     assert_eq!(err.message, "two entries share an id");
     assert_eq!(err.line, 2);
 }
+
+#[test]
+fn tex_accents_and_letter_commands_become_characters() {
+    let src = r#"@misc{k,
+  author = {{\"O}zt\"urk, Ay{\c s}e and Jos{\'e} M{\"u}ller and Str{\o}m, Bj{\o}rn and \v{S}imon Novak},
+  title  = {Caf\'e {\&} na{\"i}ve \emph{text}}
+}"#;
+    let lib = Library::from_bibtex(src).unwrap();
+    let entry = lib.get("k").unwrap();
+    assert_eq!(entry.title, "Café & naïve text");
+    let names: Vec<(&str, &str)> = entry
+        .authors
+        .iter()
+        .map(|n| (n.family.as_str(), n.given.as_str()))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("Öztürk", "Ayşe"),
+            ("Müller", "José"),
+            ("Strøm", "Bjørn"),
+            ("Novak", "Šimon"),
+        ]
+    );
+}
+
+#[test]
+fn an_accent_without_a_precomposed_letter_keeps_the_letter() {
+    let lib = Library::from_bibtex(r#"@misc{k, title = {\'{q}\v{x}}}"#).unwrap();
+    assert_eq!(lib.get("k").unwrap().title, "qx");
+}
