@@ -71,12 +71,25 @@ tpt diff old.cdx new.cdx
 Changed paragraphs are shown word by word as `[-removed-]` and `[+added+]`. The exit status is 1
 when the files differ.
 
+## Merge two edited copies
+
+```sh
+tpt merge base.cdx mine.cdx theirs.cdx -o merged.cdx
+```
+
+Two people edited copies of `base.cdx`. Their changes are combined: different paragraphs, different
+words in the same paragraph, added and removed paragraphs, list items, footnotes and grid cells.
+Paragraphs are matched between the files by what they say, not by position, so a paragraph added near
+the top does not confuse the merge. When both people changed the same words, `merged.cdx` keeps
+yours, the conflict is listed, and the exit status is 1. Run again with `--prefer ours` or
+`--prefer theirs` to settle every conflict one way.
+
 ## Exit status
 
 | Status | Meaning |
 | --- | --- |
 | 0 | Success |
-| 1 | The command found problems, or could not read or write a file |
+| 1 | The command found problems (for `merge`, conflicts left unresolved), or could not read or write a file |
 | 2 | Bad usage (unknown command or option, missing argument) |
 
 ## The browser editor

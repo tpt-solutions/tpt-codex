@@ -128,7 +128,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [~] Structured, actionable errors ("Line 42: unclosed environment") — _partial: Markdown and math errors carry line, column and hint_
 - [~] Incremental compilation / watch mode (via `tpt-layout` incremental relayout) — _partial: `layout_flow_cached` with a `FlowCache` re-wraps only the text blocks that changed (tested by counting measurements). Watch mode and `tpt-layout` relayout are not done_
 - [~] WASM in-browser live preview — _partial: the editor runs in Chrome as a wasm module (`tpt-codex-web`), with a demo page and a browser test. It is an editor, not a preview of a rendered page; the paginated view is not on the page yet_
-- [~] Semantic diff/merge integration via `tpt-version` — _partial: word-level diff of text blocks and a block-level diff are in the in-house log. Merging two diverged versions is not done_
+- [x] Semantic diff/merge integration via `tpt-version` — _in-house: word-level diff, block-level diff and `three_way_merge` (`tpt-codex-core::merge`) are done, and `tpt merge` runs it on files. `tpt-version` is not used_
 
 **Milestone 2:** A `.cdx` file with Markdown, math, and cross-references exports to a beautifully typeset PDF.
 (Note: depends on the PDF backend in Phase 3 — either reorder, or ship a minimal `tpt-canvas-pdf` hookup here.)
@@ -214,7 +214,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [ ] Query results as bindings (`[[q1]]`)
 
 ## Adoption tooling
-- [x] `tpt` CLI: `convert`, `check`, `watch`, `diff`, `new` — _`crates/tpt-codex-cli`, 13 integration tests; templates are `article`, `report`, `slides`, `budget`_
+- [x] `tpt` CLI: `convert`, `check`, `watch`, `diff`, `merge`, `new` — _`crates/tpt-codex-cli`; templates are `article`, `report`, `slides`, `budget`_
 - [x] Quickstart, `.cdx` cheat-sheet, migrating-from-Office guide — _`docs/`_
 - [x] Release workflow (`.github/workflows/release.yml`: `tpt` and the relay for Linux, Windows and macOS on a `v*` tag, with checksums) — _written, not yet run on GitHub_
 - [x] `scripts/build-web.sh` and `.ps1` (check the `wasm-bindgen` version, build, copy the page), `justfile`, `.devcontainer`

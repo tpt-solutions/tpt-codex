@@ -2,8 +2,9 @@
 //! The `tpt` command line. `run` takes the arguments and two writers, so the commands can be
 //! tested without starting a process.
 //!
-//! Commands: `convert`, `check`, `watch`, `diff` and `new`. Run `tpt --help` for the usage text.
+//! Commands: `convert`, `check`, `watch`, `diff`, `merge` and `new`. Run `tpt --help` for the usage text.
 
+mod align;
 mod check;
 mod formats;
 mod templates;
@@ -12,7 +13,10 @@ mod watch;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use tpt_codex_core::{Block, ChangeKind, Document, TextChange, diff_documents, diff_text};
+use tpt_codex_core::{
+    Block, ChangeKind, Document, Policy, Side, Target, TextChange, diff_documents, diff_text,
+    three_way_merge,
+};
 use tpt_typeset::Library;
 
 pub use check::{Finding, Severity, check_document, excerpt};
@@ -29,6 +33,7 @@ USAGE:
     tpt check <INPUT> [--bib FILE] [--strict]
     tpt watch <INPUT> -o <OUTPUT> [--poll-ms N]
     tpt diff <OLD> <NEW>
+    tpt merge <BASE> <OURS> <THEIRS> -o <OUTPUT> [--prefer ours|theirs]
     tpt new <TEMPLATE> [-o FILE] [--force]
     tpt new --list
 
@@ -42,10 +47,12 @@ OPTIONS:
     --bib FILE          Bibliography for checking citations (CSL-JSON, or BibTeX for .bib).
     --strict            Treat warnings as errors.
     --poll-ms N         How often `watch` looks for a change (default 500).
+    --prefer SIDE       For `merge`: settle every conflict with `ours` or `theirs`.
     --force             Overwrite an existing file.
     -h, --help          Show this text.
 
-Exit status: 0 success, 1 the command found problems or failed, 2 bad usage.";
+Exit status: 0 success, 1 the command found problems or failed (for `merge`, conflicts were left
+for you to settle), 2 bad usage.";
 
 #[derive(Debug, Default)]
 struct Opts {
@@ -57,6 +64,7 @@ struct Opts {
     force: bool,
     list: bool,
     poll_ms: Option<u64>,
+    prefer: Option<String>,
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts, String> {
@@ -80,6 +88,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         match name.as_str() {
             "-o" | "--output" => opts.output = Some(value("--output")?),
             "--bib" => opts.bib = Some(value("--bib")?),
+            "--prefer" => opts.prefer = Some(value("--prefer")?),
             "--poll-ms" => {
                 let text = value("--poll-ms")?;
                 let n: u64 = text.parse().ok().filter(|n| *n > 0).ok_or_else(|| {
@@ -123,6 +132,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         "check" => check_command(&opts, out, err),
         "watch" => watch_command(&opts, out, err),
         "diff" => diff_command(&opts, out),
+        "merge" => merge_command(&opts, out),
         "new" => new_command(&opts, out),
         other => Err(Failure::Usage(format!("unknown command '{other}'"))),
     };
@@ -318,6 +328,62 @@ fn diff_command(opts: &Opts, out: &mut dyn Write) -> Result<i32, Failure> {
     }
     let _ = writeln!(out, "{} block(s) differ", changes.len());
     Ok(if changes.is_empty() { 0 } else { 1 })
+}
+
+fn merge_command(opts: &Opts, out: &mut dyn Write) -> Result<i32, Failure> {
+    let [base, ours, theirs] = opts.positional.as_slice() else {
+        return Err(Failure::Usage(
+            "merge needs three files: <BASE> <OURS> <THEIRS>".into(),
+        ));
+    };
+    let output = output_of(opts)?;
+    let policy = match opts.prefer.as_deref() {
+        None => Policy::Manual,
+        Some("ours") => Policy::KeepOurs,
+        Some("theirs") => Policy::KeepTheirs,
+        Some(other) => {
+            return Err(Failure::Usage(format!(
+                "--prefer takes ours or theirs, not {other}"
+            )));
+        }
+    };
+    let base = load(Path::new(base))?.document;
+    let ours = load(Path::new(ours))?.document;
+    let theirs = load(Path::new(theirs))?.document;
+    // Files read from text number their blocks by position, so line the two sides up with the
+    // base first.
+    let mut next = align::first_free_id(&[&base, &ours, &theirs]);
+    let ours = align::align(&base, &ours, &mut next);
+    let theirs = align::align(&base, &theirs, &mut next);
+    let merge = three_way_merge(&base, &ours, &theirs, policy)
+        .map_err(|e| format!("the files cannot be merged: {e:?}"))?;
+    save(&merge.document, output)?;
+
+    let mut unresolved = 0;
+    for conflict in &merge.conflicts {
+        let place = match &conflict.target {
+            Target::Block(id) => excerpt(&ours, *id),
+            Target::Setting(name) => (*name).to_string(),
+            Target::Sheet(id) => format!("grid {}", id.0),
+            Target::Attribute { name, block } => format!("{name} of {}", excerpt(&ours, *block)),
+        };
+        let outcome = match conflict.resolution {
+            Some(Side::Ours) => "kept ours",
+            Some(Side::Theirs) => "kept theirs",
+            None => {
+                unresolved += 1;
+                "left as ours; settle it by hand or run again with --prefer"
+            }
+        };
+        let _ = writeln!(out, "conflict: {place}: {outcome}");
+    }
+    let _ = writeln!(
+        out,
+        "merged into {} ({} conflict(s), {unresolved} unresolved)",
+        output.display(),
+        merge.conflicts.len()
+    );
+    Ok(if unresolved > 0 { 1 } else { 0 })
 }
 
 fn new_command(opts: &Opts, out: &mut dyn Write) -> Result<i32, Failure> {

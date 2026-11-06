@@ -18,6 +18,9 @@ All notable changes to this project are documented here. The format follows
 
 - Release workflow, `scripts/build-web.sh` and `.ps1`, a `justfile`, and a devcontainer.
 
+- `tpt merge <BASE> <OURS> <THEIRS> -o <OUT> [--prefer ours|theirs]`: the core's three-way merge on text
+  files. Blocks are matched with the base by kind and word overlap first, because a file read from
+  Markdown numbers its blocks by position and an added paragraph would shift every later id.
 - Live values in text: `[[sheet1.B4]]` shows that grid cell's computed value in the PDF, the Word export
   and the editor's paginated view (`tpt_typeset::resolve_bindings`, `tpt_codex_grid::grid_bindings` and
   `resolve_document`). `tpt check` reports a binding with no value.
