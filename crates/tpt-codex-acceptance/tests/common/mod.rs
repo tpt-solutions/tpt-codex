@@ -16,6 +16,11 @@ pub const MEASURE: MonospaceMeasure = MonospaceMeasure {
     line_height: 14.0,
 };
 
+/// Number of page objects in a PDF written by `tpt-canvas-pdf`.
+pub fn pdf_page_count(pdf: &[u8]) -> usize {
+    String::from_utf8_lossy(pdf).matches("/Type /Page ").count()
+}
+
 /// Reads a file from the repository's `fixtures/office` directory.
 pub fn office_fixture(name: &str) -> Vec<u8> {
     std::fs::read(format!(

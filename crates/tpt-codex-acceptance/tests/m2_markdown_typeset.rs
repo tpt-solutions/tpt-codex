@@ -2,17 +2,19 @@
 //! Milestone 2 (todo.md): "A `.cdx` file with Markdown, math, and cross-references exports to a
 //! beautifully typeset PDF."
 //!
-//! The PDF export is blocked: `tpt-canvas-pdf` writes glyph runs as placeholder comments. The
-//! headless part is tested here: the file is read, its references and math are checked, it is
-//! written back exactly, and it is laid out and paginated. The PDF test is ignored until the
-//! backend draws text.
+//! The headless part is tested here: the file is read, its references and math are checked, it is
+//! written back exactly, and it is laid out and paginated. The PDF export draws the text as glyph
+//! outlines, so the PDF is checked by its structure and by repeating the export.
 
 use tpt_codex_markdown::{from_markdown, to_markdown};
+use tpt_codex_pdf::{Margins, export_document};
+use tpt_codex_text::FontMeasure;
+use tpt_codex_views::PaperSize;
 use tpt_codex_views::{FlowOptions, PageGeometry, layout_flow, paginate};
 use tpt_typeset::{Library, bibliography, check_math_blocks, check_references};
 
 mod common;
-use common::MEASURE;
+use common::{MEASURE, pdf_page_count};
 
 const CDX: &str = "---\ntitle: \"Notes\"\nclass: report\n---\n\n\
 # Introduction\n\nSee [the method](#method) and the result [@smith2020].\n\n\
@@ -68,7 +70,18 @@ fn a_cdx_file_with_markdown_math_and_cross_references_is_read_checked_and_laid_o
 }
 
 #[test]
-#[ignore = "PDF export is blocked: tpt-canvas-pdf writes glyph runs as placeholder comments"]
 fn the_cdx_file_exports_to_a_typeset_pdf() {
-    unreachable!("enable when tpt-canvas-pdf draws glyph runs");
+    let doc = from_markdown(CDX).unwrap();
+    let measure = FontMeasure::bundled().unwrap();
+    let pdf = export_document(&doc, PaperSize::A4, Margins::all(56.0), &measure).unwrap();
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(
+        pdf.ends_with(
+            b"%%EOF
+"
+        ) || pdf.ends_with(b"%%EOF")
+    );
+    assert_eq!(pdf_page_count(&pdf), 1, "the sample fits on one page");
+    let again = export_document(&doc, PaperSize::A4, Margins::all(56.0), &measure).unwrap();
+    assert_eq!(pdf, again, "the export is byte-exact");
 }

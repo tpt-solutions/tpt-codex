@@ -2,18 +2,22 @@
 //! Milestone 3 (todo.md): "One-click export of the Phase 1 hybrid document to a byte-exact,
 //! paginated PDF."
 //!
-//! The PDF is blocked on `tpt-canvas-pdf`, so its test is ignored. The headless parts are tested
-//! here: the hybrid document (text, a live grid and a media block) paginates across pages, repeats
-//! the grid's header rows on each continuation page, and lays out the same way every time. The
-//! golden file in `tests/golden.rs` pins the bytes of the paginated view.
+//! The headless parts are tested here: the hybrid document (text, a live grid and a media block)
+//! paginates across pages, repeats the grid's header rows on each continuation page, and lays out
+//! the same way every time. The golden file in `tests/golden.rs` pins the bytes of the paginated
+//! view. The PDF export is tested here too: it runs to several pages and gives the same bytes
+//! each time.
 
 use tpt_codex_core::{
     Block, BlockId, CellInput, Document, LayoutMode, MediaSource, Sheet, SheetId, TextStyle,
 };
+use tpt_codex_pdf::{Margins, export_document};
+use tpt_codex_text::FontMeasure;
+use tpt_codex_views::PaperSize;
 use tpt_codex_views::{FlowKind, FlowOptions, PageGeometry, layout_flow, paginate};
 
 mod common;
-use common::MEASURE;
+use common::{MEASURE, pdf_page_count};
 
 /// A hybrid document: a title, a long paragraph, a 40-row grid with two header rows, and a
 /// picture.
@@ -152,7 +156,16 @@ fn the_same_document_lays_out_to_the_same_pages_every_time() {
 }
 
 #[test]
-#[ignore = "PDF export is blocked: tpt-canvas-pdf writes glyph runs as placeholder comments"]
 fn one_click_export_gives_a_byte_exact_paginated_pdf() {
-    unreachable!("enable when tpt-canvas-pdf draws glyph runs");
+    let doc = hybrid_document();
+    let measure = FontMeasure::bundled().unwrap();
+    let margins = Margins::all(56.0);
+    let pdf = export_document(&doc, PaperSize::A4, margins, &measure).unwrap();
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(
+        pdf_page_count(&pdf) > 1,
+        "the 40-row grid runs to more than one page"
+    );
+    let again = export_document(&doc.clone(), PaperSize::A4, margins, &measure).unwrap();
+    assert_eq!(pdf, again, "the export is byte-exact");
 }

@@ -550,6 +550,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-canvas"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-canvas?rev=e4515600a767f5df5cbf200daabe03d3980308e2#e4515600a767f5df5cbf200daabe03d3980308e2"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "tpt-canvas-pdf"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-canvas?rev=e4515600a767f5df5cbf200daabe03d3980308e2#e4515600a767f5df5cbf200daabe03d3980308e2"
+dependencies = [
+ "tpt-canvas",
+ "tpt-canvas-raster",
+]
+
+[[package]]
+name = "tpt-canvas-raster"
+version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-canvas?rev=e4515600a767f5df5cbf200daabe03d3980308e2#e4515600a767f5df5cbf200daabe03d3980308e2"
+dependencies = [
+ "libm",
+ "tpt-canvas",
+]
+
+[[package]]
 name = "tpt-codex-acceptance"
 version = "0.1.0-spec"
 dependencies = [
@@ -558,6 +584,8 @@ dependencies = [
  "tpt-codex-grid",
  "tpt-codex-interop",
  "tpt-codex-markdown",
+ "tpt-codex-pdf",
+ "tpt-codex-text",
  "tpt-codex-views",
  "tpt-typeset",
 ]
@@ -573,6 +601,7 @@ dependencies = [
  "tpt-codex-core",
  "tpt-codex-grid",
  "tpt-codex-markdown",
+ "tpt-codex-sync",
  "tpt-codex-views",
  "tpt-typeset",
  "web-sys",
@@ -612,6 +641,20 @@ version = "0.1.0-spec"
 dependencies = [
  "serde_json",
  "tpt-codex-core",
+]
+
+[[package]]
+name = "tpt-codex-pdf"
+version = "0.1.0-spec"
+dependencies = [
+ "tpt-canvas",
+ "tpt-canvas-pdf",
+ "tpt-codex-core",
+ "tpt-codex-grid",
+ "tpt-codex-markdown",
+ "tpt-codex-text",
+ "tpt-codex-views",
+ "tpt-text",
 ]
 
 [[package]]
@@ -718,6 +761,7 @@ dependencies = [
  "tpt-codex-markdown",
  "tpt-codex-views",
  "tpt-query",
+ "ttf-parser",
 ]
 
 [[package]]

@@ -1,0 +1,24 @@
+[package]
+name = "tpt-codex-pdf"
+description = "PDF export for tpt-codex: paginated documents and single slides, drawn with tpt-canvas and written by tpt-canvas-pdf (std)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tpt-codex-core.workspace = true
+tpt-codex-views.workspace = true
+tpt-codex-text.workspace = true
+tpt-codex-grid.workspace = true
+tpt-text.workspace = true
+tpt-canvas.workspace = true
+tpt-canvas-pdf.workspace = true
+
+[dev-dependencies]
+tpt-codex-markdown.workspace = true
+
+[lints]
+workspace = true

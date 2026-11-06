@@ -20,6 +20,7 @@ tpt-codex-app = { path = "crates/tpt-codex-app" }
 tpt-codex-grid = { path = "crates/tpt-codex-grid" }
 tpt-codex-text = { path = "crates/tpt-codex-text" }
 tpt-codex-sync = { path = "crates/tpt-codex-sync" }
+tpt-codex-pdf = { path = "crates/tpt-codex-pdf" }
 
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
@@ -39,6 +40,9 @@ tpt-appfront-html = { git = "https://github.com/tpt-solutions/tpt-appfront", rev
 tpt-appfront-dom = { git = "https://github.com/tpt-solutions/tpt-appfront", rev = "5d5dfd6bb18d25a2b33e9c17f04173f3f3eabe67" }
 tpt-text = { git = "https://github.com/tpt-solutions/tpt-text", rev = "83bc13c624b9aa3cee1eccedbb6c8376e4144ea6" }
 tpt-layout = { git = "https://github.com/tpt-solutions/tpt-layout", rev = "21361d18fb09e4cb620baa5571c707172ca5b355" }
+# PDF output. e451560 is the glyph-outline fix (tpt-canvas master HEAD on 2026-11-06).
+tpt-canvas = { git = "https://github.com/tpt-solutions/tpt-canvas", rev = "e4515600a767f5df5cbf200daabe03d3980308e2" }
+tpt-canvas-pdf = { git = "https://github.com/tpt-solutions/tpt-canvas", rev = "e4515600a767f5df5cbf200daabe03d3980308e2" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
