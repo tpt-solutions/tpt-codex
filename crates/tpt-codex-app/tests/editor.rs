@@ -731,6 +731,76 @@ fn moving_a_block_keeps_it_on_the_slide_and_undoes() {
 }
 
 #[test]
+fn dragging_a_block_moves_it_by_points_and_is_one_undo_step() {
+    let mut e = slide_with_placed_title();
+    let origin = e.document().frames[&BlockId(1)];
+    // The block is drawn twice its size, so 2 CSS pixels are 1 point.
+    e.update(Msg::PressSlideBlock {
+        block: BlockId(1),
+        x: 300.0,
+        y: 300.0,
+        rendered_width: 200.0,
+    });
+    assert_eq!(e.selected_block(), Some(BlockId(1)));
+    e.update(Msg::DragSlideBlock { x: 340.0, y: 320.0 });
+
+    // While dragging the document is unchanged, but the block is drawn where it is dragged.
+    assert_eq!(e.document().frames[&BlockId(1)], origin);
+    // The renderer for tests does not write custom attributes, so read the slide child's style.
+    let view = e.view();
+    let mut nodes = Vec::new();
+    all_nodes(&view, &mut nodes);
+    let shown = nodes
+        .iter()
+        .flat_map(|n| n.meta.attrs.iter())
+        .find(|(name, value)| name == "style" && value.contains("position:absolute"))
+        .map(|(_, value)| value.clone())
+        .expect("the slide child has a positioned style");
+    assert!(shown.contains("left:30px; top:20px"), "{shown}");
+
+    e.update(Msg::DropSlideBlock);
+    assert_eq!(e.status(), None);
+    let moved = e.document().frames[&BlockId(1)];
+    assert_eq!((moved.x, moved.y), (30.0, 20.0));
+
+    e.update(Msg::Undo);
+    assert_eq!(e.document().frames[&BlockId(1)], origin, "one undo step");
+}
+
+#[test]
+fn a_drag_without_a_scale_moves_one_point_per_pixel_and_stays_on_the_slide() {
+    let mut e = slide_with_placed_title();
+    e.update(Msg::PressSlideBlock {
+        block: BlockId(1),
+        x: 0.0,
+        y: 0.0,
+        rendered_width: 0.0,
+    });
+    e.update(Msg::DragSlideBlock {
+        x: -100_000.0,
+        y: 100_000.0,
+    });
+    e.update(Msg::DropSlideBlock);
+    let far = e.document().frames[&BlockId(1)];
+    assert_eq!((far.x, far.y), (0.0, 540.0 - 50.0));
+}
+
+#[test]
+fn a_drop_where_the_drag_started_changes_nothing() {
+    let mut e = slide_with_placed_title();
+    let origin = e.document().frames[&BlockId(1)];
+    e.update(Msg::PressSlideBlock {
+        block: BlockId(1),
+        x: 50.0,
+        y: 50.0,
+        rendered_width: 100.0,
+    });
+    e.update(Msg::DropSlideBlock);
+    assert_eq!(e.status(), None);
+    assert_eq!(e.document().frames[&BlockId(1)], origin);
+}
+
+#[test]
 fn resizing_stops_at_the_slide_edge_and_refuses_bad_sizes() {
     let mut e = slide_with_placed_title();
     e.update(Msg::ResizeBlock {
@@ -1116,9 +1186,18 @@ fn a_slide_child_is_selected_by_pointer_and_nudged_by_keys() {
     let mut e = slide_with_placed_title();
     let before = e.document().frames[&BlockId(1)];
 
-    // Pressing on the placed child selects it, and the slide draws the selection.
+    // Pressing on the placed child selects it (and starts a drag), and the slide draws the
+    // selection.
     let selects = pointer_handler(&e.view(), "slide-child");
-    assert_eq!(selects, vec![Msg::SelectBlock(Some(BlockId(1)))]);
+    assert_eq!(
+        selects,
+        vec![Msg::PressSlideBlock {
+            block: BlockId(1),
+            x: 0.0,
+            y: 0.0,
+            rendered_width: 0.0,
+        }]
+    );
     e.update(selects[0].clone());
     assert_eq!(e.selected_block(), Some(BlockId(1)));
     assert!(render(&e.view()).contains("slide-child selected"));

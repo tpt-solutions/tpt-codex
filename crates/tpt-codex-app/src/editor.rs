@@ -18,8 +18,8 @@ use tpt_codex_core::{
 };
 use tpt_codex_grid::{CellResult, evaluate_sheet};
 use tpt_codex_views::{
-    FlowKind, FlowOptions, PageChrome, PageGeometry, TextMeasure, layout_flow, paginate_with_notes,
-    render_chrome,
+    FlowKind, FlowOptions, PageChrome, PageGeometry, TextMeasure, layout_flow_hyphenated,
+    paginate_with_notes, render_chrome,
 };
 use tpt_typeset::{document_entities, footnote_notes, run_query};
 
@@ -143,6 +143,29 @@ pub enum Msg {
     /// block, and Alt with an arrow key resizes it (Shift takes ten times as far). Escape clears
     /// the selection. Only a block on a slide can be selected.
     SelectBlock(Option<BlockId>),
+    /// The pointer pressed on a block on a slide: select it and start a drag. `x` and `y` are the
+    /// pointer's position in CSS pixels, and `rendered_width` is the block's width on screen, in
+    /// CSS pixels, which gives the scale from pixels to points.
+    PressSlideBlock {
+        /// The block pressed. It must be a child of a slide.
+        block: BlockId,
+        /// Pointer position, in CSS pixels.
+        x: f64,
+        /// Pointer position, in CSS pixels.
+        y: f64,
+        /// The block's width on screen, in CSS pixels. `0.0` when unknown: the scale is then 1.
+        rendered_width: f64,
+    },
+    /// The pointer moved during a drag. The block follows it, and stays inside its slide.
+    DragSlideBlock {
+        /// Pointer position, in CSS pixels.
+        x: f64,
+        /// Pointer position, in CSS pixels.
+        y: f64,
+    },
+    /// The pointer was released: the drag ends and the block moves to where it was dropped, as one
+    /// undoable step.
+    DropSlideBlock,
     /// Place `block` on the slide that holds it, at `frame`. `None` removes its position.
     PlaceBlock {
         /// The block to place. It must be a child of a slide.
@@ -262,6 +285,8 @@ pub struct Editor {
     fullscreen: bool,
     /// The block selected on a slide, if any. Only used while editing, not presenting.
     selected_block: Option<BlockId>,
+    /// The drag of a slide block, from its press until its release.
+    drag: Option<SlideDrag>,
     /// The form values of each query block, not yet applied.
     query_drafts: BTreeMap<BlockId, QueryDraft>,
     /// Other people's carets, drawn in their paragraphs.
@@ -299,6 +324,7 @@ impl Editor {
             paginated: false,
             fullscreen: false,
             selected_block: None,
+            drag: None,
             query_drafts: BTreeMap::new(),
             remote_cursors: Vec::new(),
             cache: RefCell::new(BTreeMap::new()),
@@ -353,6 +379,7 @@ impl Editor {
         let before_caret = self.caret.map(|s| s.block);
         let before_cell = self.cell.map(|f| f.sheet);
         let before_selected = self.selected_block;
+        let before_drag = self.drag.map(|d| d.block);
         let result = match msg {
             Msg::Focus(id) => {
                 self.caret = match self.doc.get(id) {
@@ -387,6 +414,14 @@ impl Editor {
             Msg::InsertQuery => self.insert_query(),
             Msg::InsertSlideText { slide } => self.insert_slide_text(slide),
             Msg::SelectBlock(block) => self.select_block(block),
+            Msg::PressSlideBlock {
+                block,
+                x,
+                y,
+                rendered_width,
+            } => self.press_slide_block(block, x, y, rendered_width),
+            Msg::DragSlideBlock { x, y } => self.drag_slide_block(x, y),
+            Msg::DropSlideBlock => self.drop_slide_block(),
             Msg::StartPresenting { index } => {
                 let count = self.slide_ids().len();
                 if count == 0 {
@@ -461,6 +496,8 @@ impl Editor {
         let selected: BTreeSet<BlockId> = before_selected
             .into_iter()
             .chain(self.selected_block)
+            .chain(before_drag)
+            .chain(self.drag.map(|d| d.block))
             .collect();
         self.mark_stale(&selected, &BTreeSet::new(), false);
     }
@@ -997,6 +1034,71 @@ impl Editor {
         Ok(())
     }
 
+    /// Selects the block pressed and starts its drag. The pointer's distances are turned into
+    /// points with the block's width on screen: a block drawn at twice its size moves half as far
+    /// per pixel.
+    fn press_slide_block(
+        &mut self,
+        block: BlockId,
+        x: f64,
+        y: f64,
+        rendered_width: f64,
+    ) -> Result<(), String> {
+        self.select_block(Some(block))?;
+        let (origin, canvas) = self.placed(block)?;
+        let px_per_point = if rendered_width > 0.0 && origin.width > 0.0 {
+            rendered_width / origin.width
+        } else {
+            1.0
+        };
+        self.drag = Some(SlideDrag {
+            block,
+            start: (x, y),
+            origin,
+            canvas,
+            px_per_point,
+            preview: origin,
+        });
+        Ok(())
+    }
+
+    /// Moves the drawn position of the block being dragged. The block stays inside its slide.
+    fn drag_slide_block(&mut self, x: f64, y: f64) -> Result<(), String> {
+        let Some(drag) = self.drag.as_mut() else {
+            return Ok(());
+        };
+        let dx = (x - drag.start.0) / drag.px_per_point;
+        let dy = (y - drag.start.1) / drag.px_per_point;
+        drag.preview = Rect {
+            x: clamp_to(
+                drag.origin.x + dx,
+                0.0,
+                drag.canvas.width - drag.origin.width,
+            ),
+            y: clamp_to(
+                drag.origin.y + dy,
+                0.0,
+                drag.canvas.height - drag.origin.height,
+            ),
+            ..drag.origin
+        };
+        Ok(())
+    }
+
+    /// Ends the drag. The block moves to where it was dropped, as one undoable step; a drop where
+    /// it started changes nothing.
+    fn drop_slide_block(&mut self) -> Result<(), String> {
+        let Some(drag) = self.drag.take() else {
+            return Ok(());
+        };
+        let dx = drag.preview.x - drag.origin.x;
+        let dy = drag.preview.y - drag.origin.y;
+        if dx == 0.0 && dy == 0.0 {
+            return Ok(());
+        }
+        self.move_block(drag.block, dx, dy)
+    }
+
     fn move_block(&mut self, block: BlockId, dx: f64, dy: f64) -> Result<(), String> {
         let (frame, canvas) = self.placed(block)?;
         if !dx.is_finite() || !dy.is_finite() {
@@ -1186,7 +1288,7 @@ impl Editor {
         geometry: PageGeometry,
         chrome: &PageChrome,
     ) -> Result<UITree<Msg>, String> {
-        let layout = layout_flow(&self.doc, measure, flow).map_err(|e| e.to_string())?;
+        let layout = layout_flow_hyphenated(&self.doc, measure, flow).map_err(|e| e.to_string())?;
         let notes = footnote_notes(&self.doc, measure, flow.width);
         let pages = paginate_with_notes(&layout, geometry, &notes).map_err(|e| e.to_string())?;
         let rendered = render_chrome(&pages, chrome);
@@ -1527,7 +1629,13 @@ impl Editor {
                         .on_click(Msg::InsertSlideText { slide: id });
                 }
                 for &child in children {
-                    match self.doc.frames.get(&child) {
+                    // A block being dragged is drawn where the drag has taken it.
+                    let shown = self
+                        .drag
+                        .filter(|d| d.block == child)
+                        .map(|d| d.preview)
+                        .or_else(|| self.doc.frames.get(&child).copied());
+                    match shown {
                         Some(frame) => {
                             let style = format!(
                                 "{aspect} position:absolute; left:{}px; top:{}px; width:{}px; height:{}px;",
@@ -1543,7 +1651,18 @@ impl Editor {
                                     "slide-child"
                                 });
                             if editing {
-                                wrap.on_pointer_down(move |_| Some(Msg::SelectBlock(Some(child))));
+                                // The press selects and starts a drag. The pointer is captured
+                                // by the block, so the drag continues outside it.
+                                wrap.on_pointer_down(move |p| {
+                                    Some(Msg::PressSlideBlock {
+                                        block: child,
+                                        x: p.x,
+                                        y: p.y,
+                                        rendered_width: p.target_width,
+                                    })
+                                })
+                                .on_pointer_move(|p| Some(Msg::DragSlideBlock { x: p.x, y: p.y }))
+                                .on_pointer_up(|_| Some(Msg::DropSlideBlock));
                             }
                         }
                         None => self.view_block(slide, child),
@@ -1739,6 +1858,24 @@ const NO_CARET: &str = "no caret: click a paragraph first";
 
 /// The arrow key a keydown reports (`ArrowUp` and so on), as a cell movement. Other keys are
 /// left alone, so they still edit the cell.
+/// A slide block being dragged. The block is shown at `preview` until the drop, when it moves
+/// there in one step.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SlideDrag {
+    /// The block being dragged.
+    block: BlockId,
+    /// The pointer position at the press, in CSS pixels.
+    start: (f64, f64),
+    /// The block's frame at the press, in points. The drag starts from here.
+    origin: Rect,
+    /// The slide's size, which keeps the block inside it.
+    canvas: Canvas,
+    /// CSS pixels per point, from the block's width on screen.
+    px_per_point: f64,
+    /// Where the block is drawn now, in points.
+    preview: Rect,
+}
+
 /// Keys for a selected slide block. Arrows move it by one point, or ten with Shift. Alt with an
 /// arrow resizes it instead: right and down grow it, left and up shrink it. Keys with Ctrl or
 /// Meta are left to the browser.

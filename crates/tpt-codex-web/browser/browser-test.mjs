@@ -229,6 +229,36 @@ await page.keyboard.press("Escape");
 await page.waitForTimeout(100);
 check("escape clears the slide selection", (await page.locator(".slide-child.selected").count()) === 0);
 
+// Dragging: press on the box and move the pointer. The box moves by the pointer distance in its
+// own units, which is the distance on screen divided by how big the slide is drawn. One undo step.
+const readPosition = async () => {
+  const style = await page.locator(".slide-child").getAttribute("style");
+  const m = style.match(/left:(-?[\d.]+)px; top:(-?[\d.]+)px/);
+  return { x: Number(m[1]), y: Number(m[2]), width: Number(style.match(/width:([\d.]+)px/)[1]) };
+};
+const startPosition = await readPosition();
+const box = await page.locator(".slide-child").boundingBox();
+const scale = box.width / startPosition.width;
+const startX = box.x + box.width / 2;
+const startY = box.y + box.height / 2;
+await page.mouse.move(startX, startY);
+await page.mouse.down();
+await page.mouse.move(startX + 60, startY + 30, { steps: 6 });
+await page.mouse.up();
+await page.waitForTimeout(150);
+const dragged = await readPosition();
+const expectX = startPosition.x + 60 / scale;
+const expectY = startPosition.y + 30 / scale;
+check(
+  "dragging a box moves it by the pointer distance",
+  Math.abs(dragged.x - expectX) <= 2 && Math.abs(dragged.y - expectY) <= 2,
+  `from (${startPosition.x}, ${startPosition.y}) to (${dragged.x}, ${dragged.y}), expected about (${expectX.toFixed(1)}, ${expectY.toFixed(1)})`,
+);
+await page.getByRole("button", { name: "Undo" }).click();
+await page.waitForTimeout(150);
+const undone = await readPosition();
+check("undo puts a dragged box back in one step", undone.x === startPosition.x && undone.y === startPosition.y, JSON.stringify(undone));
+
 // Presenter keys: with two slides, the arrow keys step through them and Escape stops.
 await page.getByRole("button", { name: "Insert slide" }).click();
 await page.waitForTimeout(150);
