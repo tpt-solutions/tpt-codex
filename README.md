@@ -7,9 +7,10 @@ tree (DAG) of structured blocks. The same data can be projected as a flowing doc
 spreadsheet, a presentation canvas, or a byte-exact PDF, and it runs in the browser via
 WebAssembly.
 
-> **Status: Phase 0 (foundation).** The workspace, the licensing gate, and the core data model
-> exist. There is no user-facing application yet. See [todo.md](todo.md) for the phased plan and
-> [spec.txt](spec.txt) for the design specification.
+> **Status: pre-release (`0.1.0-spec`).** The data model, Markdown/`.cdx` reader and writer,
+> typesetting, paginated PDF export, collaboration (CRDT and relay), and `.docx`/`.xlsx`/`.pptx`
+> interop are implemented and tested. The browser editor is a demo on a sample document. See
+> [todo.md](todo.md) for what is left and [spec.txt](spec.txt) for the design specification.
 
 ## Design principles
 
@@ -22,12 +23,22 @@ WebAssembly.
 
 | Crate | Purpose | `no_std` |
 | --- | --- | --- |
-| `tpt-codex-core` | Block data model, IDs, validation, serialization | yes |
-| `tpt-codex-views` | Projection engines: Flow, Grid, Canvas, Paginated | yes (scaffold) |
-| `tpt-codex-markdown` | Markdown and Codex Script parser/serializer | yes (scaffold) |
-| `tpt-typeset` | Semantic typesetting engine | yes (scaffold) |
-| `tpt-codex-interop` | Import/export for `.docx`, `.xlsx`, `.pdf` | no (scaffold) |
-| `tpt-codex-app` | WASM-first application shell | no (scaffold) |
+| `tpt-codex-core` | Block data model, undo history, CRDT replicas, version log | yes |
+| `tpt-codex-views` | Flow, Paginated and Canvas (slide) layout, hyphenation, SVG slides | yes |
+| `tpt-codex-markdown` | Markdown and `.cdx` reader/writer | yes |
+| `tpt-typeset` | Outline, math, citations, footnotes, cross-references, queries, bindings | yes |
+| `tpt-codex-grid` | Live grid evaluation with `tpt-lattice` | no |
+| `tpt-codex-text` | Bundled fonts and text measurement with `tpt-text` | no |
+| `tpt-codex-pdf` | Deterministic PDF export of documents and slides | no |
+| `tpt-codex-interop` | `.docx`, `.xlsx`, `.pptx` import and `.docx`, `.xlsx` export | no |
+| `tpt-codex-app` | Editor state and UI tree on `tpt-appfront` | no |
+| `tpt-codex-web` | Browser entry point (wasm) and demo page | no |
+| `tpt-codex-sync` | WebSocket transport and `tpt-codex-relay` server | no |
+| `tpt-codex-acceptance` | One end-to-end test file per milestone | no |
+
+More: [Markdown grammar](docs/markdown-grammar.md) · [versioning](docs/versioning.md) ·
+[dependency map](docs/tpt-dependency-map.md) · [browser demo](crates/tpt-codex-web/README.md) ·
+[relay server](crates/tpt-codex-sync/README.md)
 
 ## Building and testing
 

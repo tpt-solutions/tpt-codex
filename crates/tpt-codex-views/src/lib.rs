@@ -5,11 +5,15 @@
 //! - [`paginate`] splits a flow layout into pages with orphan and widow control (the Paginated view).
 //! - [`render_chrome`] fills headers, footers and page numbers; [`PaperSize`] gives standard page sizes.
 //!
-//! Text measurement is injected through [`TextMeasure`], so the core stays headless.
-//! The real shaping and layout come from `tpt-text` and `tpt-layout` once those dependencies are approved.
+//! - [`layout_canvas`] places a slide's children on a fixed-size canvas, and [`render_slide_svg`]
+//!   draws one slide as SVG.
 //!
-//! Not yet implemented: the Grid and Canvas views, repeated table headers (there are no
-//! tables in the model yet), and PDF output.
+//! Grid rows are flow items, so pages break between rows and a grid's header rows repeat on each
+//! continuation page. Long words are hyphenated with in-house rules.
+//!
+//! Text measurement is injected through [`TextMeasure`], so the core stays headless. The flow
+//! engine is our own; `tpt-codex-text` supplies a font-backed measure from `tpt-text`, and
+//! `tpt-codex-pdf` draws the pages as a PDF.
 
 #![no_std]
 #![forbid(unsafe_code)]

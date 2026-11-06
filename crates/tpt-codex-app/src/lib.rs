@@ -7,7 +7,8 @@
 //! - the editor's state and UI tree ([`Editor`], [`Msg`]), built on `tpt-appfront`. The tree renders
 //!   to semantic HTML with `tpt-appfront-html` and runs natively, so it can be tested without a browser.
 //! - Mounting the editor in a browser page ([`web::mount`], `wasm32` only) with `tpt-appfront-dom`.
-//!   The WASM build compiles; it has not been run in a browser.
+//!   It is run in Chrome by the checks in `crates/tpt-codex-web/browser`.
+//! - PDF export ([`export::export_pdf`]) and remote presence ([`Presence`]).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

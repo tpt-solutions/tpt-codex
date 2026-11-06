@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Import/export adapters for legacy formats (.docx, .xlsx, .pdf, .pptx).
 //!
-//! Implemented so far: the [`FidelityReport`] that every importer fills in.
+//! All adapters are in-house, on [`Archive`] (a ZIP reader) and [`ArchiveWriter`]:
+//! - [`import_docx`] and [`export_docx`];
+//! - [`import_xlsx`] and [`export_xlsx`], with [`place_sheet`] to put an imported sheet in a document;
+//! - [`import_pptx`] (data only).
 //!
-//! Status: no format adapter yet. Adapters are planned for Phase 5, after v1, and depend on
-//! the TPT document crates, which are not yet audited (see `docs/tpt-dependency-audit.md`).
+//! Every importer fills in a [`FidelityReport`] that lists what it dropped or approximated.
+//! Not done: `.pdf` import (see `todo.md`).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

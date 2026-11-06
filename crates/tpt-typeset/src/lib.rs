@@ -17,9 +17,12 @@
 //! - [`Bindings`]: `[[name]]` values for text blocks, such as grid cells and query results.
 //! - [`section_boxes`]: each section's extent on a laid-out flow column.
 //!
-//! Not yet implemented: hyphenation and kerning (they need `tpt-text` APIs that are not wired), a
-//! font-backed math layout (the bundled font has no MATH table), equation and table labels (the
-//! model has no label on them), and `tpt-layout` box conversion.
+//! Also here: bibliographies (CSL-JSON and BibTeX), footnote numbering, figure, equation and table
+//! labels, and math layout read from the bundled STIX Two Math font's MATH table.
+//!
+//! Not implemented: conversion to `tpt-layout` boxes. Layout uses the in-house flow engine in
+//! `tpt-codex-views`. Kerning and ligatures come from shaping in `tpt-codex-text`, and hyphenation
+//! is in `tpt-codex-views`.
 
 #![no_std]
 #![forbid(unsafe_code)]
