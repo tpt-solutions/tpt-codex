@@ -163,7 +163,7 @@ pub fn diff_text(a: &str, b: &str) -> Vec<TextChange> {
 }
 
 /// Words and the spaces between them, in order. Joining them gives the original text.
-fn tokens(text: &str) -> Vec<&str> {
+pub(crate) fn tokens(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
     let mut in_space = None;

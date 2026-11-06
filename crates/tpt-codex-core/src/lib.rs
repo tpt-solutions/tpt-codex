@@ -17,6 +17,7 @@ mod error;
 mod history;
 mod id;
 pub mod lists;
+mod merge;
 mod ops;
 mod platform;
 mod primitives;
@@ -34,6 +35,10 @@ pub use document::{Document, Metadata, SCHEMA_VERSION, is_figure_label};
 pub use error::ValidationError;
 pub use history::History;
 pub use id::{BlockId, SheetId};
+pub use merge::{
+    Conflict, ConflictKind, Merge, MergeError, Policy, Side, Target, three_way_merge,
+    three_way_merge_with,
+};
 pub use ops::{EditError, Op, apply, changed_blocks};
 pub use platform::{Clock, FixedClock, MemoryStorage, Storage};
 pub use primitives::{Canvas, Figure, InlineRun, LayoutMode, MediaSource, Rect, TextStyle};
