@@ -7,6 +7,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `tpt-codex-cli` crate and the `tpt` command: `convert` between `.cdx`/`.md`, `.docx`, `.xlsx`, `.pptx`
+  (read only), `.json` and `.pdf` (write only), with the import's fidelity report; `check` (math,
+  cross-references, figures, equations, tables, footnotes and, with `--bib`, citations; exit status 1 on
+  errors); `watch` (rebuild on save); `diff` (word-level); `new` (article, report, slides, budget
+  templates). Documented in `docs/quickstart.md`, `docs/cdx-cheatsheet.md` and
+  `docs/migrating-from-office.md`.
+- `tpt_codex_pdf::export_with_defaults`: the app's one-click export (A4, class margins, `Page N of M`
+  footer), shared by the app and the CLI.
+
+### Fixed
+
+- `.docx` import no longer puts spaces at the edge of a bold or italic run, which Markdown cannot write.
+- `to_markdown` writes a grid whose sheet stores no size (such as an imported one) at the size of its
+  cells, instead of refusing it.
+- Added the missing SPDX headers to the fuzz targets, which the header gate rejected.
+- Crate docs and the README no longer describe finished work as "not yet implemented" or "scaffold".
+
 - One-click PDF export: `tpt-codex-app::export::export_pdf` writes the document on its document class's page size,
   with a `Page N of M` footer. The demo page has an `Export PDF` button, and the browser test checks the download.
 - `tpt-codex-pdf` text is drawn as glyph outlines (`tpt-canvas` pinned at `e451560`).

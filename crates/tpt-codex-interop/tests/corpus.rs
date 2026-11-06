@@ -124,11 +124,22 @@ fn docx_styled_runs_keep_their_bold_and_italic_spans() {
         .iter()
         .map(|r| (r.start, r.end, r.bold, r.italic))
         .collect();
+    // Spaces at the edge of a run are not part of it, so each span starts and ends on a letter.
+    let text: Vec<char> = match blocks.iter().find_map(|b| match b {
+        Block::Text { content, .. } if content.starts_with("bold italic") => Some(content),
+        _ => None,
+    }) {
+        Some(content) => content.chars().collect(),
+        None => unreachable!(),
+    };
+    for (start, end, _, _) in &spans {
+        assert!(!text[*start].is_whitespace() && !text[*end - 1].is_whitespace());
+    }
     assert_eq!(
         spans,
         [
-            (0, 5, true, false),
-            (5, 12, false, true),
+            (0, 4, true, false),
+            (5, 11, false, true),
             (12, 23, true, true)
         ]
     );

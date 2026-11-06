@@ -387,6 +387,29 @@ fn draw_page_chrome(
     Ok(())
 }
 
+/// The footer template [`export_with_defaults`] puts on every page.
+pub const DEFAULT_FOOTER: &str = "Page {page} of {pages}";
+
+/// Exports a document the way the app's one-click export does: A4, the margins of the document's
+/// class (the article margins when it has none), the bundled font, and a "Page N of M" footer.
+pub fn export_with_defaults(doc: &Document) -> Result<Vec<u8>, ExportError> {
+    let spec = tpt_typeset::class_of(doc)
+        .unwrap_or(tpt_typeset::DocumentClass::Article)
+        .spec();
+    let measure = FontMeasure::bundled()?;
+    let chrome = PageChrome {
+        header: None,
+        footer: Some(DEFAULT_FOOTER.to_string()),
+    };
+    export_document_with_chrome(
+        doc,
+        PaperSize::A4,
+        Margins::all(spec.margin),
+        &measure,
+        &chrome,
+    )
+}
+
 /// Exports a paginated document as a PDF.
 ///
 /// The document is laid out as one column of width `paper.width - margins`, split into pages of

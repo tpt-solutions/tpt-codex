@@ -206,6 +206,14 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] Versioning policy (`0.1.0-spec` → `0.1.0`) — _`docs/versioning.md`_
 - [ ] Publish crates once all TPT deps are on crates.io (git deps can't be published)
 
+## Adoption tooling
+- [x] `tpt` CLI: `convert`, `check`, `watch`, `diff`, `new` — _`crates/tpt-codex-cli`, 13 integration tests; templates are `article`, `report`, `slides`, `budget`_
+- [x] Quickstart, `.cdx` cheat-sheet, migrating-from-Office guide — _`docs/`_
+- [ ] Release workflow (prebuilt `tpt` and relay binaries), build-web script, justfile, devcontainer
+- [ ] Relay: stop on ctrl-c
+- [ ] Web demo opens and saves real files (today it mounts a sample document)
+- [ ] `.cdx` writer: whole-paragraph bold or italic and bold+italic (blocks `docx` → `.cdx` for such files)
+
 ---
 
 ## Explicit non-goals (V1 scope guards — do not build)

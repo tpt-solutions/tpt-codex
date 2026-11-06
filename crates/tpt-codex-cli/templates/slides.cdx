@@ -1,0 +1,28 @@
+---
+title: "Talk title"
+author: "Your name"
+date: "2026-01-01"
+---
+
+::: canvas { ratio="16:9" }
+
+# Talk title
+
+A one-line subtitle
+:::
+
+::: canvas { ratio="16:9" }
+
+## Why this matters
+
+- The problem
+- The idea
+- The result
+:::
+
+::: canvas { ratio="16:9" }
+
+## Thank you
+
+Questions?
+:::

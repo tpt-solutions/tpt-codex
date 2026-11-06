@@ -178,7 +178,6 @@ A line that starts with any of these is an error. The error names the construct 
 | Table | a line starting with `|` outside a grid |
 | Other container block | `::: name` for a name other than grid or canvas |
 | Raw HTML | a line starting with `<` |
-| Footnote definition | a line starting with `[^` |
 | Setext heading | a line of `=`, or `---` under a paragraph line |
 | Loose list | a blank line between two items of the same list |
 | List continuation | a line under an item that is not indented into it |

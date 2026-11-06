@@ -1014,3 +1014,25 @@ fn inline_math_reads_and_writes_back() {
     assert!(from_markdown("a $$ b\n").is_err());
     assert!(from_markdown("open $x here\n").is_err());
 }
+
+#[test]
+fn a_sheet_with_no_stored_size_is_written_at_the_size_of_its_cells() {
+    use tpt_codex_core::{CellInput, Sheet, SheetId};
+    let mut doc = doc_of(vec![Block::Grid {
+        sheet_id: SheetId(1),
+        view_bounds: None,
+    }]);
+    let mut sheet = Sheet::default();
+    sheet
+        .cells
+        .insert("A1".into(), CellInput::Text { value: "a".into() });
+    sheet
+        .cells
+        .insert("B2".into(), CellInput::Text { value: "d".into() });
+    doc.sheets.insert(SheetId(1), sheet);
+    let text = to_markdown(&doc).unwrap();
+    assert!(text.contains("| a |  |"), "{text}");
+    assert!(text.contains("|  | d |"), "{text}");
+    let back = from_markdown(&text).unwrap();
+    assert_eq!(back.sheets[&SheetId(1)].extent(), (2, 2));
+}

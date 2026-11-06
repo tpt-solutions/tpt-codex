@@ -31,6 +31,7 @@ WebAssembly.
 | `tpt-codex-text` | Bundled fonts and text measurement with `tpt-text` | no |
 | `tpt-codex-pdf` | Deterministic PDF export of documents and slides | no |
 | `tpt-codex-interop` | `.docx`, `.xlsx`, `.pptx` import and `.docx`, `.xlsx` export | no |
+| `tpt-codex-cli` | The `tpt` command: convert, check, watch, diff, new | no |
 | `tpt-codex-app` | Editor state and UI tree on `tpt-appfront` | no |
 | `tpt-codex-web` | Browser entry point (wasm) and demo page | no |
 | `tpt-codex-sync` | WebSocket transport and `tpt-codex-relay` server | no |
@@ -39,6 +40,20 @@ WebAssembly.
 More: [Markdown grammar](docs/markdown-grammar.md) · [versioning](docs/versioning.md) ·
 [dependency map](docs/tpt-dependency-map.md) · [browser demo](crates/tpt-codex-web/README.md) ·
 [relay server](crates/tpt-codex-sync/README.md)
+
+## Using it
+
+```sh
+cargo install --path crates/tpt-codex-cli
+tpt new article                       # start from a template
+tpt check article.cdx                 # broken references, bad math, missing footnotes
+tpt convert article.cdx -o article.pdf
+tpt watch article.cdx -o article.pdf  # rebuild on save
+tpt convert report.docx -o report.cdx --report
+```
+
+See the [quickstart](docs/quickstart.md), the [`.cdx` cheat-sheet](docs/cdx-cheatsheet.md) and
+[migrating from Office](docs/migrating-from-office.md).
 
 ## Building and testing
 

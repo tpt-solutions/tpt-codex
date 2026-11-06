@@ -325,10 +325,20 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
         {
             j += 1;
         }
-        if bold || italic {
+        // Spaces at the edge of a run carry no emphasis that a reader can see, and Markdown
+        // cannot write emphasis that starts or ends with one, so they are left out of the run.
+        let mut start = i;
+        let mut end = j;
+        while start < end && chars[start].0.is_whitespace() {
+            start += 1;
+        }
+        while end > start && chars[end - 1].0.is_whitespace() {
+            end -= 1;
+        }
+        if (bold || italic) && start < end {
             runs.push(InlineRun {
-                start: i,
-                end: j,
+                start,
+                end,
                 bold,
                 italic,
                 link: None,

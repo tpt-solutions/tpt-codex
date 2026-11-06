@@ -610,6 +610,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-codex-cli"
+version = "0.1.0-spec"
+dependencies = [
+ "serde_json",
+ "tpt-codex-core",
+ "tpt-codex-interop",
+ "tpt-codex-markdown",
+ "tpt-codex-pdf",
+ "tpt-typeset",
+]
+
+[[package]]
 name = "tpt-codex-core"
 version = "0.1.0-spec"
 dependencies = [

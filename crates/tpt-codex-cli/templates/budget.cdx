@@ -1,0 +1,19 @@
+---
+title: "Budget"
+author: "Your name"
+date: "2026-01-01"
+---
+
+# Budget
+
+Edit the cells; formulas start with `=`.
+
+::: grid { id="1" label="tab:budget" }
+| Line | Q1 | Q2 | Total |
+| --- | --- | --- | --- |
+| Salaries | 10000 | 10000 | =SUM(B2:C2) |
+| Hosting | 800 | 900 | =SUM(B3:C3) |
+| Total | =SUM(B2:B3) | =SUM(C2:C3) | =SUM(D2:D3) |
+:::
+
+The figures are in [the budget table](#tab:budget).

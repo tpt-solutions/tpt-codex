@@ -233,15 +233,17 @@ fn write_grid(
         .sheets
         .get(&sheet_id)
         .ok_or_else(|| fail(&format!("grid refers to missing sheet {}", sheet_id.0)))?;
-    if sheet.rows == 0 || sheet.cols == 0 {
+    // A sheet that stores no size (an imported one, for example) is as big as its cells.
+    let (rows, cols) = sheet.extent();
+    if rows == 0 || cols == 0 {
         return Err(fail("a grid needs at least one row and one column"));
     }
-    if sheet.header_rows > sheet.rows {
+    if sheet.header_rows > rows {
         return Err(fail("the grid has more header rows than rows"));
     }
     for address in sheet.cells.keys() {
         match address_position(address) {
-            Some((col, row)) if col <= sheet.cols && row <= sheet.rows => {}
+            Some((col, row)) if col <= cols && row <= rows => {}
             _ => return Err(fail(&format!("cell {address} is outside the grid"))),
         }
     }
@@ -258,9 +260,9 @@ fn write_grid(
         }
     };
     let mut lines = vec![open_line];
-    for row in 1..=sheet.rows {
-        let mut cells: Vec<String> = Vec::with_capacity(sheet.cols as usize);
-        for col in 1..=sheet.cols {
+    for row in 1..=rows {
+        let mut cells: Vec<String> = Vec::with_capacity(cols as usize);
+        for col in 1..=cols {
             let address = address_of(col, row);
             let text = match sheet.cells.get(&address) {
                 None => String::new(),
@@ -292,7 +294,7 @@ fn write_grid(
             .collect();
         lines.push(format!("| {} |", escaped.join(" | ")));
         if sheet.header_rows > 0 && row == sheet.header_rows {
-            let dashes = vec!["---"; sheet.cols as usize];
+            let dashes = vec!["---"; cols as usize];
             lines.push(format!("| {} |", dashes.join(" | ")));
         }
     }

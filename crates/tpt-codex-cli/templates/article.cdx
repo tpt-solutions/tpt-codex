@@ -1,0 +1,41 @@
+---
+title: "Untitled article"
+author: "Your name"
+date: "2026-01-01"
+class: "article"
+---
+
+# Introduction
+
+Write your opening paragraph here. Use *emphasis*, **strong text** and [links](https://example.com).
+
+## Method
+
+A bulleted list:
+
+- First point
+- Second point
+
+An equation, labelled so it can be referred to:
+
+$$
+E = mc^2
+$$ {#eq:energy}
+
+Equation [1](#eq:energy) is the famous one.[^note]
+
+[^note]: Footnotes appear at the foot of the page in the PDF.
+
+## Results
+
+A live table. Cells starting with `=` are formulas.
+
+::: grid { id="1" label="tab:totals" }
+| Item | Cost |
+| --- | --- |
+| Design | 1200 |
+| Build | 3400 |
+| Total | =SUM(B2:B3) |
+:::
+
+See [the table](#tab:totals).

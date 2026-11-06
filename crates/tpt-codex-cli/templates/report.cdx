@@ -1,0 +1,32 @@
+---
+title: "Quarterly report"
+author: "Your name"
+date: "2026-01-01"
+class: "report"
+---
+
+# Summary
+
+One paragraph that a busy reader can stop at.
+
+# Findings
+
+## What changed
+
+- The first finding
+- The second finding
+
+## Figures
+
+::: grid { id="1" label="tab:figures" }
+| Measure | Last quarter | This quarter |
+| --- | --- | --- |
+| Revenue | 120 | 138 |
+| Costs | 90 | 95 |
+:::
+
+Costs are summarised in [the table](#tab:figures).
+
+# Next steps
+
+What happens now, and who does it.

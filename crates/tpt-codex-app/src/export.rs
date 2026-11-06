@@ -5,32 +5,14 @@
 //! font does everywhere. Pages get a "Page N of M" footer.
 
 use tpt_codex_core::Document;
-use tpt_codex_pdf::{Margins, export_document_with_chrome};
-use tpt_codex_text::FontMeasure;
-use tpt_codex_views::{PageChrome, PaperSize};
 
 /// The footer template for every page.
-pub const FOOTER: &str = "Page {page} of {pages}";
+pub const FOOTER: &str = tpt_codex_pdf::DEFAULT_FOOTER;
 
 /// Exports `doc` as a PDF file's bytes, on A4 with the margins of its document class (A4 with
 /// the article margins when it has no class).
 pub fn export_pdf(doc: &Document) -> Result<Vec<u8>, String> {
-    let spec = tpt_typeset::class_of(doc)
-        .unwrap_or(tpt_typeset::DocumentClass::Article)
-        .spec();
-    let measure = FontMeasure::bundled().map_err(|e| e.to_string())?;
-    let chrome = PageChrome {
-        header: None,
-        footer: Some(FOOTER.to_string()),
-    };
-    export_document_with_chrome(
-        doc,
-        PaperSize::A4,
-        Margins::all(spec.margin),
-        &measure,
-        &chrome,
-    )
-    .map_err(|e| e.to_string())
+    tpt_codex_pdf::export_with_defaults(doc).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
