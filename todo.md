@@ -146,7 +146,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [ ] Font embedding / subsetting for PDF — _not needed while text is drawn as outlines: no fonts are embedded_
 - [x] One-click PDF export in the app — _an `Export PDF` button on the demo page downloads `document.pdf`, on the document class's page size, with a `Page N of M` footer (`tpt-codex-app/src/export.rs`). The browser test checks the download_
 - [x] Byte-exact determinism: fixed timestamps/IDs, stable object ordering — _partial: ordered maps, fixed clock and deterministic layout; no PDF output yet_ — _same input gives the same bytes; the golden files are compared in tests_
-- [ ] Accessible PDF basics (tags, alt text from `Media.alt_text`) — optional stretch
+- [ ] Accessible PDF basics (tags, alt text from `Media.alt_text`) — optional stretch. _Finding: text is drawn as glyph outlines, so a PDF has no text for a screen reader, search or copy to find. Tags and alt text alone would not make it accessible. It needs a real text layer first (embedded font subset, or invisible text over the outlines) — which is the same item as "Font embedding / subsetting" above_
 - [x] Golden-file PDF tests — _`tpt-codex-pdf/golden/page.pdf` and `slide.pdf`, checked in `tests/export.rs`_
 
 **Milestone 3:** One-click export of the Phase 1 hybrid document to a byte-exact, paginated PDF.
@@ -212,6 +212,13 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] `tpt check` evaluates grids: formula errors and bindings with no value are errors
 - [ ] Names for cells other than `sheet<id>.<address>`, and inline formulas in prose
 - [ ] Query results as bindings (`[[q1]]`)
+
+## Gaps found in the review, not built yet
+- [ ] `.cdx`: nested lists, block quotes, tables outside a grid (GFM tables). Quotes need a new block kind and nested lists a new list shape, so both are a schema bump and a migration note in `docs/versioning.md`
+- [ ] `.cdx`: link titles (`[t](url "title")`) — the inline run has no title field
+- [ ] `.docx` import: tables as grids and lists as lists, instead of flattened paragraphs (the largest loss in the fidelity report for real documents)
+- [ ] `.pdf` import. A PDF written by this project has no extractable text (see Phase 3), so the importer could only read PDFs from other tools
+- [ ] Formula language: Excel function names and syntax beyond ranges. Imported `.xlsx` formulas are reported as approximated where the evaluator differs
 
 ## Adoption tooling
 - [x] `tpt` CLI: `convert`, `check`, `watch`, `diff`, `merge`, `new` — _`crates/tpt-codex-cli`; templates are `article`, `report`, `slides`, `budget`_
