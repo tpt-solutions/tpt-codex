@@ -229,4 +229,5 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] Phase 2 PDF milestone depends on Phase 3 — _decided (recommendation): Milestone 2 is accepted as Markdown, math and outline; PDF export stays in Phase 3. Upstream glyph outlines are now pinned (`tpt-canvas` `e451560`)._
 - [x] WASM UDF sandbox: mentioned in non-goals but not scheduled — _decided (recommendation): out of v1, as the non-goals list says. Revisit after v1._
 - [x] Font decision: bundle a fixed font set in the binary and never use system fonts, so layout is the same everywhere. Noto Sans (OFL) Regular and Italic, bold by weight. _Recommendation applied; the open question had not been written down, and `tpt-text`'s entry referred to it._
+- [x] Footnote definitions in the flow view: kept as editable body text. The paginated view and the PDF draw them as notes at the foot of the page. _Decided by following the recommendation: no editing path for note text was added._
 - [x] Spec marks `tpt-codex-app` as "WASM-first" — decide native desktop story — _decided (recommendation): WASM-first, as the spec says. A native shell comes later, through `tpt-appfront` webview._
