@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# The fuzz harness needs libFuzzer and nightly; see fuzz/README.md.
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0-spec"
