@@ -20,7 +20,7 @@ use tpt_codex_core::{
 use tpt_typeset::Library;
 
 pub use check::{Finding, Severity, check_document, excerpt};
-pub use formats::{Format, Loaded, format_of, load, save};
+pub use formats::{Format, Loaded, format_of, load, save, save_from};
 pub use templates::{TEMPLATES, template};
 pub use watch::Watcher;
 
@@ -201,7 +201,7 @@ fn convert(opts: &Opts, out: &mut dyn Write, _err: &mut dyn Write) -> Result<i32
     if let Some(report) = &loaded.report {
         print_report("import", report, opts.report, out);
     }
-    if let Some(report) = save(&loaded.document, output)? {
+    if let Some(report) = save_from(&loaded.document, output, input.parent())? {
         print_report("export", &report, opts.report, out);
     }
     let _ = writeln!(out, "{} -> {}", input.display(), output.display());
@@ -273,7 +273,8 @@ fn watch_command(opts: &Opts, out: &mut dyn Write, err: &mut dyn Write) -> Resul
     loop {
         if watcher.changed(input) {
             let started = std::time::Instant::now();
-            match load(input).and_then(|loaded| save(&loaded.document, output)) {
+            match load(input).and_then(|loaded| save_from(&loaded.document, output, input.parent()))
+            {
                 Ok(_) => {
                     let _ = writeln!(
                         out,

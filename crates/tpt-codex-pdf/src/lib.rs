@@ -19,22 +19,24 @@ use std::fmt;
 use std::sync::Arc;
 
 use tpt_canvas::{
-    Affine2, Color, Context, GlyphSource, LineJoin, Paint, Path, PathBuilder, ShapedRun,
-    StrokeStyle, Vec2,
+    Affine2, Color, Context, GlyphSource, ImageId, ImageRef, LineJoin, Paint, Path, PathBuilder,
+    Rect, ShapedRun, StrokeStyle, Vec2,
 };
 use tpt_canvas_pdf::PdfBackend;
-use tpt_codex_core::{Block, BlockId, Document, SheetId, TextStyle};
+use tpt_canvas_raster::Pixmap;
+use tpt_codex_core::{Block, BlockId, Document, MediaSource, SheetId, TextStyle};
 use tpt_codex_grid::{CellResult, evaluate_sheet};
 use tpt_codex_text::{FontMeasure, GlyphLine, GlyphRun, TextError};
 use tpt_codex_views::{
-    CanvasError, FlowItem, FlowKind, FlowOptions, LIST_INDENT, LayoutError, PageChrome, PageError,
-    PageGeometry, PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow_hyphenated,
-    paginate_with_notes, render_chrome,
+    CanvasError, FlowCache, FlowItem, FlowKind, FlowOptions, LIST_INDENT, LayoutError, PageChrome,
+    PageError, PageGeometry, PaperSize, RenderedChrome, TextMeasure, layout_canvas,
+    layout_flow_cached, paginate_with_notes, render_chrome,
 };
 use tpt_text::PathSegment;
 use tpt_text::fx::Fx;
 use tpt_typeset::footnote_notes;
 
+mod picture;
 mod structure;
 mod subset;
 mod text_layer;
@@ -323,8 +325,78 @@ struct PageContext<'a> {
     results: BTreeMap<SheetId, BTreeMap<String, CellResult>>,
     /// The list each list item belongs to, by the item's block id.
     list_of: BTreeMap<u64, u64>,
+    /// The pictures that are drawn, by their block.
+    pictures: BTreeMap<BlockId, PictureRef>,
     /// The text and figures of the page being drawn, for the text layer.
     text: Vec<Item>,
+}
+
+/// A decoded picture, ready to be registered with the backend.
+struct Picture {
+    id: ImageId,
+    pixmap: Pixmap,
+    pixel_width: u32,
+    pixel_height: u32,
+    /// The size on the page, in points.
+    width: f32,
+    height: f32,
+}
+
+/// A registered picture, as a page draws it.
+struct PictureRef {
+    image: ImageRef,
+    width: f32,
+    height: f32,
+}
+
+/// The pictures of the document that can be drawn: each picture block whose URI `images` gives
+/// bytes for, in a format the decoder reads. A picture is as wide as the column or its own width,
+/// whichever is less, and no taller than the content of a page.
+fn load_pictures(
+    doc: &Document,
+    images: ImageSource<'_>,
+    column: f64,
+    content_height: f64,
+) -> BTreeMap<BlockId, Picture> {
+    let mut out = BTreeMap::new();
+    for (&block, data) in &doc.blocks {
+        let Block::Media {
+            source: MediaSource::Uri { uri },
+            ..
+        } = data
+        else {
+            continue;
+        };
+        let Some(bytes) = images(uri) else {
+            continue;
+        };
+        let Some(decoded) = picture::decode(&bytes) else {
+            continue;
+        };
+        let Some(pixmap) = Pixmap::from_rgba8(decoded.width, decoded.height, &decoded.rgba) else {
+            continue;
+        };
+        let aspect = f64::from(decoded.height) / f64::from(decoded.width);
+        let mut width = f64::from(decoded.width).min(column);
+        let mut height = width * aspect;
+        if height > content_height {
+            height = content_height;
+            width = height / aspect;
+        }
+        let id = ImageId(out.len() as u32 + 1);
+        out.insert(
+            block,
+            Picture {
+                id,
+                pixmap,
+                pixel_width: decoded.width,
+                pixel_height: decoded.height,
+                width: width as f32,
+                height: height as f32,
+            },
+        );
+    }
+    out
 }
 
 impl PageContext<'_> {
@@ -370,7 +442,24 @@ impl PageContext<'_> {
                 }
             }
             FlowKind::Box => {
-                draw_box(ctx, x, y, self.column as f32, item.height as f32);
+                match self.pictures.get(&item.block) {
+                    Some(picture) => ctx.draw_image(
+                        &picture.image,
+                        Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            w: picture.image.width as f32,
+                            h: picture.image.height as f32,
+                        },
+                        Rect {
+                            x,
+                            y,
+                            w: picture.width,
+                            h: picture.height,
+                        },
+                    ),
+                    None => draw_box(ctx, x, y, self.column as f32, item.height as f32),
+                }
                 // A picture's placeholder is a figure, with its alternative text.
                 if let Some(Block::Media { alt_text, .. }) = self.doc.get(item.block) {
                     self.text.push(Item::Figure {
@@ -509,6 +598,21 @@ pub const DEFAULT_FOOTER: &str = "Page {page} of {pages}";
 /// Exports a document the way the app's one-click export does: A4, the margins of the document's
 /// class (the article margins when it has none), the bundled font, and a "Page N of M" footer.
 pub fn export_with_defaults(doc: &Document) -> Result<Vec<u8>, ExportError> {
+    export_with_images(doc, &no_images)
+}
+
+/// Finds the bytes of an image, by the URI a picture names. `None` when the image is not there;
+/// the picture is then drawn as its placeholder.
+pub type ImageSource<'a> = &'a dyn Fn(&str) -> Option<Vec<u8>>;
+
+/// The image source of an export that has no images: every picture is a placeholder.
+fn no_images(_: &str) -> Option<Vec<u8>> {
+    None
+}
+
+/// Exports a document the way [`export_with_defaults`] does, with its pictures: each picture's
+/// URI is found through `images`.
+pub fn export_with_images(doc: &Document, images: ImageSource<'_>) -> Result<Vec<u8>, ExportError> {
     let spec = tpt_typeset::class_of(doc)
         .unwrap_or(tpt_typeset::DocumentClass::Article)
         .spec();
@@ -517,12 +621,13 @@ pub fn export_with_defaults(doc: &Document) -> Result<Vec<u8>, ExportError> {
         header: None,
         footer: Some(DEFAULT_FOOTER.to_string()),
     };
-    export_document_with_chrome(
+    export_document_with_images(
         doc,
         PaperSize::A4,
         Margins::all(spec.margin),
         &measure,
         &chrome,
+        images,
     )
 }
 
@@ -552,20 +657,37 @@ pub fn export_document_with_chrome(
     measure: &FontMeasure,
     chrome: &PageChrome,
 ) -> Result<Vec<u8>, ExportError> {
+    export_document_with_images(doc, paper, margins, measure, chrome, &no_images)
+}
+
+/// Exports a paginated document as a PDF, with a header and footer on every page, and its pictures.
+/// The pictures are drawn at the size of the column or their own width, whichever is less, and the
+/// `images` source gives each picture's bytes by its URI.
+pub fn export_document_with_images(
+    doc: &Document,
+    paper: PaperSize,
+    margins: Margins,
+    measure: &FontMeasure,
+    chrome: &PageChrome,
+    images: ImageSource<'_>,
+) -> Result<Vec<u8>, ExportError> {
     // `[[sheet1.B4]]` in the text shows that cell's value in the file.
     let resolved = tpt_codex_grid::resolve_document(doc);
     let doc = resolved.as_ref().unwrap_or(doc);
     let column = paper.width - margins.left - margins.right;
-    let flow = layout_flow_hyphenated(
-        doc,
-        measure,
-        FlowOptions {
-            width: column,
-            block_spacing: BLOCK_SPACING,
-            box_height: BOX_HEIGHT,
-            row_height: ROW_HEIGHT,
-        },
-    )?;
+    let content_height = paper.height - margins.top - margins.bottom;
+    let options = FlowOptions {
+        width: column,
+        block_spacing: BLOCK_SPACING,
+        box_height: BOX_HEIGHT,
+        row_height: ROW_HEIGHT,
+    };
+    let pictures = load_pictures(doc, images, column, content_height);
+    let mut cache = FlowCache::hyphenated();
+    for (block, picture) in &pictures {
+        cache.set_media_height(*block, f64::from(picture.height));
+    }
+    let flow = layout_flow_cached(doc, measure, options, &mut cache)?;
     let notes = footnote_notes(doc, measure, column);
     let pages = paginate_with_notes(
         &flow,
@@ -585,6 +707,23 @@ pub fn export_document_with_chrome(
     };
     let (width, height) = (paper.width as f32, paper.height as f32);
     let mut backend = PdfBackend::new(width, height);
+    // Each picture is registered with the backend once, and drawn by reference on its page.
+    let mut picture_refs = BTreeMap::new();
+    for (block, picture) in pictures {
+        backend.add_image(picture.id, picture.pixmap);
+        picture_refs.insert(
+            block,
+            PictureRef {
+                image: ImageRef {
+                    id: picture.id,
+                    width: picture.pixel_width,
+                    height: picture.pixel_height,
+                },
+                width: picture.width,
+                height: picture.height,
+            },
+        );
+    }
     let mut page_context = PageContext {
         doc,
         measure,
@@ -593,6 +732,7 @@ pub fn export_document_with_chrome(
         column,
         results: BTreeMap::new(),
         list_of: list_items(doc),
+        pictures: picture_refs,
         text: Vec::new(),
     };
     let mut page_text: Vec<Vec<Item>> = Vec::with_capacity(pages.len());

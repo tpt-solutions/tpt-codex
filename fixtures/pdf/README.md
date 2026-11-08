@@ -12,3 +12,6 @@
 
 It has compressed streams, object streams and a cross-reference stream, and embedded subset fonts
 with ToUnicode maps. The tests in `crates/tpt-codex-interop/tests/pdf.rs` read it.
+
+`sample.jpg` is a 16 by 16 pixel gradient, written with Pillow at quality 90. The picture tests
+decode it.

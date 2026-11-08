@@ -29,6 +29,8 @@ serde = { version = "1", default-features = false, features = ["derive", "alloc"
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 # Office-format support, written in-house on these pure-Rust, permissively licensed crates.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+png = { version = "0.17", default-features = false }
+jpeg-decoder = { version = "0.3", default-features = false }
 crc32fast = "1"
 quick-xml = "0.37"
 
@@ -46,6 +48,7 @@ tpt-layout = { git = "https://github.com/tpt-solutions/tpt-layout", rev = "21361
 # PDF output. e451560 is the glyph-outline fix (tpt-canvas master HEAD on 2026-11-06).
 tpt-canvas = { git = "https://github.com/tpt-solutions/tpt-canvas", rev = "e4515600a767f5df5cbf200daabe03d3980308e2" }
 tpt-canvas-pdf = { git = "https://github.com/tpt-solutions/tpt-canvas", rev = "e4515600a767f5df5cbf200daabe03d3980308e2" }
+tpt-canvas-raster = { git = "https://github.com/tpt-solutions/tpt-canvas", rev = "e4515600a767f5df5cbf200daabe03d3980308e2" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

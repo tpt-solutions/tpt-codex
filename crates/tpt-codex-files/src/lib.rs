@@ -188,8 +188,23 @@ pub struct Saved {
     pub report: Option<FidelityReport>,
 }
 
-/// Writes `doc` in the format of a file called `name`. Errors start with `name`.
+/// Writes `doc` in the format of a file called `name`. Errors start with `name`. A PDF's pictures
+/// are placeholders; use [`save_with_images`] to draw them.
 pub fn save(doc: &Document, name: &str) -> Result<Saved, String> {
+    save_with_images(doc, name, &no_images)
+}
+
+fn no_images(_: &str) -> Option<Vec<u8>> {
+    None
+}
+
+/// Writes `doc` in the format of a file called `name`, as [`save`] does. A PDF draws each picture
+/// whose URI `images` gives the bytes of, in a PNG or JPEG format.
+pub fn save_with_images(
+    doc: &Document,
+    name: &str,
+    images: &dyn Fn(&str) -> Option<Vec<u8>>,
+) -> Result<Saved, String> {
     let (bytes, report) = match format_of(name)? {
         Format::Markdown => (
             to_markdown(doc)
@@ -218,7 +233,7 @@ pub fn save(doc: &Document, name: &str) -> Result<Saved, String> {
             )
         }
         Format::Pdf => (
-            tpt_codex_pdf::export_with_defaults(doc).map_err(|e| format!("{name}: {e}"))?,
+            tpt_codex_pdf::export_with_images(doc, images).map_err(|e| format!("{name}: {e}"))?,
             None,
         ),
         Format::Pptx => return Err(format!("{name}: .pptx cannot be written")),

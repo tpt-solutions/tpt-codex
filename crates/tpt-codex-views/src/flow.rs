@@ -111,6 +111,8 @@ pub struct FlowCache {
     blocks: BTreeMap<BlockId, CachedBlock>,
     /// Whether lines are broken at hyphenation points. Set by the layout that uses the cache.
     hyphenate: bool,
+    /// The height of each media block (a picture), where it is known. Others use the box height.
+    media_heights: BTreeMap<BlockId, f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +129,21 @@ impl FlowCache {
     /// An empty cache.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An empty cache for a layout that breaks words at hyphenation points, as
+    /// [`layout_flow_hyphenated`] does.
+    pub fn hyphenated() -> Self {
+        Self {
+            hyphenate: true,
+            ..Self::default()
+        }
+    }
+
+    /// Sets the height of a media block (a picture) for the next layout that uses this cache. A
+    /// media block without one is as tall as the box height in the options.
+    pub fn set_media_height(&mut self, block: BlockId, height: f64) {
+        self.media_heights.insert(block, height);
     }
 
     /// The number of blocks cached.
@@ -201,6 +218,9 @@ pub fn layout_flow_cached(
     // The last block's bottom margin is kept, as trailing space in the column.
     out.height += pending;
     cache.blocks.retain(|id, _| doc.blocks.contains_key(id));
+    cache
+        .media_heights
+        .retain(|id, _| doc.blocks.contains_key(id));
     Ok(out)
 }
 
@@ -393,14 +413,23 @@ fn flow_blocks(
                 *pending = options.block_spacing;
             }
             _ => {
+                // A media block is as tall as its picture, when the caller gave its height.
+                let height = match block {
+                    Block::Media { .. } => cache
+                        .media_heights
+                        .get(&id)
+                        .copied()
+                        .unwrap_or(options.box_height),
+                    _ => options.box_height,
+                };
                 let y = start_block(out, pending, 0.0);
                 out.items.push(FlowItem {
                     block: id,
                     y,
-                    height: options.box_height,
+                    height,
                     kind: FlowKind::Box,
                 });
-                out.height += options.box_height;
+                out.height += height;
                 *pending = options.block_spacing;
             }
         }

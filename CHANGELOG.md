@@ -23,6 +23,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- PDF pictures. A picture in a document (a PNG or JPEG file named by its address) is drawn in the PDF
+  at the column width or its own width, whichever is less, and the text around it moves to make room.
+  `export_with_images` and `export_document_with_images` take the image source, and
+  `tpt_codex_files::save_with_images` does the same for a file. The CLI reads relative addresses from
+  the document's folder. Files over 64 MB, and pictures that do not decode, stay placeholders. New
+  dependencies: `png` and `jpeg-decoder` (both MIT or Apache-2.0), and `tpt-canvas-raster` from the
+  pinned canvas repository.
 - Tagged PDF export (partial). A document's PDF has a structure tree: headings, paragraphs, list
   items and figures with their alternative text, with headers and footers marked as artifacts. It
   also has the language, the title and the tagged marker. A grid is a table, with its rows and
