@@ -11,8 +11,8 @@
 //! | `.json` | yes | yes |
 //! | `.pdf` | no | yes |
 //!
-//! Saving as `.docx` or `.pdf` replaces `[[sheet1.B4]]` with that cell's computed value, because
-//! those files have no live values.
+//! Saving as `.docx` or `.pdf` replaces `[[sheet1.B4]]` with that cell's computed value, and a
+//! `.docx` grid's formula cells with their values, because those files have no live values.
 
 use tpt_codex_core::{Block, BlockId, Document, History, LayoutMode, Op, TextStyle};
 use tpt_codex_interop::{
@@ -200,8 +200,8 @@ pub fn save(doc: &Document, name: &str) -> Result<Saved, String> {
         ),
         Format::Docx => {
             let resolved = tpt_codex_grid::resolve_document(doc);
-            let export = export_docx(resolved.as_ref().unwrap_or(doc))
-                .map_err(|e| format!("{name}: {e}"))?;
+            let computed = tpt_codex_grid::with_computed_cells(resolved.as_ref().unwrap_or(doc));
+            let export = export_docx(&computed).map_err(|e| format!("{name}: {e}"))?;
             (export.bytes, Some(export.report))
         }
         Format::Xlsx => {

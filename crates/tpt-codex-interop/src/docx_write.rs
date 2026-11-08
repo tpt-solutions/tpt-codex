@@ -5,7 +5,9 @@
 //! go into the document properties. Blocks the format cannot represent exactly are written as the
 //! nearest paragraph, and the [`FidelityReport`] records each one.
 
-use tpt_codex_core::{Block, BlockId, Document, MediaSource, Metadata, TextStyle};
+use tpt_codex_core::{
+    Block, BlockId, CellInput, Document, MediaSource, Metadata, Sheet, TextStyle, address_of,
+};
 
 use crate::archive::ArchiveWriter;
 use crate::docx::DocxError;
@@ -28,7 +30,9 @@ const MAX_DEPTH: usize = 64;
 ///
 /// Text blocks keep their headings, bold and italic, line breaks and tabs. List items lose their
 /// markers, code and math become plain paragraphs (math as its TeX source), rules become empty
-/// paragraphs. Images, grids and queries are not written. The report says which.
+/// paragraphs. Grids become Word tables of their cells' text; a formula cell is written as its
+/// formula, so a caller that wants the values computes them first. Images and queries are not
+/// written. The report says which.
 pub fn export_docx(doc: &Document) -> Result<DocxExport, DocxError> {
     let mut report = FidelityReport::new();
     let mut body = String::new();
@@ -71,7 +75,19 @@ pub fn export_docx(doc: &Document) -> Result<DocxExport, DocxError> {
                 counts.images += 1;
             }
         }
-        Block::Grid { .. } | Block::Query(_) => counts.live += 1,
+        Block::Grid { sheet_id, .. } => match doc.sheets.get(sheet_id) {
+            Some(sheet) => {
+                counts.tables += 1;
+                counts.formulas += sheet
+                    .cells
+                    .values()
+                    .filter(|c| matches!(c, CellInput::Formula { .. }))
+                    .count();
+                body.push_str(&table(sheet));
+            }
+            None => counts.live += 1,
+        },
+        Block::Query(_) => counts.live += 1,
         Block::Container { .. } => {}
     };
     walk(doc, doc.root, &mut visit, 0)?;
@@ -107,10 +123,22 @@ struct Counts {
     images: usize,
     live: usize,
     links: usize,
+    tables: usize,
+    formulas: usize,
 }
 
 impl Counts {
     fn report(&self, report: &mut FidelityReport) {
+        if self.formulas > 0 {
+            report.approximated(
+                "document",
+                "formulas",
+                format!(
+                    "{} formula cell(s) in grids written as their formula text, not their value",
+                    self.formulas
+                ),
+            );
+        }
         if self.links > 0 {
             report.approximated(
                 "document",
@@ -163,10 +191,57 @@ impl Counts {
             report.dropped(
                 "document",
                 "live blocks",
-                format!("{} grid or query block(s) not written", self.live),
+                format!(
+                    "{} query block(s) or grid(s) without a sheet not written",
+                    self.live
+                ),
             );
         }
     }
+}
+
+/// Column width in twentieths of a point (about 3.5 cm).
+const COLUMN_WIDTH: u32 = 2000;
+
+/// A grid as a Word table: one cell per grid cell, with the cell's text. Empty cells are empty
+/// paragraphs. A sheet with no cells is an empty table of one cell, which Word needs.
+fn table(sheet: &Sheet) -> String {
+    let (rows, cols) = sheet.extent();
+    let (rows, cols) = (rows.max(1), cols.max(1));
+    let border = |side: &str| {
+        format!("<w:{side} w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>")
+    };
+    let mut out = format!(
+        "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/><w:tblBorders>{}{}{}{}{}{}</w:tblBorders></w:tblPr><w:tblGrid>",
+        border("top"),
+        border("left"),
+        border("bottom"),
+        border("right"),
+        border("insideH"),
+        border("insideV"),
+    );
+    for _ in 0..cols {
+        out.push_str(&format!("<w:gridCol w:w=\"{COLUMN_WIDTH}\"/>"));
+    }
+    out.push_str("</w:tblGrid>");
+    for row in 1..=rows {
+        out.push_str("<w:tr>");
+        for col in 1..=cols {
+            let text = sheet
+                .cells
+                .get(&address_of(col, row))
+                .map(CellInput::to_text)
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "<w:tc><w:tcPr><w:tcW w:w=\"{COLUMN_WIDTH}\" w:type=\"dxa\"/></w:tcPr>{}</w:tc>",
+                paragraph(&text, None, false, false)
+            ));
+        }
+        out.push_str("</w:tr>");
+    }
+    // A paragraph after the table keeps it from running into the next block.
+    out.push_str("</w:tbl><w:p/>");
+    out
 }
 
 /// Visits the leaf blocks of the tree below `id`, in order. Containers are entered, not visited.

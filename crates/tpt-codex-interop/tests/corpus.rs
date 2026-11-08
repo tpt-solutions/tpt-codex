@@ -162,30 +162,31 @@ fn docx_headings_and_text_come_in_document_order() {
     assert_eq!(
         rest,
         [
-            "name",
-            "unit",
-            "price",
-            "widget",
-            "each",
-            "2.50",
             "bullet one",
             "numbered one",
             "unicode: café — ünïcode & <tags>",
         ],
-        "table cells are flattened row by row, then the list items and the last paragraph"
+        "the table is a grid, so the text blocks are the list items and the last paragraph"
+    );
+    // The table's cells are in its grid: a number stays a number.
+    let sheet = import.document.sheets.values().next().expect("a sheet");
+    assert_eq!(
+        sheet.cells.get("A1"),
+        Some(&CellInput::Text {
+            value: "name".into()
+        })
+    );
+    assert_eq!(
+        sheet.cells.get("C2"),
+        Some(&CellInput::Number { value: 2.5 })
     );
 }
 
 #[test]
-fn docx_report_names_the_flattened_table_and_the_lists() {
+fn docx_report_has_no_table_item_when_nothing_is_merged() {
     let import = import_docx(&fixture("corpus_report.docx")).unwrap();
     let items = import.report.items();
-    assert!(
-        items
-            .iter()
-            .any(|i| i.feature == "tables" && i.outcome == Fidelity::Approximated),
-        "{items:#?}"
-    );
+    assert!(items.iter().all(|i| i.feature != "tables"), "{items:#?}");
     assert!(
         items
             .iter()

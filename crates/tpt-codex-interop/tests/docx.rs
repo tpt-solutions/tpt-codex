@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `.docx` tests on a file written by python-docx (`fixtures/office/make_fixtures.py`).
 
-use tpt_codex_core::Block;
-use tpt_codex_interop::{ArchiveWriter, Fidelity, import_docx};
+use tpt_codex_core::{Block, CellInput};
+use tpt_codex_interop::{ArchiveWriter, Fidelity, export_docx, import_docx};
 
 const BASIC: &[u8] = include_bytes!("../../../fixtures/office/basic.docx");
 
@@ -13,10 +13,12 @@ fn paragraphs(doc: &tpt_codex_core::Document) -> Vec<(String, Option<u8>, bool)>
     };
     children
         .iter()
-        .map(|id| match doc.get(*id) {
+        .filter_map(|id| match doc.get(*id) {
             Some(Block::Text { content, style }) => {
-                (content.clone(), style.heading_level, style.bold)
+                Some((content.clone(), style.heading_level, style.bold))
             }
+            // The table is a grid; its cells are checked separately.
+            Some(Block::Grid { .. }) => None,
             other => panic!("expected text, got {other:?}"),
         })
         .collect()
@@ -36,10 +38,6 @@ fn paragraphs_headings_and_breaks_come_out_in_order() {
             "Details",
             "first bullet",
             "second bullet",
-            "cell A1",
-            "cell B1",
-            "cell A2",
-            "cell B2",
             "Final paragraph & <end>.",
         ]
     );
@@ -51,6 +49,100 @@ fn paragraphs_headings_and_breaks_come_out_in_order() {
         "a paragraph with mixed bold is not bold as a whole"
     );
     import.document.validate().unwrap();
+}
+
+#[test]
+fn a_table_is_a_grid_with_its_cells() {
+    let import = import_docx(BASIC).unwrap();
+    let grids: Vec<&Block> = import
+        .document
+        .blocks
+        .values()
+        .filter(|b| matches!(b, Block::Grid { .. }))
+        .collect();
+    assert_eq!(grids.len(), 1, "one table, one grid");
+    let sheet = import
+        .document
+        .sheets
+        .values()
+        .next()
+        .expect("the table's sheet");
+    assert_eq!(sheet.extent(), (2, 2));
+    assert_eq!(
+        sheet.cells.get("A1"),
+        Some(&CellInput::Text {
+            value: "cell A1".into()
+        })
+    );
+    assert_eq!(
+        sheet.cells.get("B2"),
+        Some(&CellInput::Text {
+            value: "cell B2".into()
+        })
+    );
+    assert!(import.report.items().iter().all(|i| i.feature != "tables"));
+}
+
+#[test]
+fn a_grid_writes_back_as_a_word_table_and_reads_again() {
+    let import = import_docx(BASIC).unwrap();
+    let written = export_docx(&import.document).unwrap();
+    let again = import_docx(&written.bytes).unwrap();
+    let sheet = again
+        .document
+        .sheets
+        .values()
+        .next()
+        .expect("the table's sheet");
+    assert_eq!(sheet.extent(), (2, 2));
+    assert_eq!(
+        sheet.cells.get("B2"),
+        Some(&CellInput::Text {
+            value: "cell B2".into()
+        })
+    );
+    assert!(
+        again
+            .document
+            .blocks
+            .values()
+            .any(|b| matches!(b, Block::Grid { .. }))
+    );
+}
+
+#[test]
+fn a_table_cell_that_is_a_formula_is_written_as_its_text_and_reported() {
+    use tpt_codex_core::{CellInput, Sheet};
+    let mut sheet = Sheet::with_size(1, 1);
+    sheet.cells.insert(
+        "A1".into(),
+        CellInput::Formula {
+            source: "=1+1".into(),
+        },
+    );
+    let mut doc = tpt_codex_core::Document::new(
+        tpt_codex_core::BlockId(0),
+        Block::Container {
+            layout_mode: tpt_codex_core::LayoutMode::Flow,
+            children: vec![tpt_codex_core::BlockId(1)],
+        },
+    );
+    doc.sheets.insert(tpt_codex_core::SheetId(1), sheet);
+    doc.insert(
+        tpt_codex_core::BlockId(1),
+        Block::Grid {
+            sheet_id: tpt_codex_core::SheetId(1),
+            view_bounds: None,
+        },
+    );
+    let written = export_docx(&doc).unwrap();
+    assert!(
+        written
+            .report
+            .items()
+            .iter()
+            .any(|i| i.feature == "formulas" && i.outcome == Fidelity::Approximated)
+    );
 }
 
 #[test]
@@ -76,8 +168,8 @@ fn the_report_counts_what_was_flattened_or_dropped() {
             .find(|i| i.feature == feature)
             .unwrap_or_else(|| panic!("no {feature}"))
     };
-    assert_eq!(find("tables").outcome, Fidelity::Approximated);
-    assert!(find("tables").note.starts_with("1 table"));
+    // The table is a grid, so only merged cells would be reported for it.
+    assert!(items.iter().all(|i| i.feature != "tables"));
     assert_eq!(find("lists").outcome, Fidelity::Approximated);
     assert!(find("lists").note.starts_with("2 list item"));
     // Mixed bold and italic are kept as runs now, so they are not reported as lost.

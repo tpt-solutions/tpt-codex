@@ -43,13 +43,13 @@ fn a_real_docx_and_xlsx_open_as_an_editable_document() {
     let (mut doc, mut history) = open_both();
     doc.validate().unwrap();
 
-    // The docx text is there and the workbook's three sheets are three grids.
+    // The docx text is there, its table is a grid, and the workbook's three sheets are three grids.
     let grids = doc
         .blocks
         .values()
         .filter(|b| matches!(b, Block::Grid { .. }))
         .count();
-    assert_eq!(grids, 3, "one grid per worksheet");
+    assert_eq!(grids, 4, "the docx table, then one grid per worksheet");
     assert!(
         doc.blocks
             .values()
@@ -114,16 +114,24 @@ fn edited_content_writes_back_out_and_reads_again() {
             })
             .collect()
     };
-    for line in [
-        "Corpus report",
-        "widget",
-        "unicode: café — ünïcode & <tags>",
-    ] {
+    for line in ["Corpus report", "unicode: café — ünïcode & <tags>"] {
         assert!(
             text(&again.document).iter().any(|t| t == line),
             "{line:?} survives the docx round trip"
         );
     }
+    // The table's cells are in its grid, and come back the same.
+    let cell = CellInput::Text {
+        value: "widget".into(),
+    };
+    assert!(
+        again
+            .document
+            .sheets
+            .values()
+            .any(|s| s.cells.values().any(|c| *c == cell)),
+        "the table cell 'widget' survives the docx round trip"
+    );
 
     // The first worksheet writes back as an xlsx and reads again with the same cells.
     let first = import_xlsx(&office_fixture("corpus_workbook.xlsx")).unwrap();

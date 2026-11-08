@@ -17,10 +17,11 @@ Nothing is dropped silently. Read the report before you rely on the result.
 | Bold and italic | A whole paragraph keeps its flag. Parts of a paragraph become runs. Spaces at the edge of a run are moved out of it |
 | Line breaks and tabs | |
 | Title and author | Into the front matter |
+| Tables | Become grids: each cell is a cell, and numbers stay numbers |
 
 | Approximated or lost | What happens |
 | --- | --- |
-| Tables | Flattened to paragraphs |
+| Merged table cells | Kept as separate cells |
 | List items | Kept as plain paragraphs without markers |
 | Images | Dropped |
 | Footnotes, comments, tracked changes, styles beyond headings | Not read |
@@ -29,8 +30,9 @@ Known limit: `.cdx` has no nested emphasis. A bold paragraph with an italic word
 written as `.cdx`, so `tpt convert x.docx -o x.cdx` stops and names the paragraph. Convert to `.json`,
 `.pdf` or `.docx` instead.
 
-Writing `.docx` keeps headings, bold, italic and runs. Links are written as plain text, lists lose
-their markers, and images and grids are not written. The report says which.
+Writing `.docx` keeps headings, bold, italic and runs. Grids are written as Word tables, with each
+formula cell's computed value. Links are written as plain text, lists lose their markers, and images
+and queries are not written. The report says which.
 
 ## Excel (`.xlsx`)
 

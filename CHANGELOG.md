@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `.docx` tables are imported as grids, one cell per table cell, instead of flattened paragraphs.
+  Merged cells are reported as approximated. Grids are written back as Word tables, and `.docx` saves
+  write each formula cell's computed value.
+
 ### Added
 
 - `tpt-codex-cli` crate and the `tpt` command: `convert` between `.cdx`/`.md`, `.docx`, `.xlsx`, `.pptx`

@@ -216,7 +216,8 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 ## Gaps found in the review, not built yet
 - [ ] `.cdx`: nested lists, block quotes, tables outside a grid (GFM tables). Quotes need a new block kind and nested lists a new list shape, so both are a schema bump and a migration note in `docs/versioning.md`
 - [ ] `.cdx`: link titles (`[t](url "title")`) — the inline run has no title field
-- [ ] `.docx` import: tables as grids and lists as lists, instead of flattened paragraphs (the largest loss in the fidelity report for real documents)
+- [x] `.docx` tables as grids (import and export) — _done: a table becomes a `Block::Grid` with its cells, numbers kept as numbers; merged cells are reported. Grids are written back as Word tables. Lists still lose their markers_
+- [ ] `.docx` import: lists as lists, instead of plain paragraphs
 - [ ] `.pdf` import. A PDF written by this project has no extractable text (see Phase 3), so the importer could only read PDFs from other tools
 - [ ] Formula language: Excel function names and syntax beyond ranges. Imported `.xlsx` formulas are reported as approximated where the evaluator differs
 

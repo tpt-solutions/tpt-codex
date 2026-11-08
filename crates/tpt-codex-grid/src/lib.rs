@@ -276,6 +276,33 @@ pub fn resolve_document(doc: &Document) -> Option<Document> {
     resolve_bindings(doc, &grid_bindings(doc))
 }
 
+/// A copy of `doc` in which every formula cell holds its computed value, as text, number or
+/// boolean. A formula that failed holds its error message as text, and an empty result holds
+/// empty text. For formats with no formulas, such as Word tables.
+pub fn with_computed_cells(doc: &Document) -> Document {
+    let mut out = doc.clone();
+    for sheet in out.sheets.values_mut() {
+        let results = evaluate_sheet(sheet);
+        for (address, input) in sheet.cells.iter_mut() {
+            if !matches!(input, CellInput::Formula { .. }) {
+                continue;
+            }
+            *input = match results.get(address) {
+                Some(CellResult::Number(n)) => CellInput::Number { value: *n },
+                Some(CellResult::Boolean(b)) => CellInput::Boolean { value: *b },
+                Some(CellResult::Text(s)) => CellInput::Text { value: s.clone() },
+                Some(CellResult::Error(message)) => CellInput::Text {
+                    value: format!("error: {message}"),
+                },
+                Some(CellResult::Empty) | None => CellInput::Text {
+                    value: String::new(),
+                },
+            };
+        }
+    }
+    out
+}
+
 fn to_result(value: CellValue) -> CellResult {
     match value {
         CellValue::Empty | CellValue::List(_) => CellResult::Empty,

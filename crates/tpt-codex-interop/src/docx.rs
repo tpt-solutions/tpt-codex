@@ -3,7 +3,8 @@
 //!
 //! What comes through: paragraphs in order, headings (`Heading1` to `Heading6`, and `Title` as level
 //! 1), bold and italic when a whole paragraph has them, line and tab breaks, and the title and author
-//! from the document properties. Tables are flattened to paragraphs. List items become plain
+//! from the document properties. Tables become grids, one cell per table cell, with numbers kept as
+//! numbers; a cell's text is never a formula. Merged cells are not kept. List items become plain
 //! paragraphs. Images are not imported.
 //!
 //! Everything that does not come through is counted in the [`FidelityReport`], one item per kind.
@@ -12,7 +13,10 @@ use std::fmt;
 
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
-use tpt_codex_core::{Block, BlockId, Document, InlineRun, LayoutMode, Metadata, TextStyle};
+use tpt_codex_core::{
+    Block, BlockId, CellInput, Document, InlineRun, LayoutMode, Metadata, Sheet, SheetId,
+    TextStyle, address_of,
+};
 
 use crate::archive::{Archive, ZipError};
 use crate::fidelity::FidelityReport;
@@ -51,11 +55,14 @@ pub fn import_docx(bytes: &[u8]) -> Result<DocxImport, DocxError> {
     let parsed = parse_body(&body)?;
 
     let mut report = FidelityReport::new();
-    if parsed.tables > 0 {
+    if parsed.merged > 0 {
         report.approximated(
             "document",
-            "tables",
-            format!("{} table(s) flattened to paragraphs", parsed.tables),
+            "merged cells",
+            format!(
+                "{} merged cell(s) in {} table(s) kept as separate cells",
+                parsed.merged, parsed.tables
+            ),
         );
     }
     if parsed.list_items > 0 {
@@ -85,6 +92,9 @@ pub fn import_docx(bytes: &[u8]) -> Result<DocxImport, DocxError> {
     );
     for (i, block) in parsed.blocks.into_iter().enumerate() {
         document.insert(BlockId(i as u64 + 1), block);
+    }
+    for (id, sheet) in parsed.sheets {
+        document.sheets.insert(id, sheet);
     }
     document.metadata = read_metadata(&archive);
     Ok(DocxImport { document, report })
@@ -142,8 +152,13 @@ struct Run {
 struct Parsed {
     blocks: Vec<Block>,
     tables: usize,
+    merged: usize,
     list_items: usize,
     images: usize,
+    /// The sheets of the tables, each shown by a grid block in `blocks`.
+    sheets: Vec<(SheetId, Sheet)>,
+    /// The rows of the table being read, while the reader is inside one.
+    table: Option<Vec<Vec<String>>>,
 }
 
 /// The paragraph being read, and the run inside it.
@@ -217,8 +232,21 @@ fn parse_body(xml: &str) -> Result<Parsed, DocxError> {
                 b"tbl" => {
                     if table_depth == 0 {
                         out.tables += 1;
+                        out.table = Some(Vec::new());
                     }
                     table_depth += 1;
+                }
+                // Only the rows and cells of the outermost table are kept; a nested table's text
+                // lands in the cell that holds it.
+                b"tr" if table_depth == 1 => {
+                    if let Some(rows) = out.table.as_mut() {
+                        rows.push(Vec::new());
+                    }
+                }
+                b"tc" if table_depth == 1 => {
+                    if let Some(row) = out.table.as_mut().and_then(|rows| rows.last_mut()) {
+                        row.push(String::new());
+                    }
                 }
                 b"drawing" | b"pict" => out.images += 1,
                 b"b" | b"i" => apply_run_flag(&e, run.as_mut())?,
@@ -236,6 +264,10 @@ fn parse_body(xml: &str) -> Result<Parsed, DocxError> {
                     }
                 }
                 b"b" | b"i" => apply_run_flag(&e, run.as_mut())?,
+                b"gridSpan" if table_depth == 1 && style_val(&e)?.as_deref() != Some("1") => {
+                    out.merged += 1;
+                }
+                b"vMerge" if table_depth == 1 => out.merged += 1,
                 b"tab" => {
                     if let Some(r) = run.as_mut() {
                         r.text.push('\t');
@@ -267,7 +299,14 @@ fn parse_body(xml: &str) -> Result<Parsed, DocxError> {
                         finish_paragraph(p, &mut out);
                     }
                 }
-                b"tbl" => table_depth = table_depth.saturating_sub(1),
+                b"tbl" => {
+                    table_depth = table_depth.saturating_sub(1);
+                    if table_depth == 0 {
+                        if let Some(rows) = out.table.take() {
+                            add_table(rows, &mut out);
+                        }
+                    }
+                }
                 _ => {}
             },
             Event::Eof => break,
@@ -353,6 +392,16 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
     if style.is_some_and(is_list_style) || p.numbered {
         out.list_items += 1;
     }
+    // Inside a table, a paragraph is a line of its cell. The cell's text is set when the table ends.
+    if let Some(rows) = out.table.as_mut() {
+        if let Some(cell) = rows.last_mut().and_then(|row| row.last_mut()) {
+            if !cell.is_empty() {
+                cell.push('\n');
+            }
+            cell.push_str(&text);
+        }
+        return;
+    }
     out.blocks.push(Block::Text {
         content: text,
         style: TextStyle {
@@ -361,5 +410,40 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
             heading_level: heading,
             runs,
         },
+    });
+}
+
+/// Adds a table as a grid block. Each cell's text is read as a number or a boolean when it is one,
+/// and as text otherwise, so a cell that starts with `=` is never a formula. A table with no cells
+/// adds nothing.
+fn add_table(rows: Vec<Vec<String>>, out: &mut Parsed) {
+    let height = rows.len() as u32;
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0) as u32;
+    if height == 0 || width == 0 {
+        return;
+    }
+    let mut sheet = Sheet::with_size(height, width);
+    for (r, row) in rows.iter().enumerate() {
+        for (c, text) in row.iter().enumerate() {
+            let text = text.trim();
+            if text.is_empty() {
+                continue;
+            }
+            let input = match CellInput::parse(text) {
+                Ok(Some(CellInput::Formula { .. })) | Ok(None) | Err(_) => CellInput::Text {
+                    value: text.to_string(),
+                },
+                Ok(Some(input)) => input,
+            };
+            sheet
+                .cells
+                .insert(address_of(c as u32 + 1, r as u32 + 1), input);
+        }
+    }
+    let id = SheetId(out.sheets.len() as u64 + 1);
+    out.sheets.push((id, sheet));
+    out.blocks.push(Block::Grid {
+        sheet_id: id,
+        view_bounds: None,
     });
 }
