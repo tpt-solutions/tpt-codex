@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Document schema version 3. Adds the `Block::Quote` variant and sub-lists (a `Block::List` as an
+  item of another list). Version 2 builds refuse version 3 documents with `UnsupportedSchemaVersion`.
+  The golden fixture is regenerated for the new version only.
+- Markdown reads and writes block quotes (`>`) and nested lists (an item indented under the one
+  above it). Both were errors before. The writer refuses an empty quote, a sub-list first in its
+  list, and two adjacent sub-lists of one kind.
+- The flow view and the PDF indent quoted blocks and sub-lists. A list marker sits one list indent
+  left of its text, so a sub-list's markers are indented too; top-level output is unchanged.
 - `.docx` tables are imported as grids, one cell per table cell, instead of flattened paragraphs.
   Merged cells are reported as approximated. Grids are written back as Word tables, and `.docx` saves
   write each formula cell's computed value.

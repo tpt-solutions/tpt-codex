@@ -214,7 +214,9 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [ ] Query results as bindings (`[[q1]]`)
 
 ## Gaps found in the review, not built yet
-- [ ] `.cdx`: nested lists, block quotes, tables outside a grid (GFM tables). Quotes need a new block kind and nested lists a new list shape, so both are a schema bump and a migration note in `docs/versioning.md`
+- [x] `.cdx`: nested lists and block quotes — _done in schema version 3: `Block::Quote`, and a list item may be a sub-list. Markdown reads and writes both; the flow view, PDF and editor show them. Tables outside a grid (GFM tables) are not done_
+- [ ] `.cdx`: tables outside a grid (GFM tables)
+- [ ] The editor's paginated view shows list markers inline, without the indent of nested items or quoted blocks
 - [ ] `.cdx`: link titles (`[t](url "title")`) — the inline run has no title field
 - [x] `.docx` tables as grids (import and export) — _done: a table becomes a `Block::Grid` with its cells, numbers kept as numbers; merged cells are reported. Grids are written back as Word tables. Lists still lose their markers_
 - [ ] `.docx` import: lists as lists, instead of plain paragraphs

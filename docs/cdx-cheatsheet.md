@@ -35,8 +35,7 @@ and an escaped \* star.
 ***
 ```
 
-Not supported yet: emphasis inside emphasis, nested lists, block quotes, link titles, tables outside
-a grid.
+Not supported yet: emphasis inside emphasis, link titles, tables outside a grid.
 
 ## Code
 

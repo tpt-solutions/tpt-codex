@@ -29,7 +29,7 @@ fm-char      = any char except '"' and '\' | '\"' | '\\' ;
 
 body         = { blank | block } ;
 blank        = SP* NL ;
-block        = heading | fence | rule | image | math | list | paragraph ;
+block        = heading | fence | rule | image | math | list | quote | paragraph ;
 
 heading      = hashes ( SP text )? NL ;   (* text is trimmed; empty text is an error *)
 hashes       = "#" | "##" | "###" | "####" | "#####" | "######" ;
@@ -51,10 +51,16 @@ alt          = text without brackets, backslashes or '&' ;
 uri          = text without spaces, parentheses, angle brackets, backslashes or '&' ;
 
 list         = list-item { NL list-item } ;
-list-item    = indent{0,3} marker SP+ text NL ;
+list-item    = indent marker SP+ text NL ;
+              (* an item indented further than the item above it is a sub-list of that item *)
 marker       = "-" | "*" | "+" | digits{1,9} ( "." | ")" ) ;
               (* a list of one kind is a run of items with the same marker character;
                  changing the marker starts a new list *)
+
+quote        = quote-line { NL quote-line } ;
+quote-line   = indent{0,3} ">" SP? line NL ;
+              (* the lines behind the ">" are read as a body of blocks, so a quote can hold
+                 paragraphs, lists, code and other quotes; a bare ">" line separates blocks *)
 
 paragraph    = para-line { NL para-line } ;   (* ends at a blank line or any other block *)
 para-line    = text-line ;                     (* must not start any block syntax above *)
@@ -114,6 +120,19 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
 - A blank line between items makes the list loose in CommonMark. Loose lists are an error here.
 - Only the number of the first item is kept. Later numbers are written from it, so `1. 1. 1.`
   reads as items 1, 2, 3. This matches how CommonMark renders the list.
+- An item indented further than the item above it is a sub-list of that item. Sub-lists nest to any
+  depth, and a sub-list may be bulleted under a numbered item or the other way round. The writer
+  indents two spaces a level. A list's numbers count its own items, so a sub-list does not break the
+  numbering of its parent.
+- A sub-list cannot be the first thing in a list, since it has no item to belong to.
+
+### Block quotes
+
+- A line that starts with `>` (up to three spaces before it) is part of a block quote. The `>` and
+  one space after it are removed, and the rest is read as a body of blocks.
+- A bare `>` line separates two blocks inside the quote. A line without `>` ends the quote.
+- A quote can hold any blocks, including lists and other quotes. It cannot be placed inside a slide.
+- `>` at the start of a line inside a code fence is code, not a quote.
 
 ### Math blocks
 
@@ -177,14 +196,12 @@ A line that starts with any of these is an error. The error names the construct 
 | Syntax | Examples |
 | --- | --- |
 | Indented code block | a line starting with 4 spaces or a tab |
-| Block quote | `> ` or `>` |
 | Table | a line starting with `|` outside a grid |
 | Other container block | `::: name` for a name other than grid or canvas |
 | Raw HTML | a line starting with `<` |
 | Setext heading | a line of `=`, or `---` under a paragraph line |
 | Loose list | a blank line between two items of the same list |
 | List continuation | a line under an item that is not indented into it |
-| Nested list | an item indented four or more spaces |
 
 Front matter problems are also errors: an unknown key, a line that is not `key: value`, a
 quoted value with a bad escape, or a missing closing `---`.
@@ -210,7 +227,9 @@ quoted value with a bad escape, or a missing closing `---`.
   `-`, `*`, `_` and spaces (it would read back as a rule),
 - two adjacent lists of the same kind, which would read back as one list,
 - a numbered list that does not start at 1 directly after a paragraph,
-- a list item that is not a plain text block,
+- a list item that is neither a plain text block nor a sub-list,
+- a sub-list as the first item of a list, or two adjacent sub-lists of the same kind,
+- an empty block quote,
 - a code block whose language has a line break, backtick, backslash or entity, or whose content has a
   carriage return,
 - an image that is not a URI source, has an empty URI, a URI with spaces, parentheses, angle brackets,
@@ -240,7 +259,7 @@ document already used that numbering.
 
 ## Not yet in the grammar
 
-Block quotes, nested lists, loose lists, setext headings, tables outside a grid, `[#ref]`
+Loose lists, setext headings, tables outside a grid, `[#ref]`
 cross-references (use `[text](#anchor)` for headings and `[text](#fig:id)`, `[text](#eq:id)` or `[text](#tab:id)`
 for figures, equations and tables), emphasis nested
 in links, links with titles, bold combined with italic, grid view bounds, and slide sections and frames.

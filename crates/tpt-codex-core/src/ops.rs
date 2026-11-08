@@ -332,9 +332,12 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
                     len,
                 });
             }
-            // A list holds text items only.
+            // A list holds text items, and sub-lists.
             if matches!(doc.get(*parent), Some(Block::List { .. }))
-                && !matches!(doc.get(*child), Some(Block::Text { .. }))
+                && !matches!(
+                    doc.get(*child),
+                    Some(Block::Text { .. } | Block::List { .. })
+                )
             {
                 return Err(EditError::NotText(*child));
             }
@@ -515,7 +518,7 @@ pub fn apply(doc: &mut Document, op: &Op) -> Result<Op, EditError> {
 
 fn children_of(block: &Block) -> &[BlockId] {
     match block {
-        Block::Container { children, .. } => children,
+        Block::Container { children, .. } | Block::Quote { children } => children,
         Block::List { items, .. } => items,
         _ => &[],
     }
@@ -529,6 +532,7 @@ fn children_mut(doc: &mut Document, id: BlockId) -> Result<&mut Vec<BlockId>, Ed
     match doc.blocks.get_mut(&id) {
         Some(
             Block::Container { children, .. }
+            | Block::Quote { children }
             | Block::List {
                 items: children, ..
             },
@@ -542,6 +546,7 @@ fn container_len(doc: &Document, id: BlockId) -> Result<usize, EditError> {
     match doc.blocks.get(&id) {
         Some(
             Block::Container { children, .. }
+            | Block::Quote { children }
             | Block::List {
                 items: children, ..
             },

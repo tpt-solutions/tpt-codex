@@ -12,8 +12,8 @@ use crate::error::ParseError;
 use crate::inline::parse_inline;
 use crate::syntax::{
     ContainerOpen, ListMarker, MathOpen, canvas_size, container_closes, container_open,
-    fence_closes, fence_open, figure_attributes, heading, image_line, is_separator, list_item,
-    math_close, math_open, table_row, thematic_break, unsupported,
+    fence_closes, fence_open, figure_attributes, heading, image_line, is_separator, leading_spaces,
+    list_item, math_close, math_open, quote_content, table_row, thematic_break, unsupported,
 };
 
 /// Reads the supported Markdown subset into a [`Document`].
@@ -26,10 +26,19 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
     let body_start = read_front_matter(&lines, &mut metadata)?;
 
     let mut b = Builder::default();
-    let mut open = Open::default();
+    read_body(&lines[body_start..], body_start + 1, &mut b)?;
+    Ok(document_from(b, metadata))
+}
 
-    for (offset, line) in lines[body_start..].iter().enumerate() {
-        let lineno = body_start + offset + 1;
+/// Reads a run of body lines into `b`. `first_line` is the 1-based line number of `lines[0]`.
+/// A block quote's lines are read by a call to this function, on the lines behind its `>`.
+fn read_body(lines: &[&str], first_line: usize, b: &mut Builder) -> Result<(), ParseError> {
+    let mut open = Open::default();
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index];
+        let lineno = first_line + index;
+        index += 1;
 
         if let Some(source_lines) = open.math.as_mut() {
             if let Some(close) = math_close(line) {
@@ -58,7 +67,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                 }
             } else {
                 // Math source is kept exactly, including leading spaces.
-                source_lines.push(String::from(*line));
+                source_lines.push(String::from(line));
             }
             continue;
         }
@@ -84,7 +93,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
         }
 
         if open.grid.is_some() && container_closes(line) {
-            finish_grid(&mut open, &mut b)?;
+            finish_grid(&mut open, b)?;
             continue;
         }
         if let Some(grid) = open.grid.as_mut() {
@@ -147,10 +156,10 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "remove it, or open a container with ::: grid { id=\"1\" } or ::: canvas { ratio=\"16:9\" }",
                 ));
             }
-            open.close_paragraph(&mut b)?;
-            open.close_list(&mut b);
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
             open.after_image = false;
-            finish_canvas(&mut b);
+            finish_canvas(b);
             continue;
         }
 
@@ -162,8 +171,8 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "write the attributes as { key=\"value\" } after the container name",
                 )
             })?;
-            open.close_paragraph(&mut b)?;
-            open.close_list(&mut b);
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
             open.after_image = false;
             match opener {
                 ContainerOpen::Grid { id, label } => {
@@ -207,14 +216,41 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
         }
 
         if line.trim().is_empty() {
-            open.close_paragraph(&mut b)?;
+            open.close_paragraph(b)?;
             open.after_image = false;
-            if open.list.is_some() {
+            if !open.lists.is_empty() {
                 open.list_blank = true;
             }
             continue;
         }
         let after_image = core::mem::take(&mut open.after_image);
+
+        // A block quote: its lines, behind their `>`, are read as a body of their own.
+        if let Some(first_content) = quote_content(line) {
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
+            if b.canvas.is_some() {
+                return Err(error(
+                    lineno,
+                    "block quotes cannot be placed inside a slide yet",
+                    "move the quote outside the ::: canvas block",
+                ));
+            }
+            let mut quoted: Vec<&str> = alloc::vec![first_content];
+            while index < lines.len() {
+                match quote_content(lines[index]) {
+                    Some(content) => quoted.push(content),
+                    None => break,
+                }
+                index += 1;
+            }
+            let outer = core::mem::take(&mut b.root);
+            let read = read_body(&quoted, lineno, b);
+            let children = core::mem::replace(&mut b.root, outer);
+            read?;
+            b.push_block(Block::Quote { children });
+            continue;
+        }
 
         if let Some(item) = list_item(line) {
             if item.text.is_empty() {
@@ -224,19 +260,6 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "write the item's text after the marker",
                 ));
             }
-            if let Some(list) = open.list.as_mut() {
-                if list.key == item.key() {
-                    if open.list_blank {
-                        return Err(error(
-                            lineno,
-                            "loose lists (blank lines between items) are not supported yet",
-                            "remove the blank lines between the items",
-                        ));
-                    }
-                    list.items.push(b.alloc(text_block(item.text, lineno)?));
-                    continue;
-                }
-            }
             if open.para.is_some() && item.ordered && item.number != 1 {
                 return Err(error(
                     lineno,
@@ -244,9 +267,37 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "start the list at 1, or put a blank line before it",
                 ));
             }
-            open.close_paragraph(&mut b)?;
-            open.close_list(&mut b);
-            open.list = Some(OpenList::start(&mut b, item, lineno)?);
+            open.close_paragraph(b)?;
+            // An item at this depth belongs to the open list at this depth, if the kind matches.
+            // Lists deeper than the item end; a list of another kind at this depth ends. Otherwise
+            // a new list starts here, nested in the item above it when there is one.
+            let indent = leading_spaces(line);
+            let key = item.key();
+            loop {
+                open.close_lists_deeper_than(indent, b);
+                let same_depth = open.lists.last().map(|top| top.indent == indent);
+                match same_depth {
+                    Some(true) if open.lists.last().is_some_and(|top| top.key == key) => {
+                        if open.list_blank {
+                            return Err(error(
+                                lineno,
+                                "loose lists (blank lines between items) are not supported yet",
+                                "remove the blank lines between the items",
+                            ));
+                        }
+                        let id = b.alloc(text_block(item.text, lineno)?);
+                        if let Some(top) = open.lists.last_mut() {
+                            top.items.push(id);
+                        }
+                        break;
+                    }
+                    Some(true) => open.close_top_list(b),
+                    _ => {
+                        open.lists.push(OpenList::start(b, item, lineno, indent)?);
+                        break;
+                    }
+                }
+            }
             open.list_blank = false;
             continue;
         }
@@ -259,8 +310,8 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "use a plain language name such as rust",
                 ));
             }
-            open.close_paragraph(&mut b)?;
-            open.close_list(&mut b);
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
             open.code = Some(OpenCode {
                 ch: fence.ch,
                 len: fence.len,
@@ -279,8 +330,8 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "write the math as $$, then the source lines, then $$",
                 )
             })?;
-            open.close_paragraph(&mut b)?;
-            open.close_list(&mut b);
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
             match opener {
                 MathOpen::Single { source, label } => {
                     let id = b.push_block(Block::Math {
@@ -303,15 +354,15 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "put a blank line between the text and the dashes, or use *** for a rule",
                 ));
             }
-            open.close_paragraph(&mut b)?;
-            open.close_list(&mut b);
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
             b.push_block(Block::ThematicBreak);
             continue;
         }
 
         if let Some((level, text)) = heading(line) {
-            open.close_paragraph(&mut b)?;
-            open.close_list(&mut b);
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
             if text.is_empty() {
                 return Err(error(
                     lineno,
@@ -334,14 +385,14 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
         }
 
         if let Some(image) = image_line(line) {
-            if open.para.is_some() || (open.list.is_some() && !open.list_blank) {
+            if open.para.is_some() || (!open.lists.is_empty() && !open.list_blank) {
                 return Err(error(
                     lineno,
                     "an image directly after text is not supported yet",
                     "put a blank line before the image",
                 ));
             }
-            open.close_list(&mut b);
+            open.close_all_lists(b);
             let (alt, uri, attributes) = image
                 .map_err(|reason| error(lineno, reason, "use ![alt text](path) with no title"))?;
             let figure = figure_attributes(attributes).map_err(|reason| {
@@ -379,7 +430,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                 "put a blank line between the image and the text",
             ));
         }
-        if open.list.is_some() {
+        if !open.lists.is_empty() {
             if !open.list_blank {
                 return Err(error(
                     lineno,
@@ -387,7 +438,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                     "put each list item on one line",
                 ));
             }
-            open.close_list(&mut b);
+            open.close_all_lists(b);
         }
         match &mut open.para {
             Some(text) => {
@@ -395,22 +446,23 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
                 text.push_str(line);
             }
             None => {
-                open.para = Some(String::from(*line));
+                open.para = Some(String::from(line));
                 open.para_line = lineno;
             }
         }
     }
 
+    let last_line = first_line + lines.len().saturating_sub(1);
     if open.code.is_some() {
         return Err(error(
-            lines.len(),
+            last_line,
             "code block is not closed",
             "close the block with a fence of the same character and at least the same length",
         ));
     }
     if open.math.is_some() {
         return Err(error(
-            lines.len(),
+            last_line,
             "math block is not closed",
             "close the block with a line containing only $$",
         ));
@@ -424,14 +476,18 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
     }
     if b.canvas.is_some() {
         return Err(error(
-            lines.len(),
+            last_line,
             "canvas is not closed",
             "close the slide with a line containing only :::",
         ));
     }
-    open.close_paragraph(&mut b)?;
-    open.close_list(&mut b);
+    open.close_paragraph(b)?;
+    open.close_all_lists(b);
+    Ok(())
+}
 
+/// The document made of what was read: the root's children, and the side tables of the reader.
+fn document_from(mut b: Builder, metadata: Metadata) -> Document {
     let mut doc = Document::new(
         BlockId(0),
         Block::Container {
@@ -454,7 +510,7 @@ pub fn from_markdown(src: &str) -> Result<Document, ParseError> {
     doc.figures = b.figures;
     doc.equation_labels = b.equation_labels;
     doc.table_labels = b.table_labels;
-    Ok(doc)
+    doc
 }
 
 fn error(line: usize, message: &str, suggestion: &'static str) -> ParseError {
@@ -614,7 +670,9 @@ struct Open {
     para: Option<String>,
     /// The 1-based line where the open paragraph starts.
     para_line: usize,
-    list: Option<OpenList>,
+    /// The open lists, outermost first. Each one after the first is a sub-list of the last item
+    /// of the one before it.
+    lists: Vec<OpenList>,
     /// A blank line has been seen since the list's last item.
     list_blank: bool,
     code: Option<OpenCode>,
@@ -652,13 +710,39 @@ impl Open {
         Ok(())
     }
 
-    fn close_list(&mut self, b: &mut Builder) {
-        if let Some(list) = self.list.take() {
-            b.push_block(Block::List {
-                ordered: list.key.0,
-                start: list.start,
-                items: list.items,
-            });
+    /// Closes the innermost open list. It becomes the last item of the list around it, or a block
+    /// of its own when no list is around it.
+    fn close_top_list(&mut self, b: &mut Builder) {
+        let Some(list) = self.lists.pop() else {
+            return;
+        };
+        let block = Block::List {
+            ordered: list.key.0,
+            start: list.start,
+            items: list.items,
+        };
+        match self.lists.last_mut() {
+            Some(parent) => {
+                let id = b.alloc(block);
+                parent.items.push(id);
+            }
+            None => {
+                b.push_block(block);
+            }
+        }
+    }
+
+    /// Closes the open lists indented further than `indent`.
+    fn close_lists_deeper_than(&mut self, indent: usize, b: &mut Builder) {
+        while self.lists.last().is_some_and(|top| top.indent > indent) {
+            self.close_top_list(b);
+        }
+    }
+
+    /// Closes every open list.
+    fn close_all_lists(&mut self, b: &mut Builder) {
+        while !self.lists.is_empty() {
+            self.close_top_list(b);
         }
         self.list_blank = false;
     }
@@ -667,15 +751,24 @@ impl Open {
 struct OpenList {
     key: (bool, u8),
     start: u32,
+    /// The number of spaces before the list's markers. A sub-list is indented further than its
+    /// parent.
+    indent: usize,
     items: Vec<BlockId>,
 }
 
 impl OpenList {
-    fn start(b: &mut Builder, item: ListMarker<'_>, line: usize) -> Result<Self, ParseError> {
+    fn start(
+        b: &mut Builder,
+        item: ListMarker<'_>,
+        line: usize,
+        indent: usize,
+    ) -> Result<Self, ParseError> {
         let first = b.alloc(text_block(item.text, line)?);
         Ok(OpenList {
             key: item.key(),
             start: item.number,
+            indent,
             items: alloc::vec![first],
         })
     }

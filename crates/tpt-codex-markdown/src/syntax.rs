@@ -13,7 +13,7 @@ use tpt_codex_core::{Canvas, Figure, is_equation_label, is_figure_label, is_tabl
 pub(crate) const MAX_LIST_NUMBER: u32 = 999_999_999;
 
 /// Number of leading spaces.
-fn leading_spaces(line: &str) -> usize {
+pub(crate) fn leading_spaces(line: &str) -> usize {
     line.bytes().take_while(|&b| b == b' ').count()
 }
 
@@ -24,6 +24,13 @@ fn strip_block_indent(line: &str) -> Option<&str> {
         return None;
     }
     Some(&line[n..])
+}
+
+/// The text of a block quote line: what follows its `>` and one space after it. `None` for a line
+/// that is not a quote line.
+pub(crate) fn quote_content(line: &str) -> Option<&str> {
+    let rest = strip_block_indent(line)?.strip_prefix('>')?;
+    Some(rest.strip_prefix(' ').unwrap_or(rest))
 }
 
 /// Returns `(level, text)` for an ATX heading line such as `## Title`.
@@ -124,9 +131,10 @@ impl ListMarker<'_> {
     }
 }
 
-/// Returns the list marker for a line such as `- item` or `3) item`.
+/// Returns the list marker for a line such as `- item` or `3) item`. The marker may be indented
+/// any amount: an indented marker is a sub-list item, and the reader works out its depth.
 pub(crate) fn list_item(line: &str) -> Option<ListMarker<'_>> {
-    let body = strip_block_indent(line)?;
+    let body = &line[leading_spaces(line)..];
     let first = *body.as_bytes().first()?;
     let (ordered, number, delim, rest) = if matches!(first, b'-' | b'*' | b'+') {
         (false, 1, first, &body[1..])
@@ -524,9 +532,6 @@ pub(crate) fn unsupported(line: &str) -> Option<&'static str> {
     if t.is_empty() {
         return None;
     }
-    if t.starts_with('>') {
-        return Some("block quote");
-    }
     if t.starts_with('|') {
         return Some("table");
     }
@@ -546,7 +551,8 @@ pub(crate) fn unsupported(line: &str) -> Option<&'static str> {
 ///
 /// The writer uses this to refuse paragraph text that would read back as another block.
 pub(crate) fn starts_block(line: &str) -> bool {
-    heading(line).is_some()
+    line.trim_start_matches(' ').starts_with('>')
+        || heading(line).is_some()
         || fence_open(line).is_some()
         || thematic_break(line).is_some()
         || image_line(line).is_some()

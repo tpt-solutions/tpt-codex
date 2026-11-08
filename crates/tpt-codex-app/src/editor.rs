@@ -559,7 +559,9 @@ impl Editor {
         match self.doc.get(id) {
             Some(Block::Grid { sheet_id, .. }) => sheets.contains(sheet_id),
             Some(Block::Query(_)) => doc_changed,
-            Some(Block::Container { children, .. }) => children.iter().any(&mut touches),
+            Some(Block::Container { children, .. } | Block::Quote { children }) => {
+                children.iter().any(&mut touches)
+            }
             Some(Block::List { items, .. }) => items.iter().any(&mut touches),
             _ => false,
         }
@@ -1477,6 +1479,57 @@ impl Editor {
             .is_some_and(|sel| sel.block == id && sel.is_collapsed())
     }
 
+    /// A list: its items, then its buttons. A sub-list is drawn inside the list, indented, with its
+    /// own buttons, which act on the sub-list.
+    fn view_list(
+        &self,
+        c: &mut ContainerBuilder<Msg>,
+        list: BlockId,
+        ordered: bool,
+        items: &[BlockId],
+    ) {
+        // Numbers count the list's own items; a sub-list is numbered on its own.
+        let mut number = 0usize;
+        for (n, item) in items.iter().enumerate() {
+            match self.doc.get(*item) {
+                Some(Block::Text { content, style }) => {
+                    number += 1;
+                    let marker = if ordered {
+                        format!("{number}.")
+                    } else {
+                        "•".to_string()
+                    };
+                    // Each item is edited like a paragraph, so typing and the caret work in it.
+                    // The marker is drawn by CSS from `data-marker`, not as a text node: a text
+                    // node before the text area makes the browser move the area and drop focus.
+                    c.container(|row| {
+                        self.view_paragraph(row, *item, content, style);
+                        row.button("Remove item")
+                            .on_click(Msg::RemoveListItem { list, index: n });
+                    })
+                    .class("list-item")
+                    .attr("data-marker", marker);
+                }
+                Some(Block::List {
+                    ordered: sub_ordered,
+                    items: sub_items,
+                    ..
+                }) => {
+                    c.container(|inner| self.view_list(inner, *item, *sub_ordered, sub_items))
+                        .class("sub-list");
+                }
+                _ => {}
+            }
+        }
+        c.button("Add item").on_click(Msg::AddListItem { list });
+        let kind = if ordered {
+            "Make bulleted"
+        } else {
+            "Make numbered"
+        };
+        c.button(kind).on_click(Msg::ToggleListKind { list });
+    }
+
     fn view_block(&self, c: &mut ContainerBuilder<Msg>, id: BlockId) {
         let Some(block) = self.doc.get(id) else {
             return;
@@ -1488,34 +1541,14 @@ impl Editor {
                 c.container(|inner| self.view_paragraph(inner, id, content, style))
                     .class("text-block");
             }
-            Block::List { items, ordered, .. } => {
-                let list = id;
-                for (n, item) in items.iter().enumerate() {
-                    if let Some(Block::Text { content, style }) = self.doc.get(*item) {
-                        let marker = if *ordered {
-                            format!("{}.", n + 1)
-                        } else {
-                            "•".to_string()
-                        };
-                        // Each item is edited like a paragraph, so typing and the caret work in it.
-                        // The marker is drawn by CSS from `data-marker`, not as a text node: a text
-                        // node before the text area makes the browser move the area and drop focus.
-                        c.container(|row| {
-                            self.view_paragraph(row, *item, content, style);
-                            row.button("Remove item")
-                                .on_click(Msg::RemoveListItem { list, index: n });
-                        })
-                        .class("list-item")
-                        .attr("data-marker", marker);
+            Block::List { items, ordered, .. } => self.view_list(c, id, *ordered, items),
+            Block::Quote { children } => {
+                c.container(|inner| {
+                    for child in children {
+                        self.view_block(inner, *child);
                     }
-                }
-                c.button("Add item").on_click(Msg::AddListItem { list });
-                let kind = if *ordered {
-                    "Make bulleted"
-                } else {
-                    "Make numbered"
-                };
-                c.button(kind).on_click(Msg::ToggleListKind { list });
+                })
+                .class("block-quote");
             }
             Block::Code { code, .. } => {
                 styled_text(c, code.clone(), "code");
@@ -1978,6 +2011,7 @@ fn block_text(block: &Block) -> String {
         Block::Query(_) => "(query)".to_string(),
         Block::ThematicBreak => "—————".to_string(),
         Block::Container { .. } => "(container)".to_string(),
+        Block::Quote { .. } => "(quote)".to_string(),
     }
 }
 

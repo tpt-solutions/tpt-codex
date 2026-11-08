@@ -49,6 +49,8 @@ pub enum ValidationError {
     FootnoteOfMissingBlock(BlockId),
     /// A footnote's block is not a text block.
     FootnoteNotText(BlockId),
+    /// A list item is neither a text block nor a list.
+    ListItemNotText(BlockId),
     /// Two footnotes share a label, or a label is empty.
     DuplicateFootnote(alloc::string::String),
     /// A frame is recorded for a block that does not exist.
@@ -137,6 +139,13 @@ impl fmt::Display for ValidationError {
                 )
             }
             Self::FootnoteNotText(id) => write!(f, "footnote block {} is not text", id.0),
+            Self::ListItemNotText(id) => {
+                write!(
+                    f,
+                    "list {} has an item that is neither text nor a list",
+                    id.0
+                )
+            }
             Self::DuplicateFootnote(label) => {
                 write!(f, "footnote label '{label}' is empty or used twice")
             }

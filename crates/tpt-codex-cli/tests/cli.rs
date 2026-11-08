@@ -143,7 +143,8 @@ fn a_word_file_with_bold_italic_text_converts_to_cdx_and_back() {
 fn a_markdown_error_is_reported_with_file_line_and_column() {
     let dir = scratch("parse-error");
     let file = dir.join("bad.md");
-    fs::write(&file, "# Title\n\n> a quote\n").unwrap();
+    // A table row outside a grid is not in the Markdown subset.
+    fs::write(&file, "# Title\n\n| a | b |\n").unwrap();
     let out = tpt(&["check", s(&file)]);
     assert_eq!(out.status, 1);
     assert!(out.err.contains("bad.md:3:"), "{}", out.err);

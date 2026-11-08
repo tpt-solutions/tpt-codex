@@ -45,19 +45,9 @@ pub fn export_docx(doc: &Document) -> Result<DocxExport, DocxError> {
         }
         Block::List { items, .. } => {
             counts.lists += 1;
-            for item in items {
-                if let Some(Block::Text { content, style }) = doc.get(*item) {
-                    counts.links += style.runs.iter().filter(|r| r.link.is_some()).count();
-                    body.push_str(&paragraph_styled(
-                        content,
-                        &TextStyle {
-                            heading_level: None,
-                            ..style.clone()
-                        },
-                    ));
-                }
-            }
+            list_paragraphs(doc, items, &mut body, &mut counts);
         }
+        Block::Quote { .. } => counts.quotes += 1,
         Block::Code { code, .. } => {
             counts.code += 1;
             body.push_str(&paragraph(code, None, false, false));
@@ -114,8 +104,29 @@ pub fn export_docx(doc: &Document) -> Result<DocxExport, DocxError> {
     })
 }
 
+/// The paragraphs of a list's items, sub-lists included, each one without its marker.
+fn list_paragraphs(doc: &Document, items: &[BlockId], body: &mut String, counts: &mut Counts) {
+    for item in items {
+        match doc.get(*item) {
+            Some(Block::Text { content, style }) => {
+                counts.links += style.runs.iter().filter(|r| r.link.is_some()).count();
+                body.push_str(&paragraph_styled(
+                    content,
+                    &TextStyle {
+                        heading_level: None,
+                        ..style.clone()
+                    },
+                ));
+            }
+            Some(Block::List { items, .. }) => list_paragraphs(doc, items, body, counts),
+            _ => {}
+        }
+    }
+}
+
 #[derive(Default)]
 struct Counts {
+    quotes: usize,
     lists: usize,
     code: usize,
     math: usize,
@@ -129,6 +140,13 @@ struct Counts {
 
 impl Counts {
     fn report(&self, report: &mut FidelityReport) {
+        if self.quotes > 0 {
+            report.approximated(
+                "document",
+                "block quotes",
+                format!("{} block quote(s) written as plain paragraphs", self.quotes),
+            );
+        }
         if self.formulas > 0 {
             report.approximated(
                 "document",
@@ -256,6 +274,14 @@ fn walk(
     }
     match doc.get(id) {
         Some(Block::Container { children, .. }) => {
+            for child in children {
+                walk(doc, *child, visit, depth + 1)?;
+            }
+            Ok(())
+        }
+        // A quote is visited, so it can be reported, and its children are then visited in turn.
+        Some(block @ Block::Quote { children }) => {
+            visit(block);
             for child in children {
                 walk(doc, *child, visit, depth + 1)?;
             }

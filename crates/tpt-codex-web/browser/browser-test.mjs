@@ -298,7 +298,7 @@ check("opening a file says so", (await status()).includes("Opened notes.cdx"), a
 check("the opened grid is evaluated", (await tableCell("42").count()) === 1);
 
 // A file that cannot be read leaves the document alone and says why.
-await page.setInputFiles("#open-file", { name: "bad.cdx", mimeType: "text/plain", buffer: Buffer.from("# T\n\n> a quote\n") });
+await page.setInputFiles("#open-file", { name: "bad.cdx", mimeType: "text/plain", buffer: Buffer.from("# T\n\n| a | b |\n") });
 await page.waitForFunction(() => document.querySelector("#status")?.textContent.includes("Could not open"), null, { timeout: 5000 });
 check("a bad file reports its line", (await status()).includes("bad.cdx:3:"), await status());
 check("a bad file leaves the document as it was", (await page.textContent("#app h1")) === "Opened heading");
@@ -310,8 +310,8 @@ check("opening a .docx shows its heading", (await page.textContent("#app h1")) =
 check("a .docx import shows what was not kept", (await status()).includes("not kept"), await status());
 
 // Saving in each format names the file after the one that was opened.
-for (const [ext, magic] of [["cdx", "---"], ["docx", "PK"], ["xlsx", null], ["pdf", "%PDF-"], ["json", "{"]]) {
-  if (ext === "xlsx") continue; // this document has no grid, which the page reports instead
+// The Word file's table is a grid, so it saves as a workbook too.
+for (const [ext, magic] of [["cdx", "---"], ["docx", "PK"], ["xlsx", "PK"], ["pdf", "%PDF-"], ["json", "{"]]) {
   await page.selectOption("#save-format", ext);
   const downloadPromise = page.waitForEvent("download", { timeout: 20000 });
   await page.click("#save");
@@ -319,9 +319,14 @@ for (const [ext, magic] of [["cdx", "---"], ["docx", "PK"], ["xlsx", null], ["pd
   const head = (await readFile(await download.path())).subarray(0, magic.length).toString("latin1");
   check(`save as .${ext} downloads basic.${ext}`, download.suggestedFilename() === `basic.${ext}` && head === magic, `${download.suggestedFilename()} ${head}`);
 }
+// A document with no grid cannot be saved as a workbook, and the page says why.
+await page.setInputFiles("#open-file", { name: "plain.md", mimeType: "text/markdown", buffer: Buffer.from("# Plain\n\nJust words.\n") });
+await page.waitForFunction(() => document.querySelector("#app h1")?.textContent === "Plain", null, { timeout: 5000 });
 await page.selectOption("#save-format", "xlsx");
 await page.click("#save");
 check("saving a grid-less document as .xlsx says why", (await status()).includes("no grid"), await status());
+await page.setInputFiles("#open-file", path.join(HERE, "../../../fixtures/office/basic.docx"));
+await page.waitForFunction(() => document.querySelector("#app h1")?.textContent === "Introduction", null, { timeout: 5000 });
 
 // Autosave: the document comes back after a reload, and Start over clears it.
 await page.waitForTimeout(2600);
@@ -335,7 +340,9 @@ await page.waitForTimeout(300);
 check("start over brings back the sample", (await page.textContent("#app h1")) === "Field notes", await page.textContent("#app h1"));
 
 check("no page errors", errors.length === 0, errors.join(" | "));
-await browser.close();
+// Closing waits for the page; on some machines that wait does not end, so it is bounded. The
+// checks above have already run, and process.exit below ends the browser either way.
+await Promise.race([browser.close(), new Promise((resolve) => setTimeout(resolve, 10000))]);
 
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);

@@ -108,7 +108,7 @@ fn unsupported_schema_version_is_rejected() {
         doc.validate(),
         Err(ValidationError::UnsupportedSchemaVersion {
             found: 99,
-            supported: 2
+            supported: 3
         })
     );
 }

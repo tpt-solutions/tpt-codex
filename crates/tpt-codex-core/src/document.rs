@@ -36,8 +36,9 @@ pub fn is_table_label(label: &str) -> bool {
 /// The schema version written by this build.
 ///
 /// Version 2 adds the `List`, `Code`, `ThematicBreak` and `Math` block variants.
+/// Version 3 adds the `Quote` block variant, and lets a list item be a sub-list.
 /// No version 1 document was ever released, so no migration exists.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Front-matter style metadata for a document.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +163,18 @@ impl Document {
             for &child in children_of(block) {
                 if !self.blocks.contains_key(&child) {
                     return Err(ValidationError::DanglingChild { parent, child });
+                }
+            }
+        }
+        for (&parent, block) in &self.blocks {
+            if let Block::List { items, .. } = block {
+                for &item in items {
+                    if !matches!(
+                        self.blocks.get(&item),
+                        Some(Block::Text { .. } | Block::List { .. })
+                    ) {
+                        return Err(ValidationError::ListItemNotText(parent));
+                    }
                 }
             }
         }
@@ -353,7 +366,7 @@ impl Document {
 
 fn children_of(block: &Block) -> &[BlockId] {
     match block {
-        Block::Container { children, .. } => children,
+        Block::Container { children, .. } | Block::Quote { children } => children,
         Block::List { items, .. } => items,
         _ => &[],
     }

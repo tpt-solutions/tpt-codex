@@ -21,6 +21,9 @@
       textarea.paragraph-input { width: 100%; min-height: 3em; font: inherit; }
       /* A list item's marker comes from its data-marker attribute, not from a text node. */
       .list-item::before { content: attr(data-marker) " "; }
+      /* A sub-list is indented under the item above it; a block quote has a rule at its left. */
+      .sub-list { margin-left: 1.5em; }
+      .block-quote { border-left: 3px solid #bbb; padding-left: 12px; color: #444; }
     </style>
   </head>
   <body>

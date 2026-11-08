@@ -102,6 +102,44 @@ fn a_cell_edit_renders_the_grid_that_shows_the_sheet() {
     assert_eq!(rendered_by(&editor), 1);
 }
 
+/// A quote (6) that holds a grid (7) of sheet 1, and nothing else.
+fn quoted_grid() -> Document {
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: vec![BlockId(6)],
+        },
+    );
+    doc.insert(
+        BlockId(6),
+        Block::Quote {
+            children: vec![BlockId(7)],
+        },
+    );
+    doc.insert(
+        BlockId(7),
+        Block::Grid {
+            sheet_id: SheetId(1),
+            view_bounds: None,
+        },
+    );
+    doc.insert_sheet(SheetId(1), Sheet::with_size(2, 2));
+    doc
+}
+
+#[test]
+fn a_cell_edit_renders_the_quote_that_holds_the_grid() {
+    let mut editor = Editor::new(quoted_grid());
+    rendered_by(&editor);
+    editor.update(Msg::EditCell {
+        sheet: SheetId(1),
+        address: "A1".into(),
+        text: "7".into(),
+    });
+    assert_eq!(rendered_by(&editor), 1, "the quote owns the grid");
+}
+
 #[test]
 fn cached_view_matches_a_fresh_render_after_edits() {
     let mut editor = Editor::new(document());

@@ -15,11 +15,17 @@ The workspace is at `0.1.0-spec`, the design-spec stage. The first public releas
 ## Document schema
 
 Every serialized `Document` carries `schema_version`. The current value is `SCHEMA_VERSION` in
-`tpt-codex-core` (`2`).
+`tpt-codex-core` (`3`).
 
-Version 2 adds the `List`, `Code`, `ThematicBreak` and `Math` block variants. Version 1 was never
-released, so there is no version 1 document to migrate. The first migration will be needed only
-after a release.
+Version 2 adds the `List`, `Code`, `ThematicBreak` and `Math` block variants. Version 3 adds the
+`Quote` block variant, and lets a list item be a sub-list (a `List` block in a list's `items`).
+Version 1 was never released, so there is no version 1 document to migrate. The first migration will
+be needed only after a release.
+
+A version 3 document is refused by a build that reads only version 2, with
+`UnsupportedSchemaVersion`. Nothing is read partially, so an older build cannot misread a document
+that has quotes or sub-lists. The Markdown form does not help: an older build also refuses `>` lines
+and indented list items when it reads them.
 
 Rules:
 

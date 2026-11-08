@@ -449,6 +449,13 @@ fn merge_block(base: Option<&Block>, ours: &Block, theirs: &Block) -> Result<Blo
                 items: merge_children(bi, oi, ti),
             })
         }
+        (
+            Block::Quote { children: bch },
+            Block::Quote { children: och },
+            Block::Quote { children: tch },
+        ) => Ok(Block::Quote {
+            children: merge_children(bch, och, tch),
+        }),
         _ => Err(ConflictKind::BothChanged),
     }
 }
@@ -622,7 +629,9 @@ fn prune(doc: &mut Document) {
     let ids: BTreeSet<BlockId> = doc.blocks.keys().copied().collect();
     for block in doc.blocks.values_mut() {
         match block {
-            Block::Container { children, .. } => children.retain(|c| ids.contains(c)),
+            Block::Container { children, .. } | Block::Quote { children } => {
+                children.retain(|c| ids.contains(c));
+            }
             Block::List { items, .. } => items.retain(|c| ids.contains(c)),
             _ => {}
         }

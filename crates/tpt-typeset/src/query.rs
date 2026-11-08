@@ -138,7 +138,8 @@ pub fn document_entities(doc: &tpt_codex_core::Document) -> tpt_query::MemorySou
             Block::ThematicBreak => {
                 entity(id, entity_type::THEMATIC_BREAK).with_field("kind", "thematic_break")
             }
-            Block::Container { .. } => continue,
+            // Containers and quotes group blocks; their children are entities of their own.
+            Block::Container { .. } | Block::Quote { .. } => continue,
         };
         if let Some(position) = root_children.iter().position(|c| *c == id) {
             e = e.with_field("position", position as i64);

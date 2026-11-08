@@ -24,8 +24,8 @@ use tpt_codex_core::{Block, BlockId, Document, SheetId, TextStyle};
 use tpt_codex_grid::{CellResult, evaluate_sheet};
 use tpt_codex_text::{FontMeasure, GlyphLine, GlyphRun, TextError};
 use tpt_codex_views::{
-    CanvasError, FlowItem, FlowKind, FlowOptions, LayoutError, PageChrome, PageError, PageGeometry,
-    PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow_hyphenated,
+    CanvasError, FlowItem, FlowKind, FlowOptions, LIST_INDENT, LayoutError, PageChrome, PageError,
+    PageGeometry, PaperSize, RenderedChrome, TextMeasure, layout_canvas, layout_flow_hyphenated,
     paginate_with_notes, render_chrome,
 };
 use tpt_text::PathSegment;
@@ -295,10 +295,12 @@ impl PageContext<'_> {
                     y,
                     style.bold,
                 );
-                // The marker shares the first line's baseline, since it is set in the same style.
+                // The marker shares the first line's baseline, since it is set in the same style. It
+                // sits one list indent left of its text, so a sub-list's markers are indented too.
                 if let Some(marker) = marker {
                     let marks = self.measure.shape_lines(marker, style, None)?;
-                    draw_lines(ctx, self.outlines, &marks, x, y, style.bold);
+                    let marker_x = x + (*indent - LIST_INDENT).max(0.0) as f32;
+                    draw_lines(ctx, self.outlines, &marks, marker_x, y, style.bold);
                 }
             }
             FlowKind::Box => draw_box(ctx, x, y, self.column as f32, item.height as f32),

@@ -371,6 +371,7 @@ fn write_block(
             view_bounds,
         } => write_grid(doc, index, *sheet_id, view_bounds.is_some()),
         Block::Query(_) => Err(fail("queries are not in the Markdown subset yet")),
+        Block::Quote { children } => write_quote(doc, index, children),
         Block::Container { .. } => Err(fail("nested containers are not supported yet")),
     }
 }
@@ -490,7 +491,39 @@ fn write_list(
         }
     }
 
-    let mut lines: Vec<String> = Vec::with_capacity(items.len());
+    let mut lines: Vec<String> = Vec::new();
+    list_lines(doc, index, ordered, start, items, 0, &mut lines)?;
+    Ok(lines.join("\n"))
+}
+
+/// The lines of a list at `depth`, and of the sub-lists in it, each one indented by two spaces
+/// per level. A sub-list is an item that is a list; it must follow a text item.
+fn list_lines(
+    doc: &Document,
+    index: usize,
+    ordered: bool,
+    start: u32,
+    items: &[BlockId],
+    depth: usize,
+    lines: &mut Vec<String>,
+) -> Result<(), SerializeError> {
+    let fail = |reason: &str| SerializeError {
+        index: Some(index),
+        reason: String::from(reason),
+    };
+    if items.is_empty() {
+        return Err(fail("an empty list cannot be written"));
+    }
+    if !ordered && start != 1 {
+        return Err(fail("bulleted lists always start at 1"));
+    }
+    if ordered && (start > MAX_LIST_NUMBER || (items.len() as u32 - 1) > MAX_LIST_NUMBER - start) {
+        return Err(fail("list numbers are out of range"));
+    }
+    let indent = "  ".repeat(depth);
+    let mut previous_sub: Option<bool> = None;
+    // Numbers count this list's own items; a sub-list has its own numbers.
+    let mut number = start;
     for (i, id) in items.iter().enumerate() {
         let item = doc.get(*id).ok_or_else(|| SerializeError {
             index: Some(index),
@@ -498,8 +531,34 @@ fn write_list(
         })?;
         let (text, style) = match item {
             Block::Text { content, style } => (content, style),
-            _ => return Err(fail("list items must be text")),
+            Block::List {
+                ordered: sub_ordered,
+                start: sub_start,
+                items: sub_items,
+            } => {
+                if i == 0 {
+                    return Err(fail("a sub-list must follow a list item"));
+                }
+                if previous_sub == Some(*sub_ordered) {
+                    return Err(fail(
+                        "two adjacent sub-lists of the same kind would read back as one; put a list item between them",
+                    ));
+                }
+                previous_sub = Some(*sub_ordered);
+                list_lines(
+                    doc,
+                    index,
+                    *sub_ordered,
+                    *sub_start,
+                    sub_items,
+                    depth + 1,
+                    lines,
+                )?;
+                continue;
+            }
+            _ => return Err(fail("list items must be text or lists")),
         };
+        previous_sub = None;
         if style.heading_level.is_some() {
             return Err(fail("list items must be plain text"));
         }
@@ -523,17 +582,57 @@ fn write_list(
             ));
         }
         let line = if ordered {
-            format!("{}. {}", start + i as u32, escaped)
+            format!("{indent}{number}. {escaped}")
         } else {
-            format!("- {escaped}")
+            format!("{indent}- {escaped}")
         };
+        number += 1;
         match list_item(&line) {
             Some(marker) if marker.text == escaped.as_str() && marker.ordered == ordered => {}
             _ => return Err(fail("list item would read back as other syntax")),
         }
         lines.push(line);
     }
-    Ok(lines.join("\n"))
+    Ok(())
+}
+
+/// A block quote: its children written as Markdown, each line behind `> `. A blank line inside
+/// the quote is a bare `>`.
+fn write_quote(
+    doc: &Document,
+    index: usize,
+    children: &[BlockId],
+) -> Result<String, SerializeError> {
+    let fail = |reason: &str| SerializeError {
+        index: Some(index),
+        reason: String::from(reason),
+    };
+    if children.is_empty() {
+        return Err(fail("an empty block quote cannot be written"));
+    }
+    let mut parts: Vec<String> = Vec::with_capacity(children.len());
+    let mut prev: Option<&Block> = None;
+    for id in children {
+        let block = doc.get(*id).ok_or_else(|| SerializeError {
+            index: Some(index),
+            reason: format!("quoted block {} is missing", id.0),
+        })?;
+        let label = doc.footnotes.get(id).map(String::as_str);
+        parts.push(write_block(doc, index, *id, block, prev, label)?);
+        prev = Some(block);
+    }
+    let inner = parts.join("\n\n");
+    let quoted: Vec<String> = inner
+        .split('\n')
+        .map(|line| {
+            if line.is_empty() {
+                String::from(">")
+            } else {
+                format!("> {line}")
+            }
+        })
+        .collect();
+    Ok(quoted.join("\n"))
 }
 
 fn write_code(index: usize, language: Option<&str>, code: &str) -> Result<String, SerializeError> {

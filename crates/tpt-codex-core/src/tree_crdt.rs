@@ -548,6 +548,9 @@ pub fn project_document(tree: &TreeCrdt<crate::Block>) -> crate::Document {
                 start,
                 items: child_ids,
             },
+            Block::Quote { .. } => Block::Quote {
+                children: child_ids,
+            },
             other => other,
         };
         doc.insert(BlockId(node.0), block);

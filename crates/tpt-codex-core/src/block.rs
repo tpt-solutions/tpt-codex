@@ -56,6 +56,12 @@ pub enum Block {
         /// The code, lines joined with `\n`, with no trailing line break.
         code: String,
     },
+    /// A block quote: its child blocks, in order. The children can be any blocks, including
+    /// other quotes.
+    Quote {
+        /// The child blocks, in order.
+        children: Vec<BlockId>,
+    },
     /// A horizontal rule.
     ThematicBreak,
     /// Display math. The source is TeX-style math text, stored verbatim. `tpt-typeset`

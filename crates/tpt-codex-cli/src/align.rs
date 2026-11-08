@@ -98,6 +98,9 @@ fn similarity(base: &Document, a: BlockId, other: &Document, b: BlockId) -> f64 
         (Block::List { items: c, .. }, Block::List { items: d, .. }) => {
             child_overlap(base, c, other, d)
         }
+        (Block::Quote { children: c }, Block::Quote { children: d }) => {
+            child_overlap(base, c, other, d)
+        }
         _ => 0.0,
     }
 }
@@ -128,7 +131,7 @@ fn child_overlap(base: &Document, a: &[BlockId], other: &Document, b: &[BlockId]
 
 fn children(block: &Block) -> Option<&[BlockId]> {
     match block {
-        Block::Container { children, .. } => Some(children),
+        Block::Container { children, .. } | Block::Quote { children } => Some(children),
         Block::List { items, .. } => Some(items),
         _ => None,
     }
@@ -210,7 +213,9 @@ fn relabel(doc: &Document, map: &BTreeMap<BlockId, BlockId>) -> Document {
         .map(|(id, block)| {
             let mut block = block.clone();
             match &mut block {
-                Block::Container { children, .. } => children.iter_mut().for_each(|c| *c = to(c)),
+                Block::Container { children, .. } | Block::Quote { children } => {
+                    children.iter_mut().for_each(|c| *c = to(c));
+                }
                 Block::List { items, .. } => items.iter_mut().for_each(|c| *c = to(c)),
                 _ => {}
             }

@@ -13,6 +13,9 @@ use crate::measure::TextMeasure;
 /// this space.
 pub const LIST_INDENT: f64 = 18.0;
 
+/// How far the contents of a block quote are indented from the margin, in points.
+const QUOTE_INDENT: f64 = 18.0;
+
 /// Options for the flow projection.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlowOptions {
@@ -193,6 +196,7 @@ pub fn layout_flow_cached(
         cache,
         &mut out,
         &mut pending,
+        0.0,
     )?;
     // The last block's bottom margin is kept, as trailing space in the column.
     out.height += pending;
@@ -263,6 +267,7 @@ fn wrapped_text(
 
 /// Lays out the children of `container`. `pending` is the bottom margin of the last block placed,
 /// which the next block collapses with its top margin.
+#[allow(clippy::too_many_arguments)]
 fn flow_children(
     doc: &Document,
     container: BlockId,
@@ -271,18 +276,41 @@ fn flow_children(
     cache: &mut FlowCache,
     out: &mut FlowLayout,
     pending: &mut f64,
+    indent: f64,
 ) -> Result<(), LayoutError> {
     let children = match doc.get(container) {
         Some(Block::Container { children, .. }) => children,
         _ => return Ok(()),
     };
+    flow_blocks(doc, children, measure, options, cache, out, pending, indent)
+}
+
+/// Lays out `children` in order, each one indented `indent` points from the margin. The arguments
+/// are the layout's context, passed down through the recursion as they are.
+#[allow(clippy::too_many_arguments)]
+fn flow_blocks(
+    doc: &Document,
+    children: &[BlockId],
+    measure: &dyn TextMeasure,
+    options: FlowOptions,
+    cache: &mut FlowCache,
+    out: &mut FlowLayout,
+    pending: &mut f64,
+    indent: f64,
+) -> Result<(), LayoutError> {
     for &id in children {
         let block = doc.get(id).ok_or(LayoutError::MissingBlock(id))?;
         match block {
             Block::Text { content, style } => {
                 let (top, bottom) = text_margins(style, options.block_spacing);
-                let (lines, height) =
-                    wrapped_text(id, content, style, measure, options.width, cache);
+                let (lines, height) = wrapped_text(
+                    id,
+                    content,
+                    style,
+                    measure,
+                    (options.width - indent).max(1.0),
+                    cache,
+                );
                 start_block(out, pending, top);
                 for text in lines {
                     out.items.push(FlowItem {
@@ -293,7 +321,7 @@ fn flow_children(
                             text,
                             style: style.clone(),
                             marker: None,
-                            indent: 0.0,
+                            indent,
                         },
                     });
                     out.height += height;
@@ -306,41 +334,39 @@ fn flow_children(
                 items,
             } => {
                 // The items of a list stack with no gap between them. Each item's text is wrapped
-                // to the width left after the marker indent, and its first line carries the marker.
+                // to the width left after its marker indent, and its first line carries the marker.
                 start_block(out, pending, 0.0);
-                let width = (options.width - LIST_INDENT).max(1.0);
-                for (index, &item) in items.iter().enumerate() {
-                    let Some(Block::Text { content, style }) = doc.get(item) else {
-                        continue;
-                    };
-                    let (lines, height) = wrapped_text(item, content, style, measure, width, cache);
-                    let marker = if *ordered {
-                        alloc::format!("{}.", start.saturating_add(index as u32))
-                    } else {
-                        String::from("\u{2022}")
-                    };
-                    for (line, text) in lines.into_iter().enumerate() {
-                        out.items.push(FlowItem {
-                            block: item,
-                            y: out.height,
-                            height,
-                            kind: FlowKind::Line {
-                                text,
-                                style: style.clone(),
-                                marker: (line == 0).then(|| marker.clone()),
-                                indent: LIST_INDENT,
-                            },
-                        });
-                        out.height += height;
-                    }
-                }
+                flow_list(
+                    doc,
+                    *ordered,
+                    *start,
+                    items,
+                    indent,
+                    (options.width - indent).max(1.0),
+                    measure,
+                    cache,
+                    out,
+                )?;
                 *pending = options.block_spacing;
+            }
+            Block::Quote { children } => {
+                // The quoted blocks are indented from the margin, and laid out as the others are.
+                flow_blocks(
+                    doc,
+                    children,
+                    measure,
+                    options,
+                    cache,
+                    out,
+                    pending,
+                    indent + QUOTE_INDENT,
+                )?;
             }
             Block::Container {
                 layout_mode: LayoutMode::Flow,
                 ..
             } => {
-                flow_children(doc, id, measure, options, cache, out, pending)?;
+                flow_children(doc, id, measure, options, cache, out, pending, indent)?;
             }
             Block::Grid {
                 sheet_id,
@@ -377,6 +403,72 @@ fn flow_children(
                 out.height += options.box_height;
                 *pending = options.block_spacing;
             }
+        }
+    }
+    Ok(())
+}
+
+/// Lays out a list whose markers sit at `base` points from the margin, within `width` points of
+/// space. The text of an item is `LIST_INDENT` further in, and a number counts the list's own
+/// items. A sub-list sits in the item above it, one list indent further in.
+#[allow(clippy::too_many_arguments)]
+fn flow_list(
+    doc: &Document,
+    ordered: bool,
+    start: u32,
+    items: &[BlockId],
+    base: f64,
+    width: f64,
+    measure: &dyn TextMeasure,
+    cache: &mut FlowCache,
+    out: &mut FlowLayout,
+) -> Result<(), LayoutError> {
+    let text_width = (width - LIST_INDENT).max(1.0);
+    let mut number = start;
+    for &item in items {
+        match doc.get(item) {
+            Some(Block::Text { content, style }) => {
+                let (lines, height) =
+                    wrapped_text(item, content, style, measure, text_width, cache);
+                let marker = if ordered {
+                    alloc::format!("{number}.")
+                } else {
+                    String::from("\u{2022}")
+                };
+                number = number.saturating_add(1);
+                for (line, text) in lines.into_iter().enumerate() {
+                    out.items.push(FlowItem {
+                        block: item,
+                        y: out.height,
+                        height,
+                        kind: FlowKind::Line {
+                            text,
+                            style: style.clone(),
+                            marker: (line == 0).then(|| marker.clone()),
+                            indent: base + LIST_INDENT,
+                        },
+                    });
+                    out.height += height;
+                }
+            }
+            Some(Block::List {
+                ordered: sub_ordered,
+                start: sub_start,
+                items: sub_items,
+            }) => {
+                flow_list(
+                    doc,
+                    *sub_ordered,
+                    *sub_start,
+                    sub_items,
+                    base + LIST_INDENT,
+                    text_width,
+                    measure,
+                    cache,
+                    out,
+                )?;
+            }
+            _ => {}
         }
     }
     Ok(())

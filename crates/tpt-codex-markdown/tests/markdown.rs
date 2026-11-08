@@ -99,7 +99,6 @@ fn loose_list_reports_line_and_hint() {
 #[test]
 fn each_unsupported_construct_is_an_error() {
     for src in [
-        "> quote\n",
         "| a | b |\n",
         "    indented\n",
         ":::  grid\n",
@@ -107,7 +106,7 @@ fn each_unsupported_construct_is_an_error() {
         "para\n---\n",
         "para\n![a](b.png)\n",
         "- item\n  continued\n",
-        "- item\n    nested\n",
+        "> ::: canvas\n",
         "```\ncode\n",
         "1. one\n\n2. two\n",
         "text\n3. not one\n",
