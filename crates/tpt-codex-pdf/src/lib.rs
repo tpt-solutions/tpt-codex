@@ -6,7 +6,9 @@
 //!
 //! Text is drawn twice. The outlines show the text as laid out. A text layer then draws each glyph
 //! again, invisibly, with the bundled font embedded and a map to its characters, so the text can
-//! be selected, searched and read (see the `text_layer` module). Bold text is drawn with the regular
+//! be selected, searched and read (see the `text_layer` module). A document export also tags that
+//! text: paragraphs, headings, list items and figures with alternative text, in a structure tree
+//! (see the `structure` module). A slide is not tagged. Bold text is drawn with the regular
 //! outlines, stroked with a thin line to thicken them. The bundled font has no bold outlines of its
 //! own, so this is an approximation of the bold weight that the layout measured.
 //!
@@ -33,11 +35,12 @@ use tpt_text::PathSegment;
 use tpt_text::fx::Fx;
 use tpt_typeset::footnote_notes;
 
+mod structure;
 mod subset;
 mod text_layer;
 
 pub use text_layer::TextLayerError;
-use text_layer::{TextGlyph, TextRun, add_text_layer};
+use text_layer::{DocInfo, Item, Role, TextGlyph, TextRun, add_text_layer};
 
 /// Margins, in points, from the edges of the paper.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -193,16 +196,17 @@ fn draw_lines(
     ctx: &mut Context<PdfBackend>,
     outlines: &FaceOutlines,
     lines: &[GlyphLine],
-    x: f32,
-    y: f32,
+    at: (f32, f32),
     bold: bool,
-    text: &mut Vec<TextRun>,
+    tag: &Tag,
+    layer: &mut Vec<Item>,
 ) {
+    let (x, y) = at;
     ctx.set_fill_paint(Paint::Solid(INK));
     for line in lines {
         for run in &line.runs {
             // The same glyphs, at the same places, for the text layer.
-            text.push(TextRun {
+            layer.push(Item::Run(TextRun {
                 face: run.face,
                 size: run.size,
                 glyphs: run
@@ -216,7 +220,9 @@ fn draw_lines(
                         text: g.text.clone(),
                     })
                     .collect(),
-            });
+                role: tag.role.clone(),
+                block: tag.block,
+            }));
             let mut shaped = ShapedRun::new(run.face as u32, run.size);
             for glyph in &run.glyphs {
                 shaped.push(
@@ -293,6 +299,19 @@ fn cell_address(col: u32, row: u32) -> String {
     address
 }
 
+/// What a drawn piece of text is, for the structure of a tagged file: its role, and its block.
+#[derive(Debug, Clone)]
+struct Tag {
+    role: Role,
+    block: u64,
+}
+
+/// The tag of furniture on a page, which readers skip.
+const ARTIFACT: Tag = Tag {
+    role: Role::Artifact,
+    block: 0,
+};
+
 /// Everything a page needs to draw its items.
 struct PageContext<'a> {
     doc: &'a Document,
@@ -302,8 +321,10 @@ struct PageContext<'a> {
     column: f64,
     /// Computed cell values per sheet, filled on first use.
     results: BTreeMap<SheetId, BTreeMap<String, CellResult>>,
-    /// The text of the page being drawn, for the text layer.
-    text: Vec<TextRun>,
+    /// The list each list item belongs to, by the item's block id.
+    list_of: BTreeMap<u64, u64>,
+    /// The text and figures of the page being drawn, for the text layer.
+    text: Vec<Item>,
 }
 
 impl PageContext<'_> {
@@ -321,14 +342,15 @@ impl PageContext<'_> {
                 marker,
                 indent,
             } => {
+                let tag = self.tag_of(item.block, style.heading_level);
                 let lines = self.measure.shape_lines(text, style, None)?;
                 draw_lines(
                     ctx,
                     self.outlines,
                     &lines,
-                    x + *indent as f32,
-                    y,
+                    (x + *indent as f32, y),
                     style.bold,
+                    &tag,
                     &mut self.text,
                 );
                 // The marker shares the first line's baseline, since it is set in the same style. It
@@ -340,30 +362,56 @@ impl PageContext<'_> {
                         ctx,
                         self.outlines,
                         &marks,
-                        marker_x,
-                        y,
+                        (marker_x, y),
                         style.bold,
+                        &tag,
                         &mut self.text,
                     );
                 }
             }
-            FlowKind::Box => draw_box(ctx, x, y, self.column as f32, item.height as f32),
+            FlowKind::Box => {
+                draw_box(ctx, x, y, self.column as f32, item.height as f32);
+                // A picture's placeholder is a figure, with its alternative text.
+                if let Some(Block::Media { alt_text, .. }) = self.doc.get(item.block) {
+                    self.text.push(Item::Figure {
+                        block: item.block.0,
+                        alt: alt_text.clone(),
+                    });
+                }
+            }
             FlowKind::GridRow { sheet, row, header } => {
-                self.draw_grid_row(ctx, *sheet, *row, *header, x, y)?;
+                self.draw_grid_row(ctx, (*sheet, *row, *header), (x, y), item.block.0)?;
             }
         }
         Ok(())
     }
 
+    /// The tag of a line of text in the block `block`: a list item, a heading, or a paragraph.
+    fn tag_of(&self, block: BlockId, heading_level: Option<u8>) -> Tag {
+        let role = match (self.list_of.get(&block.0), heading_level) {
+            (Some(&list), _) => Role::ListItem { list },
+            (None, Some(level)) => Role::Heading(level),
+            (None, None) => Role::Paragraph,
+        };
+        Tag {
+            role,
+            block: block.0,
+        }
+    }
+
+    /// Draws one row of a grid. The grid's cells are paragraphs of its block: a grid is not tagged
+    /// as a table yet.
     fn draw_grid_row(
         &mut self,
         ctx: &mut Context<PdfBackend>,
-        sheet_id: SheetId,
-        row: u32,
-        header: bool,
-        x: f32,
-        y: f32,
+        (sheet_id, row, header): (SheetId, u32, bool),
+        (x, y): (f32, f32),
+        block: u64,
     ) -> Result<(), ExportError> {
+        let tag = Tag {
+            role: Role::Paragraph,
+            block,
+        };
         let Some(sheet) = self.doc.sheets.get(&sheet_id) else {
             // A grid whose sheet is missing is drawn as a placeholder by the flow.
             return Ok(());
@@ -393,9 +441,9 @@ impl PageContext<'_> {
                 ctx,
                 self.outlines,
                 &lines,
-                cell_x + 2.0,
-                y,
+                (cell_x + 2.0, y),
                 style.bold,
+                &tag,
                 &mut self.text,
             );
         }
@@ -411,10 +459,10 @@ fn draw_chrome_text(
     text: &str,
     x: f32,
     y: f32,
-    layer: &mut Vec<TextRun>,
+    layer: &mut Vec<Item>,
 ) -> Result<(), ExportError> {
     let lines = measure.shape_lines(text, &TextStyle::default(), None)?;
-    draw_lines(ctx, outlines, &lines, x, y, false, layer);
+    draw_lines(ctx, outlines, &lines, (x, y), false, &ARTIFACT, layer);
     Ok(())
 }
 
@@ -427,7 +475,7 @@ fn draw_page_chrome(
     rendered: &RenderedChrome,
     paper: PaperSize,
     margins: Margins,
-    layer: &mut Vec<TextRun>,
+    layer: &mut Vec<Item>,
 ) -> Result<(), ExportError> {
     if let Some(header) = &rendered.header {
         let top = ((margins.top - CHROME_LINE).max(0.0) / 2.0) as f32;
@@ -540,9 +588,10 @@ pub fn export_document_with_chrome(
         margins,
         column,
         results: BTreeMap::new(),
+        list_of: list_items(doc),
         text: Vec::new(),
     };
-    let mut page_text: Vec<Vec<TextRun>> = Vec::with_capacity(pages.len());
+    let mut page_text: Vec<Vec<Item>> = Vec::with_capacity(pages.len());
     for (index, (page, chrome_page)) in pages.iter().zip(&rendered).enumerate() {
         if index > 0 {
             backend.new_page(width, height);
@@ -564,19 +613,41 @@ pub fn export_document_with_chrome(
         page_text.push(std::mem::take(&mut page_context.text));
         backend = ctx.into_backend();
     }
-    with_text_layer(backend.finish(), height, &page_text, &faces)
+    let info = DocInfo {
+        title: doc.metadata.title.clone(),
+        author: doc.metadata.author.clone(),
+        language: DOCUMENT_LANGUAGE.to_string(),
+    };
+    with_text_layer(backend.finish(), height, &page_text, &faces, Some(&info))
+}
+
+/// The language of the text of an exported document. The model does not record one yet.
+const DOCUMENT_LANGUAGE: &str = "en";
+
+/// The list each list item belongs to, by the item's block id.
+fn list_items(doc: &Document) -> BTreeMap<u64, u64> {
+    let mut out = BTreeMap::new();
+    for (&id, block) in &doc.blocks {
+        if let Block::List { items, .. } = block {
+            for item in items {
+                out.insert(item.0, id.0);
+            }
+        }
+    }
+    out
 }
 
 /// Adds the text layer to a finished file: the text of each page, drawn invisibly over the
-/// outlines, so the file can be searched and its text copied.
+/// outlines, so the file can be searched and its text copied. With `info`, the file is tagged.
 fn with_text_layer(
     pdf: Vec<u8>,
     page_height: f32,
-    pages: &[Vec<TextRun>],
+    pages: &[Vec<Item>],
     faces: &[Arc<tpt_text::font::FontFace>],
+    info: Option<&DocInfo>,
 ) -> Result<Vec<u8>, ExportError> {
     let data: Vec<&[u8]> = faces.iter().map(|face| face.data()).collect();
-    Ok(add_text_layer(&pdf, page_height, pages, &data)?)
+    Ok(add_text_layer(&pdf, page_height, pages, &data, info)?)
 }
 
 /// Exports one slide as a PDF, one page the size of the slide.
@@ -596,6 +667,11 @@ pub fn export_slide(
     };
     let mut ctx = Context::new(backend);
     ctx.set_glyph_source(Box::new(outlines.clone()));
+    // A slide is not tagged: its text is drawn with no structure.
+    let untagged = Tag {
+        role: Role::Untagged,
+        block: 0,
+    };
     let mut text = Vec::new();
     for item in &layout.items {
         let Some(frame) = item.frame else { continue };
@@ -603,11 +679,19 @@ pub fn export_slide(
         match doc.get(item.block) {
             Some(Block::Text { content, style }) => {
                 let lines = measure.shape_lines(content, style, Some(frame.width as f32))?;
-                draw_lines(&mut ctx, &outlines, &lines, x, y, style.bold, &mut text);
+                draw_lines(
+                    &mut ctx,
+                    &outlines,
+                    &lines,
+                    (x, y),
+                    style.bold,
+                    &untagged,
+                    &mut text,
+                );
             }
             _ => draw_box(&mut ctx, x, y, frame.width as f32, frame.height as f32),
         }
     }
     let pdf = ctx.into_backend().finish();
-    with_text_layer(pdf, layout.height as f32, &[text], &measure.faces())
+    with_text_layer(pdf, layout.height as f32, &[text], &measure.faces(), None)
 }

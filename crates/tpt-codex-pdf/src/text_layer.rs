@@ -1,18 +1,25 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The text layer: the words of a PDF, drawn invisibly over its outlines.
+//! The text layer: the words of a PDF, drawn invisibly over its outlines, and, for a tagged file,
+//! the structure that says what each part is.
 //!
 //! Text is drawn as glyph outlines, so a page shows the text but cannot search, select or read it.
 //! This adds the text back. Each glyph is written again in an invisible text object (render mode 3)
 //! at the position of its outline, with the bundled font embedded as a CID font and a ToUnicode map
 //! that says which characters each glyph stands for.
 //!
-//! The file is extended by an incremental update: the page objects are rewritten to use the new
-//! content and fonts, and the new objects follow the original bytes, which are not changed. A
-//! reader that ignores the layer draws the same page.
+//! A tagged file also names each piece of that text: a paragraph, a heading, a list item, or a
+//! figure with alternative text, through a structure tree (see [`crate::structure`]). Headers and
+//! footers are marked as artifacts, which readers skip. The catalog says the document's language,
+//! and gives the title.
+//!
+//! The file is extended by an incremental update: the page and catalog objects are rewritten, and
+//! the new objects follow the original bytes, which are not changed. A reader that ignores the
+//! layer draws the same page.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write};
 
+use crate::structure::{self, Mark, Tree};
 use crate::subset::subset_truetype;
 
 /// One glyph of the text layer, where it is drawn.
@@ -30,7 +37,25 @@ pub struct TextGlyph {
     pub text: String,
 }
 
-/// A run of glyphs from one face at one size.
+/// What a run of text is, for the structure of a tagged file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Role {
+    /// Not part of the structure: the text is drawn with no marks.
+    Untagged,
+    /// Page furniture, such as a header or footer: marked as an artifact.
+    Artifact,
+    /// A paragraph of the body text.
+    Paragraph,
+    /// A heading of this level, from 1 to 6.
+    Heading(u8),
+    /// A line of the list item with this block id, in the list with `list` as its block id.
+    ListItem {
+        /// The block id of the list.
+        list: u64,
+    },
+}
+
+/// A run of glyphs from one face at one size, and what it is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextRun {
     /// The index of the face in the faces given to [`add_text_layer`].
@@ -39,6 +64,35 @@ pub struct TextRun {
     pub size: f32,
     /// The glyphs, in drawing order.
     pub glyphs: Vec<TextGlyph>,
+    /// What the run is, for the structure.
+    pub role: Role,
+    /// The block the run belongs to. Runs of one block are one element of the structure.
+    pub block: u64,
+}
+
+/// One thing drawn on a page, in drawing order.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    /// A run of text.
+    Run(TextRun),
+    /// A figure: a picture's placeholder on the page, with its alternative text.
+    Figure {
+        /// The block id of the figure.
+        block: u64,
+        /// The alternative text, when the figure has some.
+        alt: Option<String>,
+    },
+}
+
+/// The file's description, for a tagged file: the title and author, and the language.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DocInfo {
+    /// The title, shown by the reader and used by accessibility tools.
+    pub title: Option<String>,
+    /// The author.
+    pub author: Option<String>,
+    /// The language of the text, as a tag such as `en`.
+    pub language: String,
 }
 
 /// The text layer could not be added to the file.
@@ -60,17 +114,29 @@ fn fail<T>(message: impl Into<String>) -> Result<T, TextLayerError> {
 /// Adds the text layer to `pdf`, a file of one page per entry of `pages`, each `page_height`
 /// points tall, as written by the export. `faces` holds the font file of each face the runs index.
 ///
+/// With `info`, the file is tagged: it gets its structure tree, its language and its title. Without
+/// it, the text is drawn with no marks, as it is on a slide.
+///
 /// The original bytes are kept; the page objects are rewritten, and the new objects follow them.
 pub fn add_text_layer(
     pdf: &[u8],
     page_height: f32,
-    pages: &[Vec<TextRun>],
+    pages: &[Vec<Item>],
     faces: &[&[u8]],
+    info: Option<&DocInfo>,
 ) -> Result<Vec<u8>, TextLayerError> {
     let xref = start_xref(pdf)?;
     let mut next = declared_size(pdf)?;
+    let runs: Vec<&TextRun> = pages
+        .iter()
+        .flatten()
+        .filter_map(|item| match item {
+            Item::Run(run) => Some(run),
+            Item::Figure { .. } => None,
+        })
+        .collect();
 
-    let used: BTreeSet<usize> = pages.iter().flatten().map(|run| run.face).collect();
+    let used: BTreeSet<usize> = runs.iter().map(|run| run.face).collect();
     if let Some(&face) = used.iter().find(|&&f| f >= faces.len()) {
         return fail(format!(
             "a run uses face {face}, but {} faces were given",
@@ -81,16 +147,15 @@ pub fn add_text_layer(
     let mut objects: Vec<(u64, Vec<u8>)> = Vec::new();
     let mut fonts: BTreeMap<usize, FontObjects> = BTreeMap::new();
     for &face in &used {
-        let glyphs: BTreeSet<u32> = pages
+        let glyphs: BTreeSet<u32> = runs
             .iter()
-            .flatten()
             .filter(|run| run.face == face)
             .flat_map(|run| run.glyphs.iter().map(|g| g.glyph))
             .collect();
         let file = subset_truetype(faces[face], &glyphs)
             .map_err(|e| TextLayerError(format!("face {face}: {e}")))?;
         let font = FontObjects::allocate(&mut next);
-        font.push_objects(face, &file, pages, &mut objects);
+        font.push_objects(face, &file, &runs, &mut objects);
         fonts.insert(face, font);
     }
     let font_resources: String = fonts
@@ -98,7 +163,33 @@ pub fn add_text_layer(
         .map(|(face, font)| format!("/TPTText{face} {} 0 R ", font.type0))
         .collect();
 
-    for (index, runs) in pages.iter().enumerate() {
+    // The structure: its root, its document element and its parent tree take three numbers, then
+    // each element one.
+    let mut tree: Option<Tree> = info.map(|_| structure::build(pages));
+    let structure_numbers = tree.as_mut().map(|tree| {
+        let base = next;
+        next += 3;
+        for node in tree.nodes.iter_mut() {
+            node.number = next;
+            next += 1;
+        }
+        base
+    });
+    let info_number = match info {
+        Some(info) if info.title.is_some() || info.author.is_some() => {
+            next += 1;
+            Some(next - 1)
+        }
+        _ => None,
+    };
+
+    let no_marks: Vec<Vec<Mark>> = pages
+        .iter()
+        .map(|items| vec![Mark::None; items.len()])
+        .collect();
+    let marks: &[Vec<Mark>] = tree.as_ref().map_or(&no_marks, |t| &t.marks);
+
+    for (index, items) in pages.iter().enumerate() {
         let page_object = 3 + 2 * index as u64;
         let content = 4 + 2 * index as u64;
         let text_stream = next;
@@ -115,7 +206,7 @@ pub fn add_text_layer(
                 "page {index} is not in the form the export writes (no contents or resources)"
             ));
         }
-        let rewritten = page
+        let mut rewritten = page
             .replacen(
                 &contents,
                 &format!("/Contents [{content} 0 R {text_stream} 0 R]"),
@@ -126,13 +217,49 @@ pub fn add_text_layer(
                 &format!("{resources}/Font << {font_resources}>> "),
                 1,
             );
+        if tree.is_some() {
+            rewritten = rewritten.replacen(
+                "/Type /Page ",
+                &format!("/Type /Page /StructParents {index} /Tabs /S "),
+                1,
+            );
+        }
         objects.push((page_object, rewritten.into_bytes()));
+        let page_marks = marks.get(index).map_or(&[][..], |m| m.as_slice());
         objects.push((
             text_stream,
-            stream_bytes("", content_stream(runs, page_height).as_bytes()),
+            stream_bytes(
+                "",
+                content_stream(items, page_marks, page_height).as_bytes(),
+            ),
         ));
     }
-    Ok(append(pdf, &objects, next, xref))
+
+    if let (Some(tree), Some(base)) = (&tree, structure_numbers) {
+        objects.extend(structure_objects(tree, base, pages.len(), |p| {
+            3 + 2 * p as u64
+        }));
+    }
+    if let (Some(info), Some(number)) = (info, info_number) {
+        objects.push((number, info_dictionary(info).into_bytes()));
+    }
+    if let (Some(info), Some(base)) = (info, structure_numbers) {
+        // The catalog says the language and the structure root, and the title for the viewer.
+        let catalog = object_text(pdf, 1)?;
+        let base_text = catalog
+            .strip_suffix(">>")
+            .ok_or_else(|| TextLayerError("the catalog is not a dictionary".into()))?
+            .trim_end();
+        let mut extra = format!(
+            " /Lang ({}) /MarkInfo << /Marked true >> /StructTreeRoot {} 0 R",
+            info.language, base
+        );
+        if info.title.is_some() {
+            extra.push_str(" /ViewerPreferences << /DisplayDocTitle true >>");
+        }
+        objects.push((1, format!("{base_text}{extra} >>").into_bytes()));
+    }
+    Ok(append(pdf, &objects, next, xref, info_number))
 }
 
 /// The numbers of one embedded font's objects.
@@ -163,14 +290,14 @@ impl FontObjects {
         &self,
         face: usize,
         font_file: &[u8],
-        pages: &[Vec<TextRun>],
+        runs: &[&TextRun],
         out: &mut Vec<(u64, Vec<u8>)>,
     ) {
         let name = format!("TPTText{face}");
         // The first width and the first characters seen for each glyph.
         let mut widths: BTreeMap<u32, f32> = BTreeMap::new();
         let mut characters: BTreeMap<u32, String> = BTreeMap::new();
-        for run in pages.iter().flatten().filter(|r| r.face == face) {
+        for run in runs.iter().filter(|r| r.face == face) {
             for g in &run.glyphs {
                 if run.size > 0.0 {
                     widths
@@ -226,23 +353,156 @@ impl FontObjects {
     }
 }
 
-/// The invisible text of one page: each glyph in a text object of its own, at its position.
-fn content_stream(runs: &[TextRun], page_height: f32) -> String {
+/// The content of one page: each item in its marks, with the text of each run in a text object
+/// per glyph.
+fn content_stream(items: &[Item], marks: &[Mark], page_height: f32) -> String {
     let mut out = String::from("q\n");
-    for run in runs {
-        for g in &run.glyphs {
-            let _ = writeln!(
-                out,
-                "BT 3 Tr /TPTText{face} {size} Tf 1 0 0 1 {x} {y} Tm <{glyph:04X}> Tj ET",
-                face = run.face,
-                size = fmt(run.size),
-                x = fmt(g.x),
-                y = fmt(page_height - g.y),
-                glyph = g.glyph,
-            );
+    for (index, item) in items.iter().enumerate() {
+        let mark = marks.get(index).cloned().unwrap_or(Mark::None);
+        match (item, &mark) {
+            (Item::Figure { .. }, Mark::Tagged { mcid, tag }) => {
+                // An empty marked-content sequence: it draws nothing, and names the figure.
+                let _ = writeln!(out, "/{tag} <</MCID {mcid}>> BDC EMC");
+            }
+            (Item::Run(run), _) => {
+                match &mark {
+                    Mark::None => {}
+                    Mark::Artifact => out.push_str("/Artifact BMC\n"),
+                    Mark::Tagged { mcid, tag } => {
+                        let _ = writeln!(out, "/{tag} <</MCID {mcid}>> BDC");
+                    }
+                }
+                write_run(&mut out, run, page_height);
+                if mark != Mark::None {
+                    out.push_str("EMC\n");
+                }
+            }
+            (Item::Figure { .. }, _) => {}
         }
     }
     out.push_str("Q\n");
+    out
+}
+
+/// The invisible text of one run: each glyph in a text object of its own, at its position.
+fn write_run(out: &mut String, run: &TextRun, page_height: f32) {
+    for g in &run.glyphs {
+        let _ = writeln!(
+            out,
+            "BT 3 Tr /TPTText{face} {size} Tf 1 0 0 1 {x} {y} Tm <{glyph:04X}> Tj ET",
+            face = run.face,
+            size = fmt(run.size),
+            x = fmt(g.x),
+            y = fmt(page_height - g.y),
+            glyph = g.glyph,
+        );
+    }
+}
+
+/// The objects of the structure tree: the root, the document element, the parent tree, and one
+/// object per element, numbered from `base` in the order the tree gives them.
+fn structure_objects(
+    tree: &Tree,
+    base: u64,
+    page_count: usize,
+    page_object: impl Fn(usize) -> u64,
+) -> Vec<(u64, Vec<u8>)> {
+    let root = base;
+    let document = base + 1;
+    let parent_tree = base + 2;
+    let parents = tree.parents();
+    let reference = |n: u64| format!("{n} 0 R");
+    let mut out = Vec::new();
+    out.push((
+        root,
+        format!(
+            "<< /Type /StructTreeRoot /K [{}] /ParentTree {} /ParentTreeNextKey {page_count} >>",
+            reference(document),
+            reference(parent_tree)
+        )
+        .into_bytes(),
+    ));
+    let tops: Vec<String> = tree
+        .top
+        .iter()
+        .map(|&i| reference(tree.nodes[i].number))
+        .collect();
+    out.push((
+        document,
+        format!(
+            "<< /Type /StructElem /S /Document /P {} /K [{}] >>",
+            reference(root),
+            tops.join(" ")
+        )
+        .into_bytes(),
+    ));
+    // The parent tree maps each page's identifiers to the elements that hold them.
+    let mut nums = String::new();
+    for (page, owners) in tree.owners.iter().enumerate() {
+        let entries: Vec<String> = owners
+            .iter()
+            .map(|&i| reference(tree.nodes[i].number))
+            .collect();
+        let _ = write!(nums, " {page} [{}]", entries.join(" "));
+    }
+    out.push((
+        parent_tree,
+        format!("<< /Nums [{} ] >>", nums.trim_start()).into_bytes(),
+    ));
+    for (index, node) in tree.nodes.iter().enumerate() {
+        let parent = match parents[index] {
+            Some(p) => tree.nodes[p].number,
+            None => document,
+        };
+        let kids = if node.children.is_empty() {
+            let ids: Vec<String> = node.mcids.iter().map(u32::to_string).collect();
+            format!("[{}]", ids.join(" "))
+        } else {
+            let refs: Vec<String> = node
+                .children
+                .iter()
+                .map(|&c| reference(tree.nodes[c].number))
+                .collect();
+            format!("[{}]", refs.join(" "))
+        };
+        let alt = node
+            .alt
+            .as_deref()
+            .map(|a| format!(" /Alt {}", text_string(a)))
+            .unwrap_or_default();
+        out.push((
+            node.number,
+            format!(
+                "<< /Type /StructElem /S /{} /P {} /Pg {} 0 R{alt} /K {kids} >>",
+                node.kind,
+                reference(parent),
+                page_object(node.page)
+            )
+            .into_bytes(),
+        ));
+    }
+    out
+}
+
+/// The information dictionary: the title and the author, as text strings.
+fn info_dictionary(info: &DocInfo) -> String {
+    let mut entries = String::new();
+    if let Some(title) = &info.title {
+        let _ = write!(entries, " /Title {}", text_string(title));
+    }
+    if let Some(author) = &info.author {
+        let _ = write!(entries, " /Author {}", text_string(author));
+    }
+    format!("<<{entries} >>")
+}
+
+/// A PDF text string: UTF-16 with a byte-order mark, in hexadecimal, so any text is safe to write.
+fn text_string(text: &str) -> String {
+    let mut out = String::from("<FEFF");
+    for unit in text.encode_utf16() {
+        let _ = write!(out, "{unit:04X}");
+    }
+    out.push('>');
     out
 }
 
@@ -276,8 +536,15 @@ fn stream_bytes(extra: &str, data: &[u8]) -> Vec<u8> {
 }
 
 /// Writes the new objects after the original bytes, with a cross-reference section for them and a
-/// trailer that points back at the original one.
-fn append(pdf: &[u8], objects: &[(u64, Vec<u8>)], size: u64, previous_xref: usize) -> Vec<u8> {
+/// trailer that points back at the original one. `info` is the information dictionary's number,
+/// when there is one.
+fn append(
+    pdf: &[u8],
+    objects: &[(u64, Vec<u8>)],
+    size: u64,
+    previous_xref: usize,
+    info: Option<u64>,
+) -> Vec<u8> {
     let mut out = pdf.to_vec();
     if !out.ends_with(b"\n") {
         out.push(b'\n');
@@ -305,9 +572,10 @@ fn append(pdf: &[u8], objects: &[(u64, Vec<u8>)], size: u64, previous_xref: usiz
         }
         start = end + 1;
     }
+    let info_entry = info.map(|n| format!(" /Info {n} 0 R")).unwrap_or_default();
     out.extend_from_slice(
         format!(
-            "trailer\n<< /Size {size} /Root 1 0 R /Prev {previous_xref} >>\nstartxref\n{xref_at}\n%%EOF\n"
+            "trailer\n<< /Size {size} /Root 1 0 R{info_entry} /Prev {previous_xref} >>\nstartxref\n{xref_at}\n%%EOF\n"
         )
         .as_bytes(),
     );

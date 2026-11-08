@@ -23,6 +23,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Tagged PDF export (partial). A document's PDF has a structure tree: headings, paragraphs, list
+  items and figures with their alternative text, with headers and footers marked as artifacts. It
+  also has the language, the title and the tagged marker. Grid cells are tagged as paragraphs, and
+  images are not tagged yet. Slides are not tagged.
 - `.pdf` import: the text of a PDF, read in-house, as paragraphs and headings. Opens in the CLI and
   the browser page, with a fidelity report for images, drawings, page numbers, bold and italic, and
   characters read as a guess. Reads PDFs from other programs, including compressed streams, object
