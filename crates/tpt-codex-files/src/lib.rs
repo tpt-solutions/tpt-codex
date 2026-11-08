@@ -9,14 +9,15 @@
 //! | `.xlsx` | yes, every worksheet as a grid | yes, the first grid |
 //! | `.pptx` | yes, text only | no |
 //! | `.json` | yes | yes |
-//! | `.pdf` | no | yes |
+//! | `.pdf` | yes, its text, with a fidelity report | yes |
 //!
 //! Saving as `.docx` or `.pdf` replaces `[[sheet1.B4]]` with that cell's computed value, and a
 //! `.docx` grid's formula cells with their values, because those files have no live values.
 
 use tpt_codex_core::{Block, BlockId, Document, History, LayoutMode, Op, TextStyle};
 use tpt_codex_interop::{
-    export_docx, export_xlsx, import_docx, import_pptx, import_xlsx_workbook, place_sheet,
+    export_docx, export_xlsx, import_docx, import_pdf, import_pptx, import_xlsx_workbook,
+    place_sheet,
 };
 use tpt_codex_markdown::{from_markdown, to_markdown};
 
@@ -35,7 +36,7 @@ pub enum Format {
     Pptx,
     /// The document model as JSON (`.json`).
     Json,
-    /// PDF (`.pdf`), written only.
+    /// PDF (`.pdf`): its text is read, and it is written with a text layer.
     Pdf,
 }
 
@@ -53,7 +54,7 @@ pub fn format_of(name: &str) -> Result<Format, String> {
         "json" => Ok(Format::Json),
         "pdf" => Ok(Format::Pdf),
         _ => Err(format!(
-            "{name}: unknown file type (use .cdx, .md, .docx, .xlsx, .pptx, .json or .pdf)"
+            "{name}: unknown file type (use .cdx, .md, .docx, .xlsx, .pptx, .pdf or .json)"
         )),
     }
 }
@@ -106,9 +107,11 @@ pub fn open(name: &str, bytes: &[u8]) -> Result<Opened, String> {
         }
         Format::Xlsx => workbook_document(bytes).map_err(|e| format!("{name}: {e}"))?,
         Format::Pdf => {
-            return Err(format!(
-                "{name}: PDF files cannot be opened yet (PDF is an output format)"
-            ));
+            let import = import_pdf(bytes).map_err(|e| format!("{name}: {e}"))?;
+            Opened {
+                document: import.document,
+                report: Some(import.report),
+            }
         }
     };
     opened

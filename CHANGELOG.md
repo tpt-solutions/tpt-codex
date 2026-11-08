@@ -23,6 +23,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `.pdf` import: the text of a PDF, read in-house, as paragraphs and headings. Opens in the CLI and
+  the browser page, with a fidelity report for images, drawings, page numbers, bold and italic, and
+  characters read as a guess. Reads PDFs from other programs, including compressed streams, object
+  streams and incremental updates, and falls back to scanning a file whose tables are damaged. Our
+  own PDFs read back as the text they show. Encrypted files are refused.
+- `tpt-codex-text`: a glyph of a hyphenated line break carries "-", so the hyphen is in the text.
 - PDF text layer. Each exported PDF now carries its words as invisible text over the outlines, so it
   can be searched, selected and read by screen readers and text extraction. The bundled font is
   embedded as a CID font, subset to the glyphs the file uses, with a ToUnicode map. The text is added

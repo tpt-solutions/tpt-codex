@@ -222,7 +222,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [ ] `.cdx`: link titles (`[t](url "title")`) — the inline run has no title field
 - [x] `.docx` tables as grids (import and export) — _done: a table becomes a `Block::Grid` with its cells, numbers kept as numbers; merged cells are reported. Grids are written back as Word tables. Lists still lose their markers_
 - [ ] `.docx` import: lists as lists, instead of plain paragraphs
-- [ ] `.pdf` import. Our PDFs now carry a text layer, so the importer can read them back. It needs an in-house reader: objects, cross-reference tables with incremental updates, content streams (`Tj`/`TJ`), ToUnicode maps, and FlateDecode for files from other tools
+- [x] `.pdf` import: the text, read in-house (`tpt-codex-interop/src/pdf/`) — _done: objects and cross-reference tables (classic, streams, object streams, incremental updates, a scan when the tables are damaged), Flate and ASCII filters, PNG predictors, fonts with ToUnicode maps or a Latin-1 guess, form XObjects. Paragraphs and headings from line spacing and type size. The report counts images, drawings, page numbers, emphasis and guessed characters. Encrypted files are refused. Checked on our own PDFs and on a Chromium PDF, with a seeded damage test and a fuzz target. Not done: bold and italic as marks, list structure, table structure, columns, scanned pages (no OCR), other stream filters (LZW, DCT, JBIG2)_
 - [ ] Formula language: Excel function names and syntax beyond ranges. Imported `.xlsx` formulas are reported as approximated where the evaluator differs
 
 ## Adoption tooling

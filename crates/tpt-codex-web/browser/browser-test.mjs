@@ -325,6 +325,12 @@ await page.waitForFunction(() => document.querySelector("#app h1")?.textContent 
 await page.selectOption("#save-format", "xlsx");
 await page.click("#save");
 check("saving a grid-less document as .xlsx says why", (await status()).includes("no grid"), await status());
+
+// A PDF from another program opens with its paragraphs and heading.
+await page.setInputFiles("#open-file", path.join(HERE, "../../../fixtures/pdf/chromium-print.pdf"));
+await page.waitForFunction(() => document.querySelector("#app h1")?.textContent === "Quarterly report", null, { timeout: 5000 });
+check("opening a .pdf shows its heading", (await page.textContent("#app h1")) === "Quarterly report");
+check("the PDF's paragraphs are read", (await page.textContent("#app")).includes("ligatures: first, office, efficient, flow."), await status());
 await page.setInputFiles("#open-file", path.join(HERE, "../../../fixtures/office/basic.docx"));
 await page.waitForFunction(() => document.querySelector("#app h1")?.textContent === "Introduction", null, { timeout: 5000 });
 

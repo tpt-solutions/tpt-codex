@@ -7,7 +7,8 @@
 //! - [`import_pptx`] (data only).
 //!
 //! Every importer fills in a [`FidelityReport`] that lists what it dropped or approximated.
-//! Not done: `.pdf` import (see `todo.md`).
+//! - [`import_pdf`]: the text of a PDF, read in-house (see `pdf`); PDFs written by this project have a
+//!   text layer, so they read back as the text they show.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -16,6 +17,7 @@ mod archive;
 mod docx;
 mod docx_write;
 mod fidelity;
+mod pdf;
 mod place;
 mod pptx;
 mod xlsx;
@@ -24,6 +26,7 @@ pub use archive::{Archive, ArchiveWriter, ZipError};
 pub use docx::{DocxError, DocxImport, import_docx};
 pub use docx_write::{DocxExport, export_docx};
 pub use fidelity::{Fidelity, FidelityItem, FidelityReport};
+pub use pdf::{PdfError, PdfImport, import_pdf};
 pub use place::{PlaceError, SheetPlacement, place_sheet};
 pub use pptx::{PptxImport, import_pptx};
 pub use xlsx::{

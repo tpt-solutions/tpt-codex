@@ -48,7 +48,25 @@ Pictures, tables, speaker notes, animations and formatting are reported and not 
 
 ## PDF
 
-PDF is an output format. Reading PDFs is not supported yet.
+The text of a PDF comes through as paragraphs. Lines that sit together become one paragraph, a line
+that starts a list item is a paragraph of its own, and the largest type sizes become headings (the
+largest is level 1). A PDF this project writes reads back as the text it shows.
+
+| Comes across | Notes |
+| --- | --- |
+| Text, paragraphs and headings | Read from the page, in reading order |
+| Title and author | From the file's information |
+
+| Left out or approximated | What happens |
+| --- | --- |
+| Images and drawings | Not imported; counted in the report |
+| Bold and italic | Read as plain text; the report says how many characters |
+| Page numbers in a footer | Left out; counted in the report |
+| Text without a character map | A guess from the character codes, reported as approximated |
+| Tables, columns, nested list structure | Read line by line; the layout is not rebuilt |
+| Encrypted files | Refused, with the reason |
+
+A scanned PDF has no text to read, so it imports as an empty document with the report saying why.
 
 ## What you gain
 

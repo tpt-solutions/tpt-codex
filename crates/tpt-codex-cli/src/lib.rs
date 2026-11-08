@@ -38,7 +38,7 @@ USAGE:
     tpt new --list
 
 Files are recognised by extension:
-    read:   .cdx .md .docx .xlsx .pptx .json
+    read:   .cdx .md .docx .xlsx .pptx .pdf .json
     write:  .cdx .md .docx .xlsx .json .pdf
 
 OPTIONS:

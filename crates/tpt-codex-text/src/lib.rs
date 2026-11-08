@@ -293,7 +293,12 @@ impl FontMeasure {
         starts.sort_unstable();
         starts.dedup();
         let cluster_text = |start: usize| -> String {
-            if start >= text.len() || !text.is_char_boundary(start) {
+            // A glyph with no character of this text is a mark the layout added at a line break:
+            // a hyphen, when a word is hyphenated.
+            if start >= text.len() {
+                return String::from("-");
+            }
+            if !text.is_char_boundary(start) {
                 return String::new();
             }
             let next = starts.get(starts.partition_point(|&b| b <= start)).copied();
