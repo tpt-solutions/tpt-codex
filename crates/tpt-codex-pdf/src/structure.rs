@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The structure tree of a tagged PDF: which marked content is a paragraph, a heading, a list item
-//! or a figure, in reading order.
+//! The structure tree of a tagged PDF: which marked content is a paragraph, a heading, a list item,
+//! a table cell or a figure, in reading order.
 //!
 //! Every tagged piece of text, or figure, has a marked-content identifier (MCID) on its page. The
 //! tree names each identifier through an element, so a reader can say what each part of the page
-//! is. Lists are an `L` element with an `LI` per item, and each item's text is an `LBody`.
+//! is. Lists are an `L` element with an `LI` per item, and each item's text is an `LBody`. Grids
+//! are a `Table` with a `TR` per row and a `TD` (or `TH` for a header row) per cell.
 
 use crate::text_layer::{Item, Role};
 
 /// One element of the tree, before its object number is written.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
-    /// The structure type: `P`, `H1` to `H6`, `L`, `LI`, `LBody` or `Figure`.
+    /// The structure type: `P`, `H1` to `H6`, `L`, `LI`, `LBody`, `Table`, `TR`, `TD`, `TH` or
+    /// `Figure`.
     pub kind: String,
     /// Alternative text for a figure.
     pub alt: Option<String>,
@@ -60,6 +62,17 @@ impl Tree {
         self.nodes.len() - 1
     }
 
+    fn new_node(&mut self, kind: &str, page: usize) -> usize {
+        self.push(Node {
+            kind: kind.into(),
+            alt: None,
+            page,
+            mcids: Vec::new(),
+            children: Vec::new(),
+            number: 0,
+        })
+    }
+
     /// The element each element sits in: `None` for the top level.
     pub fn parents(&self) -> Vec<Option<usize>> {
         let mut parents = vec![None; self.nodes.len()];
@@ -72,10 +85,42 @@ impl Tree {
     }
 }
 
+/// The open elements of a page, which the next item may join.
+#[derive(Default)]
+struct Open {
+    /// The paragraph or heading: its role, its block, and its element.
+    run: Option<(Role, u64, usize)>,
+    /// The list: its id and element.
+    list: Option<(u64, usize)>,
+    /// The list item: its block, and the element its text is in.
+    item: Option<(u64, usize)>,
+    /// The table: its block, and its element.
+    table: Option<(u64, usize)>,
+    /// The table row: its number, and its element.
+    row: Option<(u32, usize)>,
+    /// The table cell: its block, row and column, and its element.
+    cell: Option<((u64, u32, u32), usize)>,
+}
+
+impl Open {
+    /// Closes everything: an item of another kind starts afresh.
+    fn close_all(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Closes the table, its row and its cell: text outside a table ends it.
+    fn close_table(&mut self) {
+        self.table = None;
+        self.row = None;
+        self.cell = None;
+    }
+}
+
 /// Builds the tree of a file whose pages hold these items.
 ///
 /// Consecutive text with the same role and block is one element. A list is one `L` for its
-/// consecutive items. Headers and footers are artifacts, which are not in the tree.
+/// consecutive items. A grid is one `Table`, its rows and cells. Headers and footers are artifacts,
+/// which are not in the tree.
 pub fn build(pages: &[Vec<Item>]) -> Tree {
     let mut tree = Tree {
         nodes: Vec::new(),
@@ -87,23 +132,13 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
         let mut marks = Vec::with_capacity(items.len());
         let mut owners: Vec<usize> = Vec::new();
         let mut mcid = 0u32;
-        // The open paragraph or heading: its role, its block, and its element.
-        let mut run: Option<(Role, u64, usize)> = None;
-        // The open list: its id and element.
-        let mut list: Option<(u64, usize)> = None;
-        // The open list item: its block, and the element its text is in.
-        let mut item: Option<(u64, usize)> = None;
+        let mut open = Open::default();
         for entry in items {
             match entry {
                 Item::Figure { alt, .. } => {
-                    let node = tree.push(Node {
-                        kind: "Figure".into(),
-                        alt: alt.clone(),
-                        page,
-                        mcids: vec![mcid],
-                        children: Vec::new(),
-                        number: 0,
-                    });
+                    let node = tree.new_node("Figure", page);
+                    tree.nodes[node].alt = alt.clone();
+                    tree.nodes[node].mcids.push(mcid);
                     tree.top.push(node);
                     owners.push(node);
                     marks.push(Mark::Tagged {
@@ -111,9 +146,7 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
                         tag: "Figure".into(),
                     });
                     mcid += 1;
-                    run = None;
-                    list = None;
-                    item = None;
+                    open.close_all();
                 }
                 Item::Run(text) => match &text.role {
                     Role::Untagged => marks.push(Mark::None),
@@ -123,73 +156,47 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
                             Role::Heading(level) => format!("H{}", level.clamp(1, 6)),
                             _ => "P".to_string(),
                         };
-                        let node = match &run {
+                        let node = match &open.run {
                             Some((role, block, node))
                                 if *role == text.role && *block == text.block =>
                             {
                                 *node
                             }
                             _ => {
-                                let node = tree.push(Node {
-                                    kind: kind.clone(),
-                                    alt: None,
-                                    page,
-                                    mcids: Vec::new(),
-                                    children: Vec::new(),
-                                    number: 0,
-                                });
+                                let node = tree.new_node(&kind, page);
                                 tree.top.push(node);
-                                run = Some((text.role.clone(), text.block, node));
+                                open.run = Some((text.role.clone(), text.block, node));
                                 node
                             }
                         };
-                        list = None;
-                        item = None;
+                        open.list = None;
+                        open.item = None;
+                        open.close_table();
                         tree.nodes[node].mcids.push(mcid);
                         owners.push(node);
                         marks.push(Mark::Tagged { mcid, tag: kind });
                         mcid += 1;
                     }
                     Role::ListItem { list: list_id } => {
-                        run = None;
-                        let list_node = match list {
+                        open.run = None;
+                        open.close_table();
+                        let list_node = match open.list {
                             Some((id, node)) if id == *list_id => node,
                             _ => {
-                                let node = tree.push(Node {
-                                    kind: "L".into(),
-                                    alt: None,
-                                    page,
-                                    mcids: Vec::new(),
-                                    children: Vec::new(),
-                                    number: 0,
-                                });
+                                let node = tree.new_node("L", page);
                                 tree.top.push(node);
-                                list = Some((*list_id, node));
+                                open.list = Some((*list_id, node));
                                 node
                             }
                         };
-                        let body = match item {
+                        let body = match open.item {
                             Some((block, body)) if block == text.block => body,
                             _ => {
-                                let entry = tree.push(Node {
-                                    kind: "LI".into(),
-                                    alt: None,
-                                    page,
-                                    mcids: Vec::new(),
-                                    children: Vec::new(),
-                                    number: 0,
-                                });
+                                let entry = tree.new_node("LI", page);
                                 tree.nodes[list_node].children.push(entry);
-                                let body = tree.push(Node {
-                                    kind: "LBody".into(),
-                                    alt: None,
-                                    page,
-                                    mcids: Vec::new(),
-                                    children: Vec::new(),
-                                    number: 0,
-                                });
+                                let body = tree.new_node("LBody", page);
                                 tree.nodes[entry].children.push(body);
-                                item = Some((text.block, body));
+                                open.item = Some((text.block, body));
                                 body
                             }
                         };
@@ -198,6 +205,55 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
                         marks.push(Mark::Tagged {
                             mcid,
                             tag: "LBody".into(),
+                        });
+                        mcid += 1;
+                    }
+                    Role::Cell {
+                        table,
+                        row,
+                        col,
+                        header,
+                    } => {
+                        open.run = None;
+                        open.list = None;
+                        open.item = None;
+                        let table_node = match open.table {
+                            Some((id, node)) if id == *table => node,
+                            _ => {
+                                let node = tree.new_node("Table", page);
+                                tree.top.push(node);
+                                open.table = Some((*table, node));
+                                open.row = None;
+                                open.cell = None;
+                                node
+                            }
+                        };
+                        let row_node = match open.row {
+                            Some((number, node)) if number == *row => node,
+                            _ => {
+                                let node = tree.new_node("TR", page);
+                                tree.nodes[table_node].children.push(node);
+                                open.row = Some((*row, node));
+                                open.cell = None;
+                                node
+                            }
+                        };
+                        let kind = if *header { "TH" } else { "TD" };
+                        let key = (*table, *row, *col);
+                        let cell = match open.cell {
+                            Some((k, node)) if k == key => node,
+                            _ => {
+                                let node = tree.new_node(kind, page);
+                                tree.nodes[row_node].children.push(node);
+                                open.cell = Some((key, node));
+                                node
+                            }
+                        };
+                        tree.nodes[cell].mcids.push(mcid);
+                        owners.push(cell);
+                        marks.push(Mark::Tagged {
+                            mcid,
+                            tag: kind.into(),
                         });
                         mcid += 1;
                     }

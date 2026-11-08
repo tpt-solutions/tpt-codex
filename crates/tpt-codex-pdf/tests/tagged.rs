@@ -175,3 +175,19 @@ fn a_slide_is_not_tagged() {
         "the slide's text layer is present"
     );
 }
+
+#[test]
+fn a_grid_is_a_table_with_rows_and_header_and_data_cells() {
+    let pdf =
+        export("::: grid { id=\"1\" }\n| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n:::\n");
+    let layer = layer(&pdf);
+    assert_eq!(layer.matches("/S /Table ").count(), 1, "{layer}");
+    assert_eq!(
+        layer.matches("/S /TR ").count(),
+        3,
+        "one row for the header and one for each data row: {layer}"
+    );
+    // The header row's cells are headers; the others are data cells.
+    assert_eq!(layer.matches("/S /TH ").count(), 2, "{layer}");
+    assert_eq!(layer.matches("/S /TD ").count(), 4, "{layer}");
+}

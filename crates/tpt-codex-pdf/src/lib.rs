@@ -399,8 +399,7 @@ impl PageContext<'_> {
         }
     }
 
-    /// Draws one row of a grid. The grid's cells are paragraphs of its block: a grid is not tagged
-    /// as a table yet.
+    /// Draws one row of a grid. Each cell is tagged as a cell of the grid's table.
     fn draw_grid_row(
         &mut self,
         ctx: &mut Context<PdfBackend>,
@@ -408,10 +407,6 @@ impl PageContext<'_> {
         (x, y): (f32, f32),
         block: u64,
     ) -> Result<(), ExportError> {
-        let tag = Tag {
-            role: Role::Paragraph,
-            block,
-        };
         let Some(sheet) = self.doc.sheets.get(&sheet_id) else {
             // A grid whose sheet is missing is drawn as a placeholder by the flow.
             return Ok(());
@@ -437,6 +432,15 @@ impl PageContext<'_> {
                 &style,
                 Some((cell_width - 4.0).max(1.0) as f32),
             )?;
+            let tag = Tag {
+                role: Role::Cell {
+                    table: block,
+                    row,
+                    col,
+                    header,
+                },
+                block,
+            };
             draw_lines(
                 ctx,
                 self.outlines,

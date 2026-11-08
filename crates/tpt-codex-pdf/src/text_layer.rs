@@ -53,6 +53,17 @@ pub enum Role {
         /// The block id of the list.
         list: u64,
     },
+    /// A cell of a grid.
+    Cell {
+        /// The block id of the grid.
+        table: u64,
+        /// The row, counted from 1 as the grid's rows are.
+        row: u32,
+        /// The column, counted from 0.
+        col: u32,
+        /// Whether the cell is in a header row.
+        header: bool,
+    },
 }
 
 /// A run of glyphs from one face at one size, and what it is.
