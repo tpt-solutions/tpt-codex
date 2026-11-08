@@ -16,9 +16,17 @@ pub const MEASURE: MonospaceMeasure = MonospaceMeasure {
     line_height: 14.0,
 };
 
-/// Number of page objects in a PDF written by `tpt-canvas-pdf`.
+/// Number of page objects in a PDF written by `tpt-canvas-pdf`. The text layer rewrites each page
+/// object in an update after the first end marker, so only the part before it is counted.
 pub fn pdf_page_count(pdf: &[u8]) -> usize {
-    String::from_utf8_lossy(pdf).matches("/Type /Page ").count()
+    let marker = b"%%EOF";
+    let outlines = match pdf.windows(marker.len()).position(|w| w == marker) {
+        Some(at) => &pdf[..at],
+        None => pdf,
+    };
+    String::from_utf8_lossy(outlines)
+        .matches("/Type /Page ")
+        .count()
 }
 
 /// Reads a file from the repository's `fixtures/office` directory.

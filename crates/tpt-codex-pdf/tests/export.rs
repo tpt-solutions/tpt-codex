@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! PDF export: page structure, determinism, and golden files for one page and one slide.
 //!
-//! The golden files are PDF bytes. Regenerate them with `TPT_UPDATE_GOLDEN=1` and review the
-//! diff. Text is drawn as outlines, so the golden files are checked by bytes, not by text.
+//! The golden files are the outlines of the PDF, as bytes: the text layer is appended after them,
+//! and is checked in `text_layer.rs`. Regenerate them with `TPT_UPDATE_GOLDEN=1` and review the
+//! diff.
 
 use std::fs;
 use std::path::PathBuf;
@@ -25,9 +26,22 @@ fn margins() -> Margins {
     Margins::all(56.0)
 }
 
-/// Number of page objects in a PDF written by `tpt-canvas-pdf`.
+/// The file as the outlines alone wrote it. The text layer is appended after the first end marker,
+/// as an incremental update, so the outlines part is the same with or without it.
+fn outlines_only(pdf: &[u8]) -> &[u8] {
+    let marker = b"%%EOF\n";
+    match pdf.windows(marker.len()).position(|w| w == marker) {
+        Some(at) => &pdf[..at + marker.len()],
+        None => pdf,
+    }
+}
+
+/// Number of page objects in a PDF written by `tpt-canvas-pdf`. The text layer rewrites each page
+/// object, so only the outlines part is counted.
 fn page_count(pdf: &[u8]) -> usize {
-    String::from_utf8_lossy(pdf).matches("/Type /Page ").count()
+    String::from_utf8_lossy(outlines_only(pdf))
+        .matches("/Type /Page ")
+        .count()
 }
 
 fn golden(name: &str, actual: &[u8]) {
@@ -217,7 +231,7 @@ fn grid_values_change_the_output() {
 fn a_page_golden_file_matches() {
     let doc = document("# Title\n\nA short paragraph of body text.\n\n- An item\n");
     let pdf = export_document(&doc, PaperSize::A4, margins(), &measure()).unwrap();
-    golden("page.pdf", &pdf);
+    golden("page.pdf", outlines_only(&pdf));
 }
 
 /// A 16:9 slide with a title and a body text box, and a placeholder box for an image.
@@ -301,7 +315,7 @@ fn the_same_slide_gives_the_same_bytes() {
 #[test]
 fn a_slide_golden_file_matches() {
     let pdf = export_slide(&slide_document(), BlockId(10), &measure()).unwrap();
-    golden("slide.pdf", &pdf);
+    golden("slide.pdf", outlines_only(&pdf));
 }
 
 #[test]

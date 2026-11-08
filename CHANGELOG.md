@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `tpt-codex-text::GlyphPlacement` has two new fields, `advance` and `text` (the characters of its
+  cluster), and no longer implements `Copy`. Code that built or copied glyph placements needs updating.
 - Document schema version 3. Adds the `Block::Quote` variant and sub-lists (a `Block::List` as an
   item of another list). Version 2 builds refuse version 3 documents with `UnsupportedSchemaVersion`.
   The golden fixture is regenerated for the new version only.
@@ -21,6 +23,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- PDF text layer. Each exported PDF now carries its words as invisible text over the outlines, so it
+  can be searched, selected and read by screen readers and text extraction. The bundled font is
+  embedded as a CID font, subset to the glyphs the file uses, with a ToUnicode map. The text is added
+  as an incremental update after the outlines. Slides get the same layer. Checked with `pdftotext`
+  and `pypdf`.
 - `tpt-codex-cli` crate and the `tpt` command: `convert` between `.cdx`/`.md`, `.docx`, `.xlsx`, `.pptx`
   (read only), `.json` and `.pdf` (write only), with the import's fidelity report; `check` (math,
   cross-references, figures, equations, tables, footnotes and, with `--bib`, citations; exit status 1 on

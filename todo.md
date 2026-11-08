@@ -143,10 +143,12 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] Page size, margins, headers/footers, page numbers — _`PageGeometry`, `PaperSize` (A4, Letter), `render_chrome` with `{page}`/`{pages}`_
 - [x] Render grids into pages (page breaking for large grids) — _each grid row is a flow item (`FlowKind::GridRow`), so pages break between rows and header rows repeat. The host draws the cell values; the views crate only places rows_
 - [x] Output drawing commands to `tpt-canvas-pdf` — _done in `tpt-codex-pdf`: glyph runs are filled as outlines (`tpt-canvas` `e451560`), so the PDF shows the text as laid out_
-- [ ] Font embedding / subsetting for PDF — _not needed while text is drawn as outlines: no fonts are embedded_
+- [x] Font embedding / subsetting for PDF — _done for the text layer: the bundled font is embedded as a CID font, subset to the glyphs used (the variation and layout tables are dropped, glyph ids kept), so a page adds about 50–100 KB. Outlines are still how text is drawn; see the text layer below_
+- [x] Text layer: the PDF's words as invisible text over the outlines — _done in `tpt-codex-pdf/src/text_layer.rs`: each glyph is written in render mode 3 at its outline's position, with a ToUnicode map. The file is an incremental update, so the outlines part is unchanged. Checked with `pdftotext` and `pypdf` (`tests/text_layer.rs`, `src/subset.rs`). Known: `pypdf` reads the bullet marker as U+FFFD, `pdftotext` reads it correctly_
 - [x] One-click PDF export in the app — _an `Export PDF` button on the demo page downloads `document.pdf`, on the document class's page size, with a `Page N of M` footer (`tpt-codex-app/src/export.rs`). The browser test checks the download_
 - [x] Byte-exact determinism: fixed timestamps/IDs, stable object ordering — _partial: ordered maps, fixed clock and deterministic layout; no PDF output yet_ — _same input gives the same bytes; the golden files are compared in tests_
-- [ ] Accessible PDF basics (tags, alt text from `Media.alt_text`) — optional stretch. _Finding: text is drawn as glyph outlines, so a PDF has no text for a screen reader, search or copy to find. Tags and alt text alone would not make it accessible. It needs a real text layer first (embedded font subset, or invisible text over the outlines) — which is the same item as "Font embedding / subsetting" above_
+- [ ] Accessible PDF basics (tags, alt text from `Media.alt_text`) — optional stretch. _Now unblocked on text: the text layer gives the words to a screen reader and to search. Still missing: the structure tree (tags), alt text, document language and title. `tpt-canvas-pdf` writes no structure, so these would go in our own incremental update, as the text layer does_
+- [ ] PDF text layer for pictures: images and placeholder boxes are drawn as before, with no text or alt text in the file_
 - [x] Golden-file PDF tests — _`tpt-codex-pdf/golden/page.pdf` and `slide.pdf`, checked in `tests/export.rs`_
 
 **Milestone 3:** One-click export of the Phase 1 hybrid document to a byte-exact, paginated PDF.
@@ -220,7 +222,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [ ] `.cdx`: link titles (`[t](url "title")`) — the inline run has no title field
 - [x] `.docx` tables as grids (import and export) — _done: a table becomes a `Block::Grid` with its cells, numbers kept as numbers; merged cells are reported. Grids are written back as Word tables. Lists still lose their markers_
 - [ ] `.docx` import: lists as lists, instead of plain paragraphs
-- [ ] `.pdf` import. A PDF written by this project has no extractable text (see Phase 3), so the importer could only read PDFs from other tools
+- [ ] `.pdf` import. Our PDFs now carry a text layer, so the importer can read them back. It needs an in-house reader: objects, cross-reference tables with incremental updates, content streams (`Tj`/`TJ`), ToUnicode maps, and FlateDecode for files from other tools
 - [ ] Formula language: Excel function names and syntax beyond ranges. Imported `.xlsx` formulas are reported as approximated where the evaluator differs
 
 ## Adoption tooling

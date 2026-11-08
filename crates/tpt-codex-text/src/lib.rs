@@ -219,7 +219,7 @@ impl TextMeasurer for FontMeasure {
 
 /// One glyph of a shaped run: its id in the face, and its origin in points relative to the start
 /// of the line, on the baseline, y down.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GlyphPlacement {
     /// Glyph id in the face.
     pub glyph: u32,
@@ -227,6 +227,11 @@ pub struct GlyphPlacement {
     pub x: f32,
     /// Vertical origin, in points from the baseline. Positive is down.
     pub y: f32,
+    /// Horizontal advance of the glyph, in points.
+    pub advance: f32,
+    /// The characters this glyph stands for. A cluster of characters (a ligature, for example) is
+    /// one or more glyphs, and only its first glyph carries the text; the others are empty.
+    pub text: String,
 }
 
 /// Glyphs from one face at one size.
@@ -276,6 +281,27 @@ impl FontMeasure {
         let layout = self.layout(text, size, emphasis, width)?;
         // `layout` picks the italic face when italic is requested, and the regular face otherwise.
         let face = usize::from(emphasis.italic);
+        // A cluster runs from its start byte to the next cluster start in the text, or the end.
+        let mut starts: Vec<usize> = layout
+            .lines
+            .iter()
+            .flat_map(|l| l.runs.iter())
+            .flat_map(|r| r.glyphs.iter())
+            .map(|g| g.cluster_index)
+            .chain(core::iter::once(text.len()))
+            .collect();
+        starts.sort_unstable();
+        starts.dedup();
+        let cluster_text = |start: usize| -> String {
+            if start >= text.len() || !text.is_char_boundary(start) {
+                return String::new();
+            }
+            let next = starts.get(starts.partition_point(|&b| b <= start)).copied();
+            text.get(start..next.unwrap_or(text.len()))
+                .unwrap_or_default()
+                .to_string()
+        };
+        let mut seen_clusters = std::collections::BTreeSet::new();
         let mut lines = Vec::with_capacity(layout.lines.len());
         for line in &layout.lines {
             let mut runs = Vec::with_capacity(line.runs.len());
@@ -284,10 +310,17 @@ impl FontMeasure {
             for run in &line.runs {
                 let mut glyphs = Vec::with_capacity(run.glyphs.len());
                 for g in &run.glyphs {
+                    let first_of_cluster = seen_clusters.insert(g.cluster_index);
                     glyphs.push(GlyphPlacement {
                         glyph: g.glyph_id,
                         x: line.x_offset.to_f32() + cursor + g.x_offset.to_f32(),
                         y: -g.y_offset.to_f32(),
+                        advance: g.x_advance.to_f32(),
+                        text: if first_of_cluster {
+                            cluster_text(g.cluster_index)
+                        } else {
+                            String::new()
+                        },
                     });
                     cursor += g.x_advance.to_f32();
                 }

@@ -4,10 +4,11 @@
 //! Layout comes from `tpt-codex-views`. Text is shaped with `tpt-codex-text` (through
 //! `tpt-text`), and drawn with `tpt-canvas` as glyph outlines. `tpt-canvas-pdf` writes the file.
 //!
-//! Because text is drawn as outlines, the PDF shows the text as laid out, but the text cannot be
-//! selected or searched. Bold text is drawn with the regular outlines, stroked with a thin line to
-//! thicken them. The bundled font has no bold outlines of its own, so this is an approximation of
-//! the bold weight that the layout measured.
+//! Text is drawn twice. The outlines show the text as laid out. A text layer then draws each glyph
+//! again, invisibly, with the bundled font embedded and a map to its characters, so the text can
+//! be selected, searched and read (see the `text_layer` module). Bold text is drawn with the regular
+//! outlines, stroked with a thin line to thicken them. The bundled font has no bold outlines of its
+//! own, so this is an approximation of the bold weight that the layout measured.
 //!
 //! The output is deterministic: the same document and options give the same bytes.
 
@@ -31,6 +32,12 @@ use tpt_codex_views::{
 use tpt_text::PathSegment;
 use tpt_text::fx::Fx;
 use tpt_typeset::footnote_notes;
+
+mod subset;
+mod text_layer;
+
+pub use text_layer::TextLayerError;
+use text_layer::{TextGlyph, TextRun, add_text_layer};
 
 /// Margins, in points, from the edges of the paper.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -85,6 +92,8 @@ pub enum ExportError {
     Canvas(CanvasError),
     /// Text could not be shaped with the bundled font.
     Text(TextError),
+    /// The text layer could not be added to the file.
+    TextLayer(TextLayerError),
 }
 
 impl fmt::Display for ExportError {
@@ -94,7 +103,14 @@ impl fmt::Display for ExportError {
             Self::Page(e) => write!(f, "pagination failed: {e}"),
             Self::Canvas(e) => write!(f, "slide layout failed: {e}"),
             Self::Text(e) => write!(f, "text failed: {e}"),
+            Self::TextLayer(e) => write!(f, "{e}"),
         }
+    }
+}
+
+impl From<TextLayerError> for ExportError {
+    fn from(e: TextLayerError) -> Self {
+        Self::TextLayer(e)
     }
 }
 
@@ -180,10 +196,27 @@ fn draw_lines(
     x: f32,
     y: f32,
     bold: bool,
+    text: &mut Vec<TextRun>,
 ) {
     ctx.set_fill_paint(Paint::Solid(INK));
     for line in lines {
         for run in &line.runs {
+            // The same glyphs, at the same places, for the text layer.
+            text.push(TextRun {
+                face: run.face,
+                size: run.size,
+                glyphs: run
+                    .glyphs
+                    .iter()
+                    .map(|g| TextGlyph {
+                        glyph: g.glyph,
+                        x: x + g.x,
+                        y: y + line.baseline + g.y,
+                        advance: g.advance,
+                        text: g.text.clone(),
+                    })
+                    .collect(),
+            });
             let mut shaped = ShapedRun::new(run.face as u32, run.size);
             for glyph in &run.glyphs {
                 shaped.push(
@@ -269,6 +302,8 @@ struct PageContext<'a> {
     column: f64,
     /// Computed cell values per sheet, filled on first use.
     results: BTreeMap<SheetId, BTreeMap<String, CellResult>>,
+    /// The text of the page being drawn, for the text layer.
+    text: Vec<TextRun>,
 }
 
 impl PageContext<'_> {
@@ -294,13 +329,22 @@ impl PageContext<'_> {
                     x + *indent as f32,
                     y,
                     style.bold,
+                    &mut self.text,
                 );
                 // The marker shares the first line's baseline, since it is set in the same style. It
                 // sits one list indent left of its text, so a sub-list's markers are indented too.
                 if let Some(marker) = marker {
                     let marks = self.measure.shape_lines(marker, style, None)?;
                     let marker_x = x + (*indent - LIST_INDENT).max(0.0) as f32;
-                    draw_lines(ctx, self.outlines, &marks, marker_x, y, style.bold);
+                    draw_lines(
+                        ctx,
+                        self.outlines,
+                        &marks,
+                        marker_x,
+                        y,
+                        style.bold,
+                        &mut self.text,
+                    );
                 }
             }
             FlowKind::Box => draw_box(ctx, x, y, self.column as f32, item.height as f32),
@@ -345,7 +389,15 @@ impl PageContext<'_> {
                 &style,
                 Some((cell_width - 4.0).max(1.0) as f32),
             )?;
-            draw_lines(ctx, self.outlines, &lines, cell_x + 2.0, y, style.bold);
+            draw_lines(
+                ctx,
+                self.outlines,
+                &lines,
+                cell_x + 2.0,
+                y,
+                style.bold,
+                &mut self.text,
+            );
         }
         Ok(())
     }
@@ -359,9 +411,10 @@ fn draw_chrome_text(
     text: &str,
     x: f32,
     y: f32,
+    layer: &mut Vec<TextRun>,
 ) -> Result<(), ExportError> {
     let lines = measure.shape_lines(text, &TextStyle::default(), None)?;
-    draw_lines(ctx, outlines, &lines, x, y, false);
+    draw_lines(ctx, outlines, &lines, x, y, false, layer);
     Ok(())
 }
 
@@ -374,17 +427,26 @@ fn draw_page_chrome(
     rendered: &RenderedChrome,
     paper: PaperSize,
     margins: Margins,
+    layer: &mut Vec<TextRun>,
 ) -> Result<(), ExportError> {
     if let Some(header) = &rendered.header {
         let top = ((margins.top - CHROME_LINE).max(0.0) / 2.0) as f32;
-        draw_chrome_text(ctx, outlines, measure, header, margins.left as f32, top)?;
+        draw_chrome_text(
+            ctx,
+            outlines,
+            measure,
+            header,
+            margins.left as f32,
+            top,
+            layer,
+        )?;
     }
     if let Some(footer) = &rendered.footer {
         let width = measure.width(footer, &TextStyle::default()) as f32;
         let x = ((paper.width as f32) - width) / 2.0;
         let top =
             (paper.height - margins.bottom + (margins.bottom - CHROME_LINE).max(0.0) / 2.0) as f32;
-        draw_chrome_text(ctx, outlines, measure, footer, x, top)?;
+        draw_chrome_text(ctx, outlines, measure, footer, x, top, layer)?;
     }
     Ok(())
 }
@@ -465,8 +527,9 @@ pub fn export_document_with_chrome(
     )?;
     let rendered = render_chrome(&pages, chrome);
 
+    let faces = measure.faces();
     let outlines = FaceOutlines {
-        faces: measure.faces(),
+        faces: faces.clone(),
     };
     let (width, height) = (paper.width as f32, paper.height as f32);
     let mut backend = PdfBackend::new(width, height);
@@ -477,7 +540,9 @@ pub fn export_document_with_chrome(
         margins,
         column,
         results: BTreeMap::new(),
+        text: Vec::new(),
     };
+    let mut page_text: Vec<Vec<TextRun>> = Vec::with_capacity(pages.len());
     for (index, (page, chrome_page)) in pages.iter().zip(&rendered).enumerate() {
         if index > 0 {
             backend.new_page(width, height);
@@ -487,10 +552,31 @@ pub fn export_document_with_chrome(
         for item in page.items.iter().chain(&page.notes) {
             page_context.draw_flow_item(&mut ctx, item)?;
         }
-        draw_page_chrome(&mut ctx, &outlines, measure, chrome_page, paper, margins)?;
+        draw_page_chrome(
+            &mut ctx,
+            &outlines,
+            measure,
+            chrome_page,
+            paper,
+            margins,
+            &mut page_context.text,
+        )?;
+        page_text.push(std::mem::take(&mut page_context.text));
         backend = ctx.into_backend();
     }
-    Ok(backend.finish())
+    with_text_layer(backend.finish(), height, &page_text, &faces)
+}
+
+/// Adds the text layer to a finished file: the text of each page, drawn invisibly over the
+/// outlines, so the file can be searched and its text copied.
+fn with_text_layer(
+    pdf: Vec<u8>,
+    page_height: f32,
+    pages: &[Vec<TextRun>],
+    faces: &[Arc<tpt_text::font::FontFace>],
+) -> Result<Vec<u8>, ExportError> {
+    let data: Vec<&[u8]> = faces.iter().map(|face| face.data()).collect();
+    Ok(add_text_layer(&pdf, page_height, pages, &data)?)
 }
 
 /// Exports one slide as a PDF, one page the size of the slide.
@@ -510,16 +596,18 @@ pub fn export_slide(
     };
     let mut ctx = Context::new(backend);
     ctx.set_glyph_source(Box::new(outlines.clone()));
+    let mut text = Vec::new();
     for item in &layout.items {
         let Some(frame) = item.frame else { continue };
         let (x, y) = (frame.x as f32, frame.y as f32);
         match doc.get(item.block) {
             Some(Block::Text { content, style }) => {
                 let lines = measure.shape_lines(content, style, Some(frame.width as f32))?;
-                draw_lines(&mut ctx, &outlines, &lines, x, y, style.bold);
+                draw_lines(&mut ctx, &outlines, &lines, x, y, style.bold, &mut text);
             }
             _ => draw_box(&mut ctx, x, y, frame.width as f32, frame.height as f32),
         }
     }
-    Ok(ctx.into_backend().finish())
+    let pdf = ctx.into_backend().finish();
+    with_text_layer(pdf, layout.height as f32, &[text], &measure.faces())
 }
