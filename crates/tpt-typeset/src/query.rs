@@ -85,6 +85,8 @@ pub mod entity_type {
     pub const THEMATIC_BREAK: u32 = 9;
     /// A list.
     pub const LIST: u32 = 10;
+    /// A table of plain text outside a grid.
+    pub const TABLE: u32 = 11;
 }
 
 /// Exposes the document's blocks as `tpt-query` entities, so a query can run over the document.
@@ -135,6 +137,7 @@ pub fn document_entities(doc: &tpt_codex_core::Document) -> tpt_query::MemorySou
             Block::Media { .. } => entity(id, entity_type::MEDIA).with_field("kind", "media"),
             Block::Grid { .. } => entity(id, entity_type::GRID).with_field("kind", "grid"),
             Block::Query(_) => entity(id, entity_type::QUERY).with_field("kind", "query"),
+            Block::Table { .. } => entity(id, entity_type::TABLE).with_field("kind", "table"),
             Block::ThematicBreak => {
                 entity(id, entity_type::THEMATIC_BREAK).with_field("kind", "thematic_break")
             }

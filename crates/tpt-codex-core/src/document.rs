@@ -33,12 +33,25 @@ pub fn is_table_label(label: &str) -> bool {
     has_label_prefix(label, "tab:")
 }
 
+/// Whether `name` can name a cell: letters, digits and underscores, starting with a letter or an
+/// underscore, up to 64 characters, and not a cell address such as `B4` (so that it cannot be
+/// confused with one).
+pub fn is_cell_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let starts_well = matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_');
+    starts_well
+        && name.len() <= 64
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !crate::sheet::is_valid_address(name)
+}
+
 /// The schema version written by this build.
 ///
 /// Version 2 adds the `List`, `Code`, `ThematicBreak` and `Math` block variants.
 /// Version 3 adds the `Quote` block variant, and lets a list item be a sub-list.
+/// Version 4 adds the `Table` block variant, a table of plain text outside a grid.
 /// No version 1 document was ever released, so no migration exists.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Front-matter style metadata for a document.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +116,19 @@ pub struct Document {
     /// when there are none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub table_labels: BTreeMap<SheetId, String>,
+    /// Names of cells, such as `Total` for `B4` in sheet 1. A `[[Total]]` in prose shows that
+    /// cell's value. Absent from the JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cell_names: BTreeMap<String, NamedCell>,
+}
+
+/// A name for one cell of a grid.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamedCell {
+    /// The sheet the cell is in.
+    pub sheet: SheetId,
+    /// The cell's address, such as `B4`.
+    pub address: String,
 }
 
 impl Document {
@@ -123,6 +149,7 @@ impl Document {
             figures: BTreeMap::new(),
             equation_labels: BTreeMap::new(),
             table_labels: BTreeMap::new(),
+            cell_names: BTreeMap::new(),
         }
     }
 
@@ -273,6 +300,28 @@ impl Document {
             }
             if !is_table_label(label) || !table_ids.insert(label.as_str()) {
                 return Err(ValidationError::InvalidTableLabel(sheet));
+            }
+        }
+        for (name, cell) in &self.cell_names {
+            if !is_cell_name(name) {
+                return Err(ValidationError::InvalidCellName(name.clone()));
+            }
+            if !self.sheets.contains_key(&cell.sheet) {
+                return Err(ValidationError::CellNameOfMissingSheet(name.clone()));
+            }
+            if !crate::sheet::is_valid_address(&cell.address) {
+                return Err(ValidationError::InvalidCellName(name.clone()));
+            }
+        }
+        for (&block, data) in &self.blocks {
+            if let Block::Table { rows } = data {
+                let cols = rows.first().map_or(0, Vec::len);
+                let uneven = rows
+                    .iter()
+                    .any(|row| row.len() != cols || row.iter().any(|c| c.contains(['\n', '\r'])));
+                if cols == 0 || uneven {
+                    return Err(ValidationError::InvalidTable(block));
+                }
             }
         }
         for (&block, canvas) in &self.canvases {

@@ -97,3 +97,54 @@ fn numbers_read_as_prose() {
     assert_eq!(format_number(1e15), "1000000000000000");
     assert_eq!(format_number(f64::INFINITY), "inf");
 }
+
+#[test]
+fn a_named_cell_shows_the_same_value_as_its_address() {
+    let named = BUDGET.replace(
+        "::: grid { id=\"1\" }",
+        "::: grid { id=\"1\" names=\"Total=B4\" }",
+    );
+    let doc = from_markdown(&named).unwrap();
+    let bindings = grid_bindings(&doc);
+    assert_eq!(bindings.get("Total"), Some("4600"));
+    let resolved = resolve_document(&doc).unwrap();
+    assert_eq!(
+        text_of(&resolved, last_paragraph(&resolved)),
+        "The total is 4600 and the design cost is 1200."
+    );
+}
+
+#[test]
+fn common_excel_functions_evaluate_in_a_grid() {
+    use tpt_codex_grid::{CellResult, evaluate_sheet};
+    let doc = from_markdown(
+        "::: grid { id=\"1\" }
+| a | b |
+| --- | --- |
+| 1200 | 3400 |
+| =SUM(A2:B2) | =AVERAGE(A2:B2) |
+| =ROUND(2.567, 1) | =IF(A2>1000, \"big\", \"small\") |
+| =COUNT(A2:B2) | =MAX(A2:B2) |
+| =VLOOKUP(1200, A2:B2, 2, FALSE) | =CONCAT(\"x\", \"y\") |
+:::
+",
+    )
+    .unwrap();
+    let results: std::collections::BTreeMap<String, CellResult> =
+        evaluate_sheet(&doc.sheets[&SheetId(1)])
+            .into_iter()
+            .collect();
+    let text = |address: &str| match results.get(address) {
+        Some(CellResult::Number(n)) => format_number(*n),
+        Some(CellResult::Text(s)) => s.clone(),
+        other => panic!("{address}: {other:?}"),
+    };
+    assert_eq!(text("A3"), "4600");
+    assert_eq!(text("B3"), "2300");
+    assert_eq!(text("A4"), "2.6");
+    assert_eq!(text("B4"), "big");
+    assert_eq!(text("A5"), "2");
+    assert_eq!(text("B5"), "3400");
+    assert_eq!(text("A6"), "3400");
+    assert_eq!(text("B6"), "xy");
+}

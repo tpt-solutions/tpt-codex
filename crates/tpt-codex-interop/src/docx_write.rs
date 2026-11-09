@@ -78,6 +78,10 @@ pub fn export_docx(doc: &Document) -> Result<DocxExport, DocxError> {
             None => counts.live += 1,
         },
         Block::Query(_) => counts.live += 1,
+        Block::Table { rows } => {
+            counts.tables += 1;
+            body.push_str(&text_table(rows));
+        }
         Block::Container { .. } => {}
     };
     walk(doc, doc.root, &mut visit, 0)?;
@@ -226,6 +230,28 @@ const COLUMN_WIDTH: u32 = 2000;
 fn table(sheet: &Sheet) -> String {
     let (rows, cols) = sheet.extent();
     let (rows, cols) = (rows.max(1), cols.max(1));
+    word_table(rows, cols, |row, col| {
+        sheet
+            .cells
+            .get(&address_of(col, row))
+            .map(CellInput::to_text)
+            .unwrap_or_default()
+    })
+}
+
+/// A Word table of plain text: the rows of a `Block::Table`.
+fn text_table(rows: &[Vec<String>]) -> String {
+    let cols = rows.first().map_or(1, Vec::len).max(1);
+    word_table(rows.len() as u32, cols as u32, |row, col| {
+        rows[row as usize - 1]
+            .get(col as usize - 1)
+            .cloned()
+            .unwrap_or_default()
+    })
+}
+
+/// A Word table with `rows` by `cols` cells, numbered from 1, whose text is `text(row, col)`.
+fn word_table(rows: u32, cols: u32, text: impl Fn(u32, u32) -> String) -> String {
     let border = |side: &str| {
         format!("<w:{side} w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>")
     };
@@ -245,14 +271,9 @@ fn table(sheet: &Sheet) -> String {
     for row in 1..=rows {
         out.push_str("<w:tr>");
         for col in 1..=cols {
-            let text = sheet
-                .cells
-                .get(&address_of(col, row))
-                .map(CellInput::to_text)
-                .unwrap_or_default();
             out.push_str(&format!(
                 "<w:tc><w:tcPr><w:tcW w:w=\"{COLUMN_WIDTH}\" w:type=\"dxa\"/></w:tcPr>{}</w:tc>",
-                paragraph(&text, None, false, false)
+                paragraph(&text(row, col), None, false, false)
             ));
         }
         out.push_str("</w:tr>");

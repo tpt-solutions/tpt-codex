@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use alloc::string::String;
 use core::fmt;
 
 use crate::id::{BlockId, SheetId};
@@ -41,6 +42,12 @@ pub enum ValidationError {
     TableLabelOfMissingSheet(SheetId),
     /// A table label is empty, repeated, or does not start with `tab:`.
     InvalidTableLabel(SheetId),
+    /// A cell name is not a valid name, or names an address that is not a cell address.
+    InvalidCellName(String),
+    /// A cell name refers to a sheet that does not exist.
+    CellNameOfMissingSheet(String),
+    /// A table has no rows or no cells, its rows differ in length, or a cell has a line break.
+    InvalidTable(BlockId),
     /// A section is recorded for a block that is not a slide.
     SectionOfNonSlide(BlockId),
     /// A slide's section has an empty name.
@@ -126,6 +133,25 @@ impl fmt::Display for ValidationError {
             }
             Self::InvalidTableLabel(id) => {
                 write!(f, "sheet {} has an invalid or repeated table label", id.0)
+            }
+            Self::InvalidCellName(name) => {
+                write!(
+                    f,
+                    "cell name {name:?} is not a name or does not name a cell address"
+                )
+            }
+            Self::CellNameOfMissingSheet(name) => {
+                write!(
+                    f,
+                    "cell name {name:?} refers to a sheet that does not exist"
+                )
+            }
+            Self::InvalidTable(id) => {
+                write!(
+                    f,
+                    "block {} is a table with no cells, uneven rows, or a line break in a cell",
+                    id.0
+                )
             }
             Self::SectionOfNonSlide(id) => {
                 write!(f, "block {} has a section but is not a slide", id.0)

@@ -248,17 +248,25 @@ fn write_grid(
         }
     }
 
-    let open_line = match doc.table_labels.get(&sheet_id) {
-        None => format!("::: grid {{ id=\"{}\" }}", sheet_id.0),
-        Some(label) => {
-            if !is_table_label(label) {
-                return Err(fail(
-                    "table label must start with tab: and use letters, digits, and - _ : .",
-                ));
-            }
-            format!("::: grid {{ id=\"{}\" label=\"{}\" }}", sheet_id.0, label)
+    let mut attributes = format!("id=\"{}\"", sheet_id.0);
+    if let Some(label) = doc.table_labels.get(&sheet_id) {
+        if !is_table_label(label) {
+            return Err(fail(
+                "table label must start with tab: and use letters, digits, and - _ : .",
+            ));
         }
-    };
+        attributes.push_str(&format!(" label=\"{label}\""));
+    }
+    let names: Vec<String> = doc
+        .cell_names
+        .iter()
+        .filter(|(_, cell)| cell.sheet == sheet_id)
+        .map(|(name, cell)| format!("{name}={}", cell.address))
+        .collect();
+    if !names.is_empty() {
+        attributes.push_str(&format!(" names=\"{}\"", names.join(",")));
+    }
+    let open_line = format!("::: grid {{ {attributes} }}");
     let mut lines = vec![open_line];
     for row in 1..=rows {
         let mut cells: Vec<String> = Vec::with_capacity(cols as usize);
@@ -299,6 +307,49 @@ fn write_grid(
         }
     }
     lines.push(String::from(":::"));
+    Ok(lines.join("\n"))
+}
+
+/// Writes a text table as a pipe table: the first row is the header, under a separator row.
+fn write_table(index: usize, rows: &[Vec<String>]) -> Result<String, SerializeError> {
+    let fail = |reason: &str| SerializeError {
+        index: Some(index),
+        reason: String::from(reason),
+    };
+    let Some(first) = rows.first() else {
+        return Err(fail("a table has no rows"));
+    };
+    let cols = first.len();
+    if cols == 0 {
+        return Err(fail("a table has no cells"));
+    }
+    let mut lines = Vec::with_capacity(rows.len() + 1);
+    for (r, row) in rows.iter().enumerate() {
+        if row.len() != cols {
+            return Err(fail("the rows of a table have different numbers of cells"));
+        }
+        for text in row {
+            if text.contains(['\n', '\r']) || text.trim() != text {
+                return Err(fail(
+                    "a table cell has a line break or leading or trailing spaces",
+                ));
+            }
+        }
+        if is_separator(row) {
+            return Err(fail(
+                "a row of only dashes would read back as the header separator",
+            ));
+        }
+        let escaped: Vec<String> = row
+            .iter()
+            .map(|c| c.replace('\\', "\\\\").replace('|', "\\|"))
+            .collect();
+        lines.push(format!("| {} |", escaped.join(" | ")));
+        if r == 0 {
+            let dashes = vec!["---"; cols];
+            lines.push(format!("| {} |", dashes.join(" | ")));
+        }
+    }
     Ok(lines.join("\n"))
 }
 
@@ -372,6 +423,7 @@ fn write_block(
         } => write_grid(doc, index, *sheet_id, view_bounds.is_some()),
         Block::Query(_) => Err(fail("queries are not in the Markdown subset yet")),
         Block::Quote { children } => write_quote(doc, index, children),
+        Block::Table { rows } => write_table(index, rows),
         Block::Container { .. } => Err(fail("nested containers are not supported yet")),
     }
 }

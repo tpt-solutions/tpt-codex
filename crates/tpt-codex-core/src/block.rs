@@ -62,6 +62,12 @@ pub enum Block {
         /// The child blocks, in order.
         children: Vec<BlockId>,
     },
+    /// A table of plain text, written as a pipe table outside a grid. It is not a live grid: its
+    /// cells are text, and a cell that starts with `=` is text too. The first row is the header.
+    Table {
+        /// The rows, top to bottom. Every row has as many cells as the first.
+        rows: Vec<Vec<String>>,
+    },
     /// A horizontal rule.
     ThematicBreak,
     /// Display math. The source is TeX-style math text, stored verbatim. `tpt-typeset`

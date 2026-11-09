@@ -1551,6 +1551,16 @@ impl Editor {
                     .class("text-block");
             }
             Block::List { items, ordered, .. } => self.view_list(c, id, *ordered, items),
+            Block::Table { rows } => {
+                // A table of plain text is shown as its rows. Its cells are not edited here.
+                c.container(|inner| {
+                    for (r, row) in rows.iter().enumerate() {
+                        let class = if r == 0 { "table-header" } else { "table-row" };
+                        styled_text(inner, row.join(" | "), class);
+                    }
+                })
+                .class("text-table");
+            }
             Block::Quote { children } => {
                 c.container(|inner| {
                     for child in children {
@@ -2016,6 +2026,7 @@ fn block_text(block: &Block) -> String {
         Block::Math { source } => format!("$$ {source} $$"),
         Block::List { .. } => "(list)".to_string(),
         Block::Grid { .. } => "(grid)".to_string(),
+        Block::Table { .. } => "(table)".to_string(),
         Block::Media { .. } => "(media)".to_string(),
         Block::Query(_) => "(query)".to_string(),
         Block::ThematicBreak => "—————".to_string(),

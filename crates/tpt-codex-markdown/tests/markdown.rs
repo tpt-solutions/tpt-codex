@@ -1128,3 +1128,80 @@ fn a_bad_link_title_is_a_structured_error() {
     assert!(from_markdown("[a](https://x.test \"open\n").is_err());
     assert!(from_markdown("[a](https://x.test \"\")\n").is_err());
 }
+
+const NAMED_GRID: &str = "::: grid { id=\"1\" names=\"Rate=C2,Total=B4\" }
+| Item | Cost | Rate |
+| --- | --- | --- |
+| Design | 1200 | 0.5 |
+| Build | 3400 | 0.25 |
+| Total | =SUM(B2:B3) | 0 |
+:::
+";
+
+#[test]
+fn cell_names_are_read_and_written_back() {
+    let doc = from_markdown(NAMED_GRID).unwrap();
+    let total = doc.cell_names.get("Total").expect("Total is named");
+    assert_eq!(total.address, "B4");
+    assert_eq!(doc.cell_names.get("Rate").unwrap().address, "C2");
+    doc.validate().unwrap();
+    assert_eq!(to_markdown(&doc).unwrap(), NAMED_GRID);
+}
+
+#[test]
+fn bad_cell_names_are_structured_errors() {
+    // An address is not a name, a name must be an address, and a name is given once.
+    for bad in [
+        "::: grid { id=\"1\" names=\"B4=C2\" }\n| a |\n| --- |\n:::\n",
+        "::: grid { id=\"1\" names=\"Total=Z\" }\n| a |\n| --- |\n:::\n",
+        "::: grid { id=\"1\" names=\"Total\" }\n| a |\n| --- |\n:::\n",
+        "::: grid { id=\"1\" names=\"Total=A1,Total=A1\" }\n| a |\n| --- |\n:::\n",
+    ] {
+        assert!(from_markdown(bad).is_err(), "{bad}");
+    }
+    // The same name in two grids is an error too.
+    let twice = "::: grid { id=\"1\" names=\"Total=A1\" }\n| a |\n| --- |\n:::\n\n::: grid { id=\"2\" names=\"Total=A1\" }\n| b |\n| --- |\n:::\n";
+    assert!(from_markdown(twice).is_err());
+}
+
+const PLAIN_TABLE: &str = "Before.\n\n| Item | Cost |\n| --- | --- |\n| Design | 1200 |\n| Build | =SUM(B2:B3) |\n\nAfter.\n";
+
+#[test]
+fn a_pipe_table_outside_a_grid_is_a_text_table_and_reads_back() {
+    let doc = from_markdown(PLAIN_TABLE).unwrap();
+    doc.validate().unwrap();
+    let tables: Vec<&Vec<Vec<String>>> = doc
+        .blocks
+        .values()
+        .filter_map(|b| match b {
+            Block::Table { rows } => Some(rows),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tables.len(), 1);
+    // A cell that starts with = is text, not a formula, in a text table.
+    assert_eq!(tables[0][2], ["Build", "=SUM(B2:B3)"]);
+    assert_eq!(to_markdown(&doc).unwrap(), PLAIN_TABLE);
+}
+
+#[test]
+fn a_bad_pipe_table_is_a_structured_error() {
+    // No separator row.
+    assert!(from_markdown("| a | b |\n| c | d |\n").is_err());
+    // Uneven rows.
+    assert!(from_markdown("| a | b |\n| --- | --- |\n| c |\n").is_err());
+    // A body row of dashes would read back as the separator, so the writer refuses it.
+    let mut doc = from_markdown("| a |\n| --- |\n| b |\n").unwrap();
+    let id = doc
+        .blocks
+        .iter()
+        .find_map(|(id, b)| matches!(b, Block::Table { .. }).then_some(*id))
+        .unwrap();
+    doc.insert(
+        id,
+        Block::Table {
+            rows: vec![vec!["h".into()], vec!["---".into()]],
+        },
+    );
+    assert!(to_markdown(&doc).is_err());
+}

@@ -101,6 +101,7 @@ fn similarity(base: &Document, a: BlockId, other: &Document, b: BlockId) -> f64 
         (Block::Quote { children: c }, Block::Quote { children: d }) => {
             child_overlap(base, c, other, d)
         }
+        (Block::Table { rows: c }, Block::Table { rows: d }) if c == d => 1.0,
         _ => 0.0,
     }
 }

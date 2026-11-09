@@ -187,8 +187,10 @@ address      = text without spaces, parentheses, angle brackets or backslashes ;
 - A grid can carry a table label: `::: grid { id="N" label="tab:id" }`. A label starts with `tab:`
   and then letters, digits, and `- _ : .`. Labelled tables are numbered from 1 among the tables, in
   reading order, and `[text](#tab:id)` is a cross-reference to the table.
+- A grid can name cells: `::: grid { id="N" names="Total=B4,Rate=C2" }`. A name starts with a letter or an underscore, uses only letters, digits and underscores, and is not a cell address. `[[Total]]` shows that cell's value. A name is unique in the document, and the writer sorts names.
 - Any other `:::` name is an error, and a grid or slide left open at the end of the document is an error.
 - Attributes are `key="value"` pairs inside braces. Values cannot contain quotes.
+- A pipe table outside a grid is a text table (`Block::Table`). Its first row is the header, under a line of `---` cells, and its body rows follow. Its cells are text: a cell that starts with `=` is not a formula. Every row has the same number of cells, and a row of only dashes is refused, since it would read as the separator.
 
 ## Unsupported syntax (read errors)
 
@@ -197,7 +199,6 @@ A line that starts with any of these is an error. The error names the construct 
 | Syntax | Examples |
 | --- | --- |
 | Indented code block | a line starting with 4 spaces or a tab |
-| Table | a line starting with `|` outside a grid |
 | Other container block | `::: name` for a name other than grid or canvas |
 | Raw HTML | a line starting with `<` |
 | Setext heading | a line of `=`, or `---` under a paragraph line |

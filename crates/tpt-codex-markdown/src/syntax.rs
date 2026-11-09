@@ -7,7 +7,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use tpt_codex_core::{Canvas, Figure, is_equation_label, is_figure_label, is_table_label};
+use tpt_codex_core::{
+    Canvas, Figure, is_cell_name, is_equation_label, is_figure_label, is_table_label,
+    is_valid_address,
+};
 
 /// Largest number a list item may start with (nine digits, as in CommonMark).
 pub(crate) const MAX_LIST_NUMBER: u32 = 999_999_999;
@@ -345,6 +348,8 @@ pub(crate) enum ContainerOpen<'a> {
         id: u64,
         /// The table label, such as `tab:results`, if the grid has one.
         label: Option<String>,
+        /// Names of cells, each with its address: `(name, address)`.
+        names: Vec<(String, String)>,
     },
     /// `::: canvas { ratio="W:H" }`: a slide, whose body holds ordinary blocks.
     Canvas {
@@ -383,7 +388,11 @@ pub(crate) fn container_open(line: &str) -> Option<Result<ContainerOpen<'_>, &'s
         }
     };
     Some(match name {
-        "grid" => grid_attributes(&attrs).map(|(id, label)| ContainerOpen::Grid { id, label }),
+        "grid" => grid_attributes(&attrs).map(|(id, label, names)| ContainerOpen::Grid {
+            id,
+            label,
+            names,
+        }),
         "canvas" => canvas_ratio(&attrs).map(|ratio| ContainerOpen::Canvas { ratio }),
         _ => Ok(ContainerOpen::Unknown(name)),
     })
@@ -427,9 +436,13 @@ fn key_values(inner: &str) -> Result<Vec<(&str, &str)>, &'static str> {
 }
 
 /// Reads a grid's `id="N"` and optional `label="tab:id"`.
-fn grid_attributes(attrs: &[(&str, &str)]) -> Result<(u64, Option<String>), &'static str> {
+/// The grid attributes: the id, the table label, and the cell names, each as `(name, address)`.
+type GridAttributes = (u64, Option<String>, Vec<(String, String)>);
+
+fn grid_attributes(attrs: &[(&str, &str)]) -> Result<GridAttributes, &'static str> {
     let mut id = None;
     let mut label = None;
+    let mut names: Vec<(String, String)> = Vec::new();
     for &(key, value) in attrs {
         match key {
             "id" => {
@@ -452,11 +465,33 @@ fn grid_attributes(attrs: &[(&str, &str)]) -> Result<(u64, Option<String>), &'st
                     return Err("grid has more than one label");
                 }
             }
-            _ => return Err("unknown grid attribute; the attributes are id and label"),
+            "names" => {
+                if !names.is_empty() {
+                    return Err("grid has more than one names attribute");
+                }
+                for pair in value.split(',') {
+                    let (name, address) = pair
+                        .split_once('=')
+                        .ok_or("cell names are written name=ADDRESS, such as names=\"Total=B4\"")?;
+                    if !is_cell_name(name) {
+                        return Err(
+                            "a cell name starts with a letter or underscore, uses only letters, digits and underscores, and is not a cell address such as B4",
+                        );
+                    }
+                    if !is_valid_address(address) {
+                        return Err("a cell name must name a cell address, such as Total=B4");
+                    }
+                    if names.iter().any(|(n, _)| n == name) {
+                        return Err("a cell name is given more than once in the grid");
+                    }
+                    names.push((String::from(name), String::from(address)));
+                }
+            }
+            _ => return Err("unknown grid attribute; the attributes are id, label and names"),
         }
     }
     let id = id.ok_or("grid needs an id, such as ::: grid { id=\"1\" }")?;
-    Ok((id, label))
+    Ok((id, label, names))
 }
 
 fn canvas_ratio(attrs: &[(&str, &str)]) -> Result<(u32, u32), &'static str> {

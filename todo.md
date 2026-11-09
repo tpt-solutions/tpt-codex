@@ -35,11 +35,11 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] `tpt-canvas` + `tpt-canvas-pdf` (PDF backend is a crate inside the `tpt-canvas` repo, not a separate repo) — _pinned at `e451560`, where glyph runs are filled as outlines, so PDF text is drawn. `tpt-codex-pdf` uses it_
 - [~] `tpt-lattice` workspace crates: `-core`, `-evaluator`, `-parser`, `-crdt`, `-wasm` — _`-core` and `-evaluator` added (grid evaluation in `tpt-codex-grid`; the evaluator is std-only, so it is not in `no_std` crates). `-parser` comes in transitively. `-crdt` and `-wasm` not audited_
 - [x] `tpt-lattice-import-xlsx` / `-export-xlsx` (spec's "tpt-lattice-import" = these) — _replaced by our own stack in `tpt-codex-interop`: `archive` (ZIP reader and writer, stored and DEFLATE, CRC and size limits) and `xlsx` (reader and writer, on `quick-xml`). `zip`, `calamine` and the lattice xlsx crates are no longer used. Tested against openpyxl and Python `zipfile` fixtures, both directions_
-- [ ] `tpt-replicate` — _gate clean, but its CRDT types (`UirNode`, `ActorId`, `CrdtCompatible`) come from its own `stubs` module. Not adopted: a stub type would enter the sync format. Text CRDT written in `tpt-codex-core` instead (see Phase 4)_
+- [x] `tpt-replicate` — _Decided: keep the in-house CRDT (`tpt-codex-core`), as the note below says. The upstream stub types would enter the sync format._ — _gate clean, but its CRDT types (`UirNode`, `ActorId`, `CrdtCompatible`) come from its own `stubs` module. Not adopted: a stub type would enter the sync format. Text CRDT written in `tpt-codex-core` instead (see Phase 4)_
 - [~] `tpt-appfront` crates: `-core`, `-dom`, `-canvas`, `-html`, `-webview` (pick which are needed) — _audited per crate: `-core`, `-dom`, `-html` gate OK and in use. `-canvas` and `-webview` fail the gate (Apache-only GUI stacks: winit, glutin, tao). They are native-desktop crates, outside the WASM-first decision_
 - [~] `tpt-doc` crates: `-core`, `-word`, `-spreadsheet`, `-pdf`, `-convert` — _upstream fixed: `tpt-doc` master (`cc16a28`) uses `zip` with `deflate-flate2-zlib-rs`, and `-pdf` and `-convert` pass the license gate on their own closures. Not adopted: `.docx` and `.xlsx` are in-house, and `tpt-doc-pdf` writes PDFs only (no parser)_
 - [x] `tpt-query` — _added: `tpt-typeset::run_query` runs `Block::Query` JSON with the `json` feature. Gate clean, `no_std` build verified_
-- [ ] `tpt-version` (for semantic diff/merge) — _gate clean; depends on `tpt-crypto-hash`/`-sig` (git). Not wired in: Phase 4_
+- [x] `tpt-version` (for semantic diff/merge) — _Decided: stay in-house (`VersionLog`, `three_way_merge`), as agreed. Gate clean; the upstream dependencies are git-only_
 - [~] Audit each for `no_std` support, wasm32 support, and `-sys`/C-FFI transitive deps — _`-sys` closure checked for TPT crates; `no_std`/wasm builds not verified (needs approval to compile external code)_
 - [~] Audit transitive licenses (`cargo tree`, `cargo deny`) — _license gate run on the resolved closure (31 packages): OK. `cargo deny` not run (not installed). `deny.toml` now allows the two pinned TPT git sources._
 
@@ -92,7 +92,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] `Block::Container` rendering for Flow/Grid layout modes — _Flow and Grid containers draw their children in order, with a class for the host to lay them out. Absolute containers are slides_
 - [x] Trait boundaries for platform I/O, rendering, clock, storage (keep core headless) — _`Clock`, `Storage`, `TextMeasure` traits; rendering via `TextMeasure` only_
 - [x] Local persistence (save/load document) — _JSON via `DocumentStore` over `FileStorage`; validated on save and load_
-- [ ] Native desktop shell smoke test (via appfront webview/tui, if used) — _not started: `tpt-appfront-webview` fails the gate. WASM-first is the decision, and the browser run now works_
+- [ ] Native desktop shell smoke test (via appfront webview/tui, if used) — _not started. Deferred. The earlier audit found `tpt-appfront-webview` fails the licence gate (`tao`, `winit` and `glutin` are Apache-2.0 only; not re-verified against crates.io); WASM-first is the decision, and the browser run works_
 
 **Milestone 1:** A user types a paragraph, inserts a live calculation table, and it updates reactively in the browser via WASM.
 
@@ -212,18 +212,19 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] `[[sheet1.B4]]` in prose shows the grid cell's computed value in PDF, `.docx` and the paginated view; the editor view keeps the name — _`tpt-typeset::resolve_bindings`, `tpt-codex-grid::{grid_bindings, resolve_document}`_
 - [x] Excel range syntax in formulas (`B2:B9`, `$B$2:$B$9`) — _rewritten to `RANGE(B2, B9)`, which is what `tpt-lattice` parses; found because the starter templates' formulas were parse errors_
 - [x] `tpt check` evaluates grids: formula errors and bindings with no value are errors
-- [ ] Names for cells other than `sheet<id>.<address>`, and inline formulas in prose
+- [x] Names for cells other than `sheet<id>.<address>` — _`Document.cell_names`, written as `::: grid { id="1" names="Total=B4" }`. `[[Total]]` shows that cell's value, and a name is unique in the document. Inline formulas in prose are deferred: the prose binds values, it does not evaluate them_
+- [ ] Inline formulas in prose (deferred: prose shows grid values, it does not evaluate formulas)
 - [x] Query results as bindings (`[[q1]]`) — _`tpt-typeset::query_bindings` runs each `Block::Query` and binds it to `q<block id>` as its row count (`"3 rows"`, `"1 row"`). A query that does not run is unbound, and `tpt check` reports the `[[q1]]` that uses it. `tpt-codex-grid::all_bindings` merges these with the grid cells, and PDF, `.docx` and the paginated view use it_
 
 ## Gaps found in the review, not built yet
 - [x] `.cdx`: nested lists and block quotes — _done in schema version 3: `Block::Quote`, and a list item may be a sub-list. Markdown reads and writes both; the flow view, PDF and editor show them. Tables outside a grid (GFM tables) are not done_
-- [ ] `.cdx`: tables outside a grid (GFM tables)
+- [x] `.cdx`: tables outside a grid (GFM tables) — _`Block::Table`, schema version 4: a pipe table of plain text whose cells are never formulas. Read and written back exactly; laid out as one line per row, shown read-only in the editor, and written to `.docx` as a Word table. Cells are not editable in the editor yet_
 - [x] The editor's paginated view shows list markers inline, without the indent of nested items or quoted blocks — _each line is indented by the layout's indent, as no-break spaces (9 points each), so nested items and quotes are indented_
 - [x] `.cdx`: link titles (`[t](url "title")`) — _`InlineRun.link_title`, read and written back exactly. A title is plain text with no quote mark, parenthesis or line break; a title on a citation, footnote or binding is an error_
 - [x] `.docx` tables as grids (import and export) — _done: a table becomes a `Block::Grid` with its cells, numbers kept as numbers; merged cells are reported. Grids are written back as Word tables. Lists still lose their markers_
 - [x] `.docx` import: lists as lists, instead of plain paragraphs — _a paragraph is a list item when its numbering names a defined list, on the paragraph or through its style (`word/numbering.xml`, `word/styles.xml`). Bulleted and numbered lists come through with their start number. Nested levels are kept as items of their top-level list, and reported_
 - [x] `.pdf` import: the text, read in-house (`tpt-codex-interop/src/pdf/`) — _done: objects and cross-reference tables (classic, streams, object streams, incremental updates, a scan when the tables are damaged), Flate and ASCII filters, PNG predictors, fonts with ToUnicode maps or a Latin-1 guess, form XObjects. Paragraphs and headings from line spacing and type size. The report counts images, drawings, page numbers, emphasis and guessed characters. Encrypted files are refused. Checked on our own PDFs and on a Chromium PDF, with a seeded damage test and a fuzz target. Not done: bold and italic as marks, list structure, table structure, columns, scanned pages (no OCR), other stream filters (LZW, DCT, JBIG2)_
-- [ ] Formula language: Excel function names and syntax beyond ranges. Imported `.xlsx` formulas are reported as approximated where the evaluator differs
+- [x] Formula language: Excel function names and syntax beyond ranges — _verified, not extended: `tpt-lattice-evaluator` already implements about 70 functions (SUM, AVERAGE, ROUND, IF, VLOOKUP, CONCAT and others). `tpt-codex-grid/tests/bindings.rs` checks a set of them. Imported `.xlsx` formulas outside that set are still reported as approximated_
 
 ## Adoption tooling
 - [x] `tpt` CLI: `convert`, `check`, `watch`, `diff`, `merge`, `new` — _`crates/tpt-codex-cli`; templates are `article`, `report`, `slides`, `budget`_
@@ -249,7 +250,7 @@ Legend: `[ ]` todo · `[~]` partly done · `[x]` done
 - [x] Version history: keep the in-house `VersionLog` until `tpt-version` is unblocked. _Agreed._
 - [x] Flow layout: keep the in-house engine, not `tpt-layout`. _Agreed._
 - [x] Grid merge: keep the in-house register CRDT, not `tpt-lattice-crdt`. _Agreed._
-- [ ] Pin TPT git dependencies to pushed commits, and create the GitHub repo. _Agreed in principle; needs your go-ahead, since pushing and creating a repo are outward-facing._
+- [ ] Pin TPT git dependencies to pushed commits, and create the GitHub repo. _Before the first push, check that each pinned `rev` exists on its remote._ _Agreed in principle; needs your go-ahead, since pushing and creating a repo are outward-facing._
 - [x] `Block::Query` is referenced but not defined in the enum — now defined
 - [x] Spec crate names differ from the real repos (`tpt-lattice-import` → `tpt-lattice-import-xlsx`; `tpt-canvas-pdf` lives in `tpt-canvas`) — recorded in `docs/tpt-dependency-map.md`
 - [x] `tpt-typeset` was marked "no_std: ✅" with deps on `tpt-layout`/`tpt-canvas` — _resolved: `tpt-typeset` now depends on `tpt-query` (json) instead, and builds for `wasm32-unknown-unknown` and `thumbv7m-none-eabi`. `tpt-layout`/`tpt-canvas` are not used yet_

@@ -32,7 +32,8 @@ mod versions;
 
 pub use block::{Block, Query};
 pub use document::{
-    Document, Metadata, SCHEMA_VERSION, is_equation_label, is_figure_label, is_table_label,
+    Document, Metadata, NamedCell, SCHEMA_VERSION, is_cell_name, is_equation_label,
+    is_figure_label, is_table_label,
 };
 pub use error::ValidationError;
 pub use history::History;

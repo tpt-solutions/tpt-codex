@@ -98,7 +98,7 @@ fn a_table_label_must_start_with_tab() {
 #[test]
 fn a_table_label_on_a_grid_with_an_unknown_attribute_is_rejected() {
     let (_, message) = read_err("::: grid { id=\"1\" name=\"x\" }\n| A |\n| --- |\n| 1 |\n:::");
-    assert!(message.contains("id and label"), "{message}");
+    assert!(message.contains("id, label and names"), "{message}");
 }
 
 #[test]

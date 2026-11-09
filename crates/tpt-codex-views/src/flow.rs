@@ -388,6 +388,36 @@ fn flow_blocks(
             } => {
                 flow_children(doc, id, measure, options, cache, out, pending, indent)?;
             }
+            Block::Table { rows } => {
+                // A row is one line of its cells, separated by bars, wrapped to the column. The
+                // header row is bold. Each row is wrapped on its own, so the cache is not used.
+                start_block(out, pending, 0.0);
+                for (r, row) in rows.iter().enumerate() {
+                    let style = TextStyle {
+                        bold: r == 0,
+                        ..TextStyle::default()
+                    };
+                    let content = row.join(" | ");
+                    let width = (options.width - indent).max(1.0);
+                    let lines = wrap(&content, &style, measure, width, cache.hyphenate);
+                    let line_height = measure.line_height(&style);
+                    for text in lines {
+                        out.items.push(FlowItem {
+                            block: id,
+                            y: out.height,
+                            height: line_height,
+                            kind: FlowKind::Line {
+                                text,
+                                style: style.clone(),
+                                marker: None,
+                                indent,
+                            },
+                        });
+                        out.height += line_height;
+                    }
+                }
+                *pending = options.block_spacing;
+            }
             Block::Grid {
                 sheet_id,
                 view_bounds,

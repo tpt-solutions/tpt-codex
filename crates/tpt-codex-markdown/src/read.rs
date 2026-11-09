@@ -4,8 +4,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use tpt_codex_core::{
-    Block, BlockId, Canvas, CellInput, Document, Figure, LayoutMode, Metadata, Sheet, SheetId,
-    TextStyle, address_of,
+    Block, BlockId, Canvas, CellInput, Document, Figure, LayoutMode, Metadata, NamedCell, Sheet,
+    SheetId, TextStyle, address_of,
 };
 
 use crate::error::ParseError;
@@ -92,6 +92,11 @@ fn read_body(lines: &[&str], first_line: usize, b: &mut Builder) -> Result<(), P
             continue;
         }
 
+        // A table ends at the first line that is not a pipe row.
+        if open.table.is_some() && table_row(line).is_none() {
+            finish_table(&mut open, b)?;
+        }
+
         if open.grid.is_some() && container_closes(line) {
             finish_grid(&mut open, b)?;
             continue;
@@ -175,7 +180,7 @@ fn read_body(lines: &[&str], first_line: usize, b: &mut Builder) -> Result<(), P
             open.close_all_lists(b);
             open.after_image = false;
             match opener {
-                ContainerOpen::Grid { id, label } => {
+                ContainerOpen::Grid { id, label, names } => {
                     if b.sheets.contains_key(&SheetId(id)) {
                         return Err(error(
                             lineno,
@@ -186,6 +191,7 @@ fn read_body(lines: &[&str], first_line: usize, b: &mut Builder) -> Result<(), P
                     open.grid = Some(OpenGrid {
                         id,
                         label,
+                        names,
                         line: lineno,
                         rows: Vec::new(),
                         header_rows: None,
@@ -415,6 +421,50 @@ fn read_body(lines: &[&str], first_line: usize, b: &mut Builder) -> Result<(), P
             continue;
         }
 
+        // A pipe table outside a grid: its header row, then a separator row, then body rows.
+        if let Some(row) = table_row(line) {
+            let cells = match row {
+                Ok(cells) => cells,
+                Err(reason) => {
+                    return Err(error(lineno, reason, "write each row as | cell | cell |"));
+                }
+            };
+            open.close_paragraph(b)?;
+            open.close_all_lists(b);
+            let table = open.table.get_or_insert_with(|| OpenTable {
+                line: lineno,
+                rows: Vec::new(),
+                separator: false,
+            });
+            if is_separator(&cells) {
+                if table.rows.len() != 1 || table.separator {
+                    return Err(error(
+                        lineno,
+                        "a table's separator row must come once, right after its header row",
+                        "put one row of --- under the header row, and nowhere else",
+                    ));
+                }
+                table.separator = true;
+                continue;
+            }
+            if let Some(first) = table.rows.first() {
+                if first.len() != cells.len() {
+                    let message = alloc::format!(
+                        "row has {} cells, but the table's header has {}",
+                        cells.len(),
+                        first.len()
+                    );
+                    return Err(error(
+                        lineno,
+                        &message,
+                        "give every row of the table the same number of cells",
+                    ));
+                }
+            }
+            table.rows.push(cells);
+            continue;
+        }
+
         if let Some(reason) = unsupported(line) {
             return Err(error(
                 lineno,
@@ -453,6 +503,7 @@ fn read_body(lines: &[&str], first_line: usize, b: &mut Builder) -> Result<(), P
     }
 
     let last_line = first_line + lines.len().saturating_sub(1);
+    finish_table(&mut open, b)?;
     if open.code.is_some() {
         return Err(error(
             last_line,
@@ -510,6 +561,7 @@ fn document_from(mut b: Builder, metadata: Metadata) -> Document {
     doc.figures = b.figures;
     doc.equation_labels = b.equation_labels;
     doc.table_labels = b.table_labels;
+    doc.cell_names = b.cell_names;
     doc
 }
 
@@ -520,6 +572,22 @@ fn error(line: usize, message: &str, suggestion: &'static str) -> ParseError {
         message: String::from(message),
         suggestion: Some(suggestion),
     }
+}
+
+/// Adds the table whose rows were read, as a text table block. A table needs its separator row.
+fn finish_table(open: &mut Open, b: &mut Builder) -> Result<(), ParseError> {
+    let Some(table) = open.table.take() else {
+        return Ok(());
+    };
+    if !table.separator {
+        return Err(error(
+            table.line,
+            "table has no separator row",
+            "put one row of --- under the header row, such as | --- | --- |",
+        ));
+    }
+    b.push_block(Block::Table { rows: table.rows });
+    Ok(())
 }
 
 /// Builds the grid whose body was read. The grid holds one sheet with the cells that are not
@@ -560,6 +628,22 @@ fn finish_grid(open: &mut Open, b: &mut Builder) -> Result<(), ParseError> {
     let sheet_id = SheetId(grid.id);
     if let Some(label) = grid.label {
         b.table_labels.insert(sheet_id, label);
+    }
+    for (name, address) in grid.names {
+        if b.cell_names.contains_key(&name) {
+            return Err(error(
+                grid.line,
+                &alloc::format!("cell name {name} is used by more than one grid"),
+                "give each name to one cell, and each cell one name",
+            ));
+        }
+        b.cell_names.insert(
+            name,
+            NamedCell {
+                sheet: sheet_id,
+                address,
+            },
+        );
     }
     b.sheets.insert(sheet_id, sheet);
     b.push_block(Block::Grid {
@@ -635,6 +719,8 @@ struct Builder {
     equation_labels: BTreeMap<BlockId, String>,
     /// Table labels of the grids read so far.
     table_labels: BTreeMap<SheetId, String>,
+    /// Cell names of the grids read so far.
+    cell_names: BTreeMap<String, NamedCell>,
 }
 
 impl Builder {
@@ -680,6 +766,8 @@ struct Open {
     math: Option<Vec<String>>,
     /// A grid whose closing `:::` line has not been read yet.
     grid: Option<OpenGrid>,
+    /// A pipe table outside a grid whose rows are being read.
+    table: Option<OpenTable>,
     /// The previous line was an image. Text on the next line would join it in CommonMark.
     after_image: bool,
 }
@@ -775,10 +863,21 @@ impl OpenList {
 }
 
 /// A grid whose body is still being read: its pipe-table rows, and where its separator is.
+struct OpenTable {
+    /// The line of the table's header row.
+    line: usize,
+    /// The rows read so far: the header first, then the body rows.
+    rows: Vec<Vec<String>>,
+    /// Whether the separator row has been read.
+    separator: bool,
+}
+
 struct OpenGrid {
     id: u64,
     /// The table label from the opening line, if any.
     label: Option<String>,
+    /// The cell names from the opening line: `(name, address)`.
+    names: Vec<(String, String)>,
     /// The line of the opening `:::` line.
     line: usize,
     /// Each row's line and trimmed cells.

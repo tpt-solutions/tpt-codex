@@ -247,7 +247,8 @@ pub fn format_number(n: f64) -> String {
 }
 
 /// The values of every grid cell in `doc`, bound under `sheet<id>.<address>` (for example
-/// `sheet1.B4`), so that `[[sheet1.B4]]` in a text block can show them. Formulas are evaluated.
+/// `sheet1.B4`), so that `[[sheet1.B4]]` in a text block can show them. Each named cell is also
+/// bound under its name, such as `[[Total]]`. Formulas are evaluated.
 /// Empty cells and cells with an error are not bound.
 pub fn grid_bindings(doc: &Document) -> Bindings {
     let mut bindings = Bindings::new();
@@ -261,6 +262,15 @@ pub fn grid_bindings(doc: &Document) -> Bindings {
                 CellResult::Empty | CellResult::Error(_) => continue,
             };
             bindings.set(&grid_cell_name(id, &address), &value);
+        }
+    }
+    // A named cell has the value of its cell, so [[Total]] and [[sheet1.B4]] show the same.
+    for (name, cell) in &doc.cell_names {
+        if let Some(value) = bindings
+            .get(&grid_cell_name(cell.sheet, &cell.address))
+            .map(String::from)
+        {
+            bindings.set(name, &value);
         }
     }
     bindings

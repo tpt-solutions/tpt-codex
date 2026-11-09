@@ -137,3 +137,48 @@ fn numbers_count_the_list_own_items_not_its_sub_lists() {
         ]
     );
 }
+
+#[test]
+fn a_text_table_is_laid_out_as_one_line_per_row() {
+    use tpt_codex_core::Block;
+    use tpt_codex_core::{BlockId, Document, LayoutMode};
+    use tpt_codex_views::{FlowKind, FlowOptions, MonospaceMeasure, layout_flow};
+    let rows = vec![
+        vec!["a".to_string(), "b".to_string()],
+        vec!["c".to_string(), "d".to_string()],
+    ];
+    let mut doc = Document::new(
+        BlockId(0),
+        Block::Container {
+            layout_mode: LayoutMode::Flow,
+            children: vec![BlockId(1)],
+        },
+    );
+    doc.insert(BlockId(1), Block::Table { rows });
+    let measure = MonospaceMeasure {
+        char_width: 6.0,
+        line_height: 10.0,
+    };
+    let options = FlowOptions {
+        width: 400.0,
+        block_spacing: 0.0,
+        box_height: 10.0,
+        row_height: 10.0,
+    };
+    let layout = layout_flow(&doc, &measure, options).unwrap();
+    let lines: Vec<&str> = layout
+        .items
+        .iter()
+        .filter_map(|i| match &i.kind {
+            FlowKind::Line { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lines, ["a | b", "c | d"]);
+    assert!(
+        layout
+            .items
+            .iter()
+            .all(|i| !matches!(i.kind, FlowKind::Box))
+    );
+}
