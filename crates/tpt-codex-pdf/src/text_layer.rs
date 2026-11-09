@@ -19,6 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write};
 
+use crate::picture::{Image, ImageData};
 use crate::structure::{self, Mark, Tree};
 use crate::subset::subset_truetype;
 
@@ -86,13 +87,30 @@ pub struct TextRun {
 pub enum Item {
     /// A run of text.
     Run(TextRun),
-    /// A figure: a picture's placeholder on the page, with its alternative text.
+    /// A figure: a picture's placeholder on the page, with its alternative text, or the picture.
     Figure {
         /// The block id of the figure.
         block: u64,
         /// The alternative text, when the figure has some.
         alt: Option<String>,
+        /// The picture drawn in the figure's place, when there is one.
+        picture: Option<PlacedPicture>,
     },
+}
+
+/// A picture on a page: which of the images it is, and where it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedPicture {
+    /// The index of the image in the images given to [`add_text_layer`].
+    pub image: usize,
+    /// The left edge, in points from the left of the page.
+    pub x: f32,
+    /// The top edge, in points from the top of the page.
+    pub y: f32,
+    /// The width on the page, in points.
+    pub width: f32,
+    /// The height on the page, in points.
+    pub height: f32,
 }
 
 /// The file's description, for a tagged file: the title and author, and the language.
@@ -135,6 +153,7 @@ pub fn add_text_layer(
     pages: &[Vec<Item>],
     faces: &[&[u8]],
     info: Option<&DocInfo>,
+    images: &[Image],
 ) -> Result<Vec<u8>, TextLayerError> {
     let xref = start_xref(pdf)?;
     let mut next = declared_size(pdf)?;
@@ -173,6 +192,20 @@ pub fn add_text_layer(
         .iter()
         .map(|(face, font)| format!("/TPTText{face} {} 0 R ", font.type0))
         .collect();
+
+    // The pictures: each image is an image object, and its alpha channel, when it has one, a
+    // second object that the image refers to.
+    let mut image_numbers: Vec<(u64, Option<u64>)> = Vec::with_capacity(images.len());
+    for image in images {
+        let number = next;
+        next += 1;
+        let alpha = image.alpha.as_ref().map(|_| {
+            next += 1;
+            next - 1
+        });
+        image_numbers.push((number, alpha));
+        objects.extend(image_objects(image, number, alpha));
+    }
 
     // The structure: its root, its document element and its parent tree take three numbers, then
     // each element one.
@@ -217,6 +250,22 @@ pub fn add_text_layer(
                 "page {index} is not in the form the export writes (no contents or resources)"
             ));
         }
+        let used_images: BTreeSet<usize> = items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Figure {
+                    picture: Some(placed),
+                    ..
+                } => Some(placed.image),
+                _ => None,
+            })
+            .collect();
+        if let Some(&bad) = used_images.iter().find(|&&i| i >= images.len()) {
+            return fail(format!(
+                "page {index} draws image {bad}, but only {} were given",
+                images.len()
+            ));
+        }
         let mut rewritten = page
             .replacen(
                 &contents,
@@ -228,6 +277,20 @@ pub fn add_text_layer(
                 &format!("{resources}/Font << {font_resources}>> "),
                 1,
             );
+        if !used_images.is_empty() {
+            if page.contains("/XObject") {
+                return fail(format!("page {index} already has an XObject resource"));
+            }
+            let xobjects: String = used_images
+                .iter()
+                .map(|i| format!("/TPTImage{i} {} 0 R ", image_numbers[*i].0))
+                .collect();
+            rewritten = rewritten.replacen(
+                resources,
+                &format!("{resources}/XObject << {xobjects}>> "),
+                1,
+            );
+        }
         if tree.is_some() {
             rewritten = rewritten.replacen(
                 "/Type /Page ",
@@ -371,9 +434,28 @@ fn content_stream(items: &[Item], marks: &[Mark], page_height: f32) -> String {
     for (index, item) in items.iter().enumerate() {
         let mark = marks.get(index).cloned().unwrap_or(Mark::None);
         match (item, &mark) {
-            (Item::Figure { .. }, Mark::Tagged { mcid, tag }) => {
-                // An empty marked-content sequence: it draws nothing, and names the figure.
-                let _ = writeln!(out, "/{tag} <</MCID {mcid}>> BDC EMC");
+            (Item::Figure { picture, .. }, _) => {
+                // A figure is marked where it is drawn: its picture, if it has one, is inside.
+                if let Mark::Tagged { mcid, tag } = &mark {
+                    let _ = writeln!(out, "/{tag} <</MCID {mcid}>> BDC");
+                }
+                if let Some(placed) = picture {
+                    let _ = writeln!(
+                        out,
+                        "q {} 0 0 {} {} {} cm /TPTImage{} Do Q",
+                        fmt(placed.width),
+                        fmt(placed.height),
+                        fmt(placed.x),
+                        fmt(page_height - (placed.y + placed.height)),
+                        placed.image,
+                    );
+                }
+                if matches!(mark, Mark::Tagged { .. }) {
+                    out.push_str(
+                        "EMC
+",
+                    );
+                }
             }
             (Item::Run(run), _) => {
                 match &mark {
@@ -388,7 +470,6 @@ fn content_stream(items: &[Item], marks: &[Mark], page_height: f32) -> String {
                     out.push_str("EMC\n");
                 }
             }
-            (Item::Figure { .. }, _) => {}
         }
     }
     out.push_str("Q\n");
@@ -662,4 +743,48 @@ fn fmt(value: f32) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+/// The image objects of one picture: the image, and its alpha channel when it has one. The PDF
+/// reads a JPEG with its own filter, and a PNG's rows with the predictor that undoes its filters.
+fn image_objects(image: &Image, number: u64, alpha: Option<u64>) -> Vec<(u64, Vec<u8>)> {
+    let space = if image.colors == 1 {
+        "DeviceGray"
+    } else {
+        "DeviceRGB"
+    };
+    let mut dict = format!(
+        "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{space} /BitsPerComponent {}",
+        image.width, image.height, image.bits
+    );
+    let data: &[u8] = match &image.data {
+        ImageData::Jpeg(bytes) => {
+            dict.push_str(" /Filter /DCTDecode");
+            bytes.as_slice()
+        }
+        ImageData::PngRows(bytes) => {
+            let _ = write!(
+                dict,
+                " /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors {} /BitsPerComponent {} /Columns {} >>",
+                image.colors, image.bits, image.width
+            );
+            bytes.as_slice()
+        }
+        ImageData::Samples(bytes) => {
+            dict.push_str(" /Filter /FlateDecode");
+            bytes.as_slice()
+        }
+    };
+    if let Some(alpha) = alpha {
+        let _ = write!(dict, " /SMask {alpha} 0 R");
+    }
+    let mut out = vec![(number, stream_bytes(&dict, data))];
+    if let (Some(alpha), Some(samples)) = (alpha, image.alpha.as_ref()) {
+        let mask = format!(
+            "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode",
+            image.width, image.height
+        );
+        out.push((alpha, stream_bytes(&mask, samples)));
+    }
+    out
 }

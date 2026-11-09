@@ -98,30 +98,10 @@ fn a_picture_changes_only_the_drawing_not_the_text_layer() {
     );
 }
 
-/// A PNG `width` by `height` pixels, all one colour.
-fn png(width: u32, height: u32) -> Vec<u8> {
-    let mut out = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut out, width, height);
-        encoder.set_color(png::ColorType::Rgb);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().unwrap();
-        let row = vec![120u8; width as usize * 3];
-        let data: Vec<u8> = row
-            .iter()
-            .cycle()
-            .take(width as usize * 3 * height as usize)
-            .copied()
-            .collect();
-        writer.write_image_data(&data).unwrap();
-    }
-    out
-}
-
 #[test]
 fn a_picture_wider_than_the_column_is_drawn_no_wider_than_it() {
     // The column of an A4 page with 56 point margins is 595.28 - 112 points wide.
-    let wide = png(1600, 400);
+    let wide = include_bytes!("../../../fixtures/pdf/wide.png").to_vec();
     let doc = from_markdown("![Wide](wide.png)\n").unwrap();
     let pdf = export_document_with_images(
         &doc,

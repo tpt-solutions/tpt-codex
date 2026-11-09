@@ -15,3 +15,6 @@ with ToUnicode maps. The tests in `crates/tpt-codex-interop/tests/pdf.rs` read i
 
 `sample.jpg` is a 16 by 16 pixel gradient, written with Pillow at quality 90. The picture tests
 decode it.
+
+`rgb.png`, `grey16.png`, `shapes.png` and `palette.png` are small PNG files written with Pillow:
+an opaque RGB picture, a 16-bit grey one, one with a translucent half, and a palette picture.

@@ -17,9 +17,7 @@ tpt-typeset.workspace = true
 tpt-text.workspace = true
 tpt-canvas.workspace = true
 tpt-canvas-pdf.workspace = true
-tpt-canvas-raster.workspace = true
-jpeg-decoder.workspace = true
-png.workspace = true
+flate2.workspace = true
 
 [dev-dependencies]
 tpt-codex-markdown.workspace = true
