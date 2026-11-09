@@ -3,7 +3,8 @@
 //!
 //! This crate sits between the document model and layout. It knows about headings,
 //! sections, the table of contents, anchors for cross-references, and document classes.
-//! It does not lay anything out. [`tpt_codex_views`] and `tpt-layout` do that.
+//! It does not lay out pages or paragraphs; [`tpt_codex_views`] does that. It does compute the
+//! boxes for math and sections (see [`layout_math`] and [`section_boxes`]).
 //!
 //! Implemented so far:
 //! - [`Outline`]: section numbers, unique anchors, table of contents, anchor lookup.
@@ -20,7 +21,7 @@
 //! Also here: bibliographies (CSL-JSON and BibTeX), footnote numbering, figure, equation and table
 //! labels, and math layout read from the bundled STIX Two Math font's MATH table.
 //!
-//! Not implemented: conversion to `tpt-layout` boxes. Layout uses the in-house flow engine in
+//! Not done: conversion to `tpt-layout` boxes. Page and paragraph layout uses the in-house flow engine in
 //! `tpt-codex-views`. Kerning and ligatures come from shaping in `tpt-codex-text`, and hyphenation
 //! is in `tpt-codex-views`.
 

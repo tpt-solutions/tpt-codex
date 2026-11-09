@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Import/export adapters for legacy formats (.docx, .xlsx, .pdf, .pptx).
 //!
-//! All adapters are in-house, on [`Archive`] (a ZIP reader) and [`ArchiveWriter`]:
+//! All adapters are in-house, on [`Archive`] (a ZIP reader) and [`ArchiveWriter`]. XML is parsed with
+//! `quick-xml` and DEFLATE uses `flate2`:
 //! - [`import_docx`] and [`export_docx`];
 //! - [`import_xlsx`] and [`export_xlsx`], with [`place_sheet`] to put an imported sheet in a document;
 //! - [`import_pptx`] (data only).

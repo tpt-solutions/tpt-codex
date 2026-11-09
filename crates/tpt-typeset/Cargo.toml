@@ -1,6 +1,6 @@
 [package]
 name = "tpt-typeset"
-description = "Semantic typesetting engine for tpt-codex (no_std + alloc parsing/AST)."
+description = "Semantic typesetting for tpt-codex: outline, math, citations, footnotes, cross-references and queries (no_std + alloc)."
 readme = "README.md"
 keywords = ["typesetting", "latex-math", "bibliography", "outline", "no-std"]
 categories = ["text-processing", "parser-implementations", "no-std"]

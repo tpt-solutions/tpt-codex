@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Milestone 2, up to the page: a `.cdx`-style document with Markdown, math, cross-references,
-//! footnotes and citations is read, numbered and checked. The PDF export itself is blocked on
-//! `tpt-canvas-pdf` and is not tested here.
+//! footnotes and citations is read, numbered and checked. The PDF export is tested in
+//! `tpt-codex-acceptance` (`m2_markdown_typeset`), not here.
 
 use tpt_codex_markdown::from_markdown;
 use tpt_typeset::{

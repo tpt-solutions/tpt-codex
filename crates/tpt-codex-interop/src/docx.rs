@@ -2,7 +2,7 @@
 //! `.docx` import: best-effort text and structure, on the in-house [`archive`](crate::archive) reader.
 //!
 //! What comes through: paragraphs in order, headings (`Heading1` to `Heading6`, and `Title` as level
-//! 1), bold and italic when a whole paragraph has them, line and tab breaks, and the title and author
+//! 1), bold and italic runs (kept per run, not per paragraph), line and tab breaks, and the title and author
 //! from the document properties. Tables become grids, one cell per table cell, with numbers kept as
 //! numbers; a cell's text is never a formula. Merged cells are not kept. Lists come through as
 //! lists, bulleted or numbered from `word/numbering.xml`, when the paragraph or its style numbers

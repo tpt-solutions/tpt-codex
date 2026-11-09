@@ -7,13 +7,16 @@
 //!
 //! - YAML-style front matter with `title`, `author`, `date` and `class`,
 //! - ATX headings (`#` to `######`) and paragraphs,
-//! - bulleted and numbered lists (one level, one line per item),
+//! - bulleted and numbered lists, with nested sub-lists,
+//! - block quotes (`>`),
 //! - fenced code blocks (backtick or tilde fences),
 //! - thematic breaks,
-//! - standalone images (`![alt](uri)`).
+//! - standalone images (`![alt](uri)`),
+//! - pipe tables outside a grid (text cells only),
+//! - inline emphasis (`*`, `**`, `***`), links, and `[[name]]` bindings.
 //!
 //! Any other syntax returns a [`ParseError`] with a line, a column and a hint.
-//! Inline emphasis and links are kept as literal text. [`to_markdown`] refuses
+//! [`to_markdown`] refuses
 //! documents it cannot write back in this subset, so a round trip never drops data.
 //!
 //! Block ids are not stored in Markdown. A document read by [`from_markdown`]

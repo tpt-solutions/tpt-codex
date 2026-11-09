@@ -261,7 +261,7 @@ document already used that numbering.
 
 ## Not yet in the grammar
 
-Loose lists, setext headings, tables outside a grid, `[#ref]`
+Loose lists, setext headings, `[#ref]`
 cross-references (use `[text](#anchor)` for headings and `[text](#fig:id)`, `[text](#eq:id)` or `[text](#tab:id)`
 for figures, equations and tables), emphasis nested
-in links, bold combined with italic, grid view bounds, and slide sections and frames.
+in links, grid view bounds, and slide sections and frames.

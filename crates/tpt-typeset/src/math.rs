@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Math front end: parses a LaTeX-style subset into a tree.
 //!
-//! Layout (boxes, glue, fonts with a MATH table) is not here. It needs `tpt-text`.
+//! Layout is in `math_layout` (boxes and rules) and `math_font` (the MATH table of the bundled font).
+//! This module only parses.
 //!
 //! Supported:
 //! - numbers (`12`, `3.14`), single-letter identifiers, operators (`+ - = < > ( ) [ ] | , ! / * : ;`),
