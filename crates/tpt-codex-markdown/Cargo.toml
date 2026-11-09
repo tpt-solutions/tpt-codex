@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-markdown"
 description = "Markdown and Codex Script parser/serializer for tpt-codex (no_std + alloc)."
+readme = "README.md"
+keywords = ["markdown", "commonmark", "parser", "serializer", "codex"]
+categories = ["parser-implementations", "text-processing", "no-std"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

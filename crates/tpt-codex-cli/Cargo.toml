@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-cli"
 description = "The `tpt` command line: convert, check, watch, diff and start documents (std)."
+readme = "README.md"
+keywords = ["markdown", "typesetting", "pdf", "docx", "documents"]
+categories = ["command-line-utilities", "text-processing", "rendering::data-formats"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

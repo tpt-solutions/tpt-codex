@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-text"
 description = "Font-backed text measurement for tpt-codex: bundled fonts, shaped by tpt-text (std)."
+readme = "README.md"
+keywords = ["text-measurement", "font", "opentype", "shaping", "text-layout"]
+categories = ["text-processing", "rendering"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

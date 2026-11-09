@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-views"
 description = "Projection engines (Flow, Grid, Canvas, Paginated) for tpt-codex (no_std + alloc)."
+readme = "README.md"
+keywords = ["layout", "pagination", "hyphenation", "svg", "no-std"]
+categories = ["rendering", "rendering::engine", "no-std"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

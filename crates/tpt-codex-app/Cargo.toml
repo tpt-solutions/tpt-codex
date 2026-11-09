@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-app"
 description = "WASM-first application shell for tpt-codex (std)."
+readme = "README.md"
+keywords = ["editor", "documents", "spreadsheet", "pdf", "persistence"]
+categories = ["text-editors", "wasm"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

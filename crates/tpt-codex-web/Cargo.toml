@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-web"
 description = "Browser entry point for tpt-codex: a wasm module that mounts the editor (cdylib)."
+readme = "README.md"
+keywords = ["wasm", "webassembly", "browser", "wasm-bindgen", "editor"]
+categories = ["wasm", "text-editors", "web-programming"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-grid"
 description = "Live-grid evaluation for tpt-codex: sheet cells and LES formulas via tpt-lattice (std)."
+readme = "README.md"
+keywords = ["spreadsheet", "formulas", "excel", "live-grid", "evaluator"]
+categories = ["mathematics", "data-structures"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

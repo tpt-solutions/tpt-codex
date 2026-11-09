@@ -8,7 +8,7 @@ spreadsheet, a presentation canvas, or a byte-exact PDF, and it runs in the brow
 WebAssembly.
 
 > **Status: pre-release (`0.1.0-spec`).** The data model, Markdown/`.cdx` reader and writer,
-> typesetting, paginated PDF export, collaboration (CRDT and relay), and `.docx`/`.xlsx`/`.pptx`
+> typesetting, paginated and tagged PDF export, PDF text import, collaboration (CRDT and relay), and `.docx`/`.xlsx`/`.pptx`
 > interop are implemented and tested. The browser editor is a demo on a sample document. See
 > [todo.md](todo.md) for what is left and [spec.txt](spec.txt) for the design specification.
 
@@ -23,22 +23,23 @@ WebAssembly.
 
 | Crate | Purpose | `no_std` |
 | --- | --- | --- |
-| `tpt-codex-core` | Block data model, undo history, CRDT replicas, version log | yes |
-| `tpt-codex-views` | Flow, Paginated and Canvas (slide) layout, hyphenation, SVG slides | yes |
-| `tpt-codex-markdown` | Markdown and `.cdx` reader/writer | yes |
-| `tpt-typeset` | Outline, math, citations, footnotes, cross-references, queries, bindings | yes |
-| `tpt-codex-grid` | Live grid evaluation with `tpt-lattice` | no |
-| `tpt-codex-text` | Bundled fonts and text measurement with `tpt-text` | no |
-| `tpt-codex-pdf` | Deterministic PDF export of documents and slides | no |
-| `tpt-codex-interop` | `.docx`, `.xlsx`, `.pptx` import and `.docx`, `.xlsx` export | no |
-| `tpt-codex-files` | Open and save by file extension, from and to bytes (shared by the CLI and the browser) | no |
-| `tpt-codex-cli` | The `tpt` command: convert, check, watch, diff, new | no |
-| `tpt-codex-app` | Editor state and UI tree on `tpt-appfront` | no |
-| `tpt-codex-web` | Browser entry point (wasm) and demo page | no |
-| `tpt-codex-sync` | WebSocket transport and `tpt-codex-relay` server | no |
-| `tpt-codex-acceptance` | One end-to-end test file per milestone | no |
+| [`tpt-codex-core`](crates/tpt-codex-core/README.md) | Block data model, undo history, CRDT replicas, version log | yes |
+| [`tpt-codex-views`](crates/tpt-codex-views/README.md) | Flow, Paginated and Canvas (slide) layout, hyphenation, SVG slides | yes |
+| [`tpt-codex-markdown`](crates/tpt-codex-markdown/README.md) | Markdown and `.cdx` reader/writer | yes |
+| [`tpt-typeset`](crates/tpt-typeset/README.md) | Outline, math, citations, footnotes, cross-references, queries, bindings | yes |
+| [`tpt-codex-grid`](crates/tpt-codex-grid/README.md) | Live grid evaluation with `tpt-lattice` | no |
+| [`tpt-codex-text`](crates/tpt-codex-text/README.md) | Bundled fonts and text measurement with `tpt-text` | no |
+| [`tpt-codex-pdf`](crates/tpt-codex-pdf/README.md) | Deterministic PDF export of documents and slides | no |
+| [`tpt-codex-interop`](crates/tpt-codex-interop/README.md) | `.docx`, `.xlsx`, `.pptx`, `.pdf` (text) import and `.docx`, `.xlsx` export | no |
+| [`tpt-codex-files`](crates/tpt-codex-files/README.md) | Open and save by file extension, from and to bytes (shared by the CLI and the browser) | no |
+| [`tpt-codex-cli`](crates/tpt-codex-cli/README.md) | The `tpt` command: convert, check, watch, diff, merge, new | no |
+| [`tpt-codex-app`](crates/tpt-codex-app/README.md) | Editor state and UI tree on `tpt-appfront` | no |
+| [`tpt-codex-web`](crates/tpt-codex-web/README.md) | Browser entry point (wasm) and demo page | no |
+| [`tpt-codex-sync`](crates/tpt-codex-sync/README.md) | WebSocket transport and `tpt-codex-relay` server | no |
+| [`tpt-codex-acceptance`](crates/tpt-codex-acceptance/README.md) | One end-to-end test file per milestone | no |
 
-More: [Markdown grammar](docs/markdown-grammar.md) · [versioning](docs/versioning.md) ·
+Each crate has its own README (linked above) and CHANGELOG. The root [CHANGELOG](CHANGELOG.md)
+summarises the workspace. More: [Markdown grammar](docs/markdown-grammar.md) · [versioning](docs/versioning.md) ·
 [dependency map](docs/tpt-dependency-map.md) · [browser demo](crates/tpt-codex-web/README.md) ·
 [relay server](crates/tpt-codex-sync/README.md)
 

@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-core"
 description = "Unified Block-based data model for tpt-codex (no_std + alloc)."
+readme = "README.md"
+keywords = ["crdt", "document-model", "undo-redo", "offline-sync", "block-editor"]
+categories = ["data-structures", "no-std", "text-processing"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

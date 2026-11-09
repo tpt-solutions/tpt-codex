@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-acceptance"
 description = "End-to-end headless acceptance tests, one file per milestone in todo.md"
+readme = "README.md"
+keywords = ["acceptance-tests", "end-to-end", "milestones", "testing"]
+categories = ["development-tools::testing"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

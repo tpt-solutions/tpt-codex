@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-interop"
-description = "Import/export adapters for .docx, .xlsx and .pdf (std)."
+description = "Import/export adapters for .docx and .xlsx, and import for .pptx and .pdf (std)."
+readme = "README.md"
+keywords = ["docx", "xlsx", "pptx", "office", "import-export"]
+categories = ["parser-implementations", "encoding", "compression"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

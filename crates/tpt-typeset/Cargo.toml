@@ -1,6 +1,9 @@
 [package]
 name = "tpt-typeset"
 description = "Semantic typesetting engine for tpt-codex (no_std + alloc parsing/AST)."
+readme = "README.md"
+keywords = ["typesetting", "latex-math", "bibliography", "outline", "no-std"]
+categories = ["text-processing", "parser-implementations", "no-std"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

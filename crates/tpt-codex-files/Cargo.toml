@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-files"
-description = "Opens and saves documents as .cdx, .md, .docx, .xlsx, .pptx, .json and .pdf, from and to bytes (std)."
+description = "Opens and saves documents as .cdx, .md, .docx, .xlsx, .json and .pdf, and opens .pptx, from and to bytes (std)."
+readme = "README.md"
+keywords = ["file-format", "open-save", "docx", "xlsx", "markdown"]
+categories = ["encoding", "text-processing"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-pdf"
 description = "PDF export for tpt-codex: paginated documents and single slides, drawn with tpt-canvas and written by tpt-canvas-pdf (std)."
+readme = "README.md"
+keywords = ["pdf", "export", "tagged-pdf", "typesetting", "accessibility"]
+categories = ["rendering::data-formats", "text-processing", "accessibility"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

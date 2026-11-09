@@ -1,12 +1,17 @@
 # Changelog
 
 All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each crate also has its own
+`CHANGELOG.md` in `crates/<name>/`, with the entries for that crate.
 
 ## [Unreleased]
 
 ### Changed
 
+- Document schema version 4. Adds the `Block::Table` variant (a table of plain text outside a grid)
+  and `Document.cell_names` (names for grid cells). Version 3 builds refuse version 4 documents.
+- `.cdx` tables outside a grid are written and read back exactly. A table is laid out as one line
+  per row in the flow view, is shown read-only in the editor, and is written to `.docx` as a Word table.
 - `tpt-codex-text::GlyphPlacement` has two new fields, `advance` and `text` (the characters of its
   cluster), and no longer implements `Copy`. Code that built or copied glyph placements needs updating.
 - Document schema version 3. Adds the `Block::Quote` variant and sub-lists (a `Block::List` as an
@@ -23,6 +28,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Named cells. A grid can name a cell (`::: grid { id="1" names="Total=B4" }`), and `[[Total]]` in prose
+  shows that cell's value, the same as `[[sheet1.B4]]`. Names are unique in the document and must not be
+  cell addresses.
+- Tables outside a grid in `.cdx` and Markdown (pipe tables of plain text, written back exactly). Cells are
+  not formulas.
+- A scheduled fuzz workflow (`.github/workflows/fuzz.yml`): weekly, and by hand with a time per target.
+  A crash input is kept as an artifact.
 - PDF pictures. A picture in a document (a PNG or JPEG file named by its address) is drawn in the PDF
   at the column width or its own width, whichever is less, and the text around it moves to make room.
   `export_with_images` and `export_document_with_images` take the image source, and
@@ -36,7 +48,7 @@ All notable changes to this project are documented here. The format follows
 - Tagged PDF export (partial). A document's PDF has a structure tree: headings, paragraphs, list
   items and figures with their alternative text, with headers and footers marked as artifacts. It
   also has the language, the title and the tagged marker. A grid is a table, with its rows and
-  header or data cells. Images are not tagged yet. Slides are not tagged.
+  header or data cells. Pictures are tagged as figures with their alternative text. Slides are not tagged.
 - `.pdf` import: the text of a PDF, read in-house, as paragraphs and headings. Opens in the CLI and
   the browser page, with a fidelity report for images, drawings, page numbers, bold and italic, and
   characters read as a guess. Reads PDFs from other programs, including compressed streams, object

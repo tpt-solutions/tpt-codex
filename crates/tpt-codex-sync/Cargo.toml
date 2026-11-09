@@ -1,6 +1,9 @@
 [package]
 name = "tpt-codex-sync"
 description = "WebSocket transport and relay server for tpt-codex replicas (std)."
+readme = "README.md"
+keywords = ["websocket", "relay", "collaboration", "crdt", "sync"]
+categories = ["network-programming", "web-programming::websocket"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
