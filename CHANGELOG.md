@@ -27,7 +27,9 @@ All notable changes to this project are documented here. The format follows
   at the column width or its own width, whichever is less, and the text around it moves to make room.
   `export_with_images` and `export_document_with_images` take the image source, and
   `tpt_codex_files::save_with_images` does the same for a file. The CLI reads relative addresses from
-  the document's folder. Files over 64 MB, and pictures that do not decode, stay placeholders. The picture
+  the document's folder. Files over 64 MB, and pictures that do not decode, stay placeholders. Pictures
+  larger than 200 dpi at the column width are resampled to that size, so a large photo embeds at the
+  size it is shown. The picture
   reader is in-house (`picture.rs`): a JPEG is embedded as it is, and a PNG is embedded as its rows
   or decoded to RGB with an alpha channel. No new dependency: inflating and deflating use `flate2`,
   which the workspace already has.

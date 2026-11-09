@@ -39,6 +39,10 @@ pub struct Image {
     pub data: ImageData,
     /// The alpha channel, as zlib-compressed 8-bit grey samples, when the picture has one.
     pub alpha: Option<Vec<u8>>,
+    /// The picture's width in its file, before any resampling.
+    pub natural_width: u32,
+    /// The picture's height in its file, before any resampling.
+    pub natural_height: u32,
 }
 
 /// How the samples of an image are stored in the PDF.
@@ -53,11 +57,11 @@ pub enum ImageData {
     Samples(Vec<u8>),
 }
 
-/// Reads a PNG or JPEG file. `None` for any other format, for a picture that is damaged or
-/// uses a feature this reader does not have, and for a picture too large to handle.
-pub fn decode(bytes: &[u8]) -> Option<Image> {
+/// Reads a PNG or JPEG file, as [`decode`] does. A PNG larger than `max_width` by `max_height`
+/// pixels is resampled to fit within them, keeping its aspect ratio. A JPEG is not resampled.
+pub fn decode_within(bytes: &[u8], max_width: u32, max_height: u32) -> Option<Image> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
-        decode_png(bytes)
+        decode_png(bytes, (max_width, max_height))
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         jpeg(bytes)
     } else {
@@ -128,6 +132,8 @@ fn jpeg(bytes: &[u8]) -> Option<Image> {
                 bits: 8,
                 data: ImageData::Jpeg(bytes.to_vec()),
                 alpha: None,
+                natural_width: width,
+                natural_height: height,
             });
         }
         if length < 2 {
@@ -167,7 +173,7 @@ fn depth_allowed(color: u8, depth: u8) -> bool {
     }
 }
 
-fn decode_png(bytes: &[u8]) -> Option<Image> {
+fn decode_png(bytes: &[u8], max: (u32, u32)) -> Option<Image> {
     let mut header: Option<Header> = None;
     let mut palette: Vec<u8> = Vec::new();
     let mut transparency: Vec<u8> = Vec::new();
@@ -216,7 +222,9 @@ fn decode_png(bytes: &[u8]) -> Option<Image> {
     let has_transparency = !transparency.is_empty();
 
     // The PDF can take the rows as they are: no transparency, no palette, 8 or 16 bits.
-    if matches!(header.color, 0 | 2) && matches!(header.depth, 8 | 16) && !has_transparency {
+    let fits = header.width <= max.0 && header.height <= max.1;
+    if matches!(header.color, 0 | 2) && matches!(header.depth, 8 | 16) && !has_transparency && fits
+    {
         return Some(Image {
             width: header.width,
             height: header.height,
@@ -224,6 +232,8 @@ fn decode_png(bytes: &[u8]) -> Option<Image> {
             bits: header.depth,
             data: ImageData::PngRows(idat),
             alpha: None,
+            natural_width: header.width,
+            natural_height: header.height,
         });
     }
 
@@ -275,14 +285,64 @@ fn decode_png(bytes: &[u8]) -> Option<Image> {
         }
     }
     let has_alpha = has_alpha_channel || has_transparency;
+    // A picture larger than the cap is resampled to fit it, by averaging the pixels it covers.
+    let (out_width, out_height) = fit(header.width, header.height, max);
+    let (rgb, alpha) = if (out_width, out_height) == (header.width, header.height) {
+        (rgb, alpha)
+    } else {
+        let (w, h) = (header.width as usize, header.height as usize);
+        let (ow, oh) = (out_width as usize, out_height as usize);
+        (
+            box_resample(&rgb, w, h, 3, ow, oh),
+            box_resample(&alpha, w, h, 1, ow, oh),
+        )
+    };
     Some(Image {
-        width: header.width,
-        height: header.height,
+        width: out_width,
+        height: out_height,
         colors: 3,
         bits: 8,
         data: ImageData::Samples(deflate(&rgb)?),
         alpha: has_alpha.then(|| deflate(&alpha)).flatten(),
+        natural_width: header.width,
+        natural_height: header.height,
     })
+}
+
+/// The size a picture of `width` by `height` pixels is given to fit within `max`, keeping its
+/// aspect ratio. A picture that already fits keeps its size.
+fn fit(width: u32, height: u32, max: (u32, u32)) -> (u32, u32) {
+    if width <= max.0 && height <= max.1 {
+        return (width, height);
+    }
+    let scale = (f64::from(max.0) / f64::from(width)).min(f64::from(max.1) / f64::from(height));
+    let w = ((f64::from(width) * scale).floor() as u32).clamp(1, max.0.max(1));
+    let h = ((f64::from(height) * scale).floor() as u32).clamp(1, max.1.max(1));
+    (w, h)
+}
+
+/// Resamples `src`, `channels` bytes a pixel, from `w` by `h` pixels to `nw` by `nh`, by averaging
+/// the source pixels each output pixel covers. Every source pixel is counted in one output pixel
+/// or more, and each output pixel covers at least one.
+fn box_resample(src: &[u8], w: usize, h: usize, channels: usize, nw: usize, nh: usize) -> Vec<u8> {
+    let mut out = vec![0u8; nw * nh * channels];
+    for y in 0..nh {
+        let (y0, y1) = (y * h / nh, ((y + 1) * h / nh).max(y * h / nh + 1));
+        for x in 0..nw {
+            let (x0, x1) = (x * w / nw, ((x + 1) * w / nw).max(x * w / nw + 1));
+            let count = ((y1 - y0) * (x1 - x0)) as u64;
+            for c in 0..channels {
+                let mut sum = 0u64;
+                for sy in y0..y1 {
+                    for sx in x0..x1 {
+                        sum += u64::from(src[(sy * w + sx) * channels + c]);
+                    }
+                }
+                out[(y * nw + x) * channels + c] = (sum / count) as u8;
+            }
+        }
+    }
+    out
 }
 
 /// The alpha of a pixel from the colour key of a grey or RGB picture: transparent when every
@@ -408,12 +468,17 @@ fn deflate(data: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Reads a file with no size cap.
+    fn decode(bytes: &[u8]) -> Option<Image> {
+        decode_within(bytes, u32::MAX, u32::MAX)
+    }
 
     const JPEG: &[u8] = include_bytes!("../../../fixtures/pdf/sample.jpg");
     const RGB_PNG: &[u8] = include_bytes!("../../../fixtures/pdf/rgb.png");
     const GREY16_PNG: &[u8] = include_bytes!("../../../fixtures/pdf/grey16.png");
     const RGBA_PNG: &[u8] = include_bytes!("../../../fixtures/pdf/shapes.png");
     const PALETTE_PNG: &[u8] = include_bytes!("../../../fixtures/pdf/palette.png");
+    const WIDE_PNG: &[u8] = include_bytes!("../../../fixtures/pdf/wide.png");
 
     fn samples(data: &ImageData) -> Vec<u8> {
         match data {
@@ -492,6 +557,35 @@ mod tests {
         assert!(within_limits(MAX_SIDE + 1, 1).is_none());
         assert!(within_limits(MAX_SIDE, MAX_SIDE).is_none());
         assert!(within_limits(4000, 4000).is_some());
+    }
+
+    #[test]
+    fn a_picture_within_the_cap_keeps_its_pixels() {
+        assert_eq!(fit(100, 50, (400, 400)), (100, 50));
+        let image = decode_within(RGB_PNG, 4, 3).unwrap();
+        assert_eq!((image.width, image.height), (4, 3));
+    }
+
+    #[test]
+    fn a_picture_over_the_cap_is_resampled_to_fit_and_keeps_its_natural_size() {
+        let image = decode_within(WIDE_PNG, 400, 400).unwrap();
+        assert_eq!((image.width, image.height), (400, 100));
+        assert_eq!((image.natural_width, image.natural_height), (1600, 400));
+        assert_eq!(samples(&image.data).len(), 400 * 100 * 3);
+    }
+
+    #[test]
+    fn fit_keeps_the_aspect_ratio_of_a_wide_or_a_tall_picture() {
+        assert_eq!(fit(1600, 400, (400, 400)), (400, 100));
+        assert_eq!(fit(300, 1200, (400, 400)), (100, 400));
+    }
+
+    #[test]
+    fn resampling_averages_the_pixels_each_output_pixel_covers() {
+        // Four pixels, two black and two white, down to one: grey halfway.
+        assert_eq!(box_resample(&[0, 255, 0, 255], 2, 2, 1, 1, 1), vec![127]);
+        // Two channels stay separate: red, green, blue, and alpha are averaged one at a time.
+        assert_eq!(box_resample(&[10, 0, 30, 0], 2, 1, 2, 1, 1), vec![20, 0]);
     }
 
     #[test]

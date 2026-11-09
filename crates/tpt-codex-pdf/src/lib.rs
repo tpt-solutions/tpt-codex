@@ -73,6 +73,17 @@ impl Margins {
 const BLOCK_SPACING: f64 = 8.0;
 /// Height of the placeholder for a non-text block, in points.
 const BOX_HEIGHT: f64 = 60.0;
+/// The resolution pictures are kept at, in pixels per inch of their size on the page. A picture
+/// drawn at the column width does not need more pixels than this shows.
+const PICTURE_DPI: f64 = 200.0;
+
+/// The most pixels a picture needs along one side to be shown at [`PICTURE_DPI`] across `points`
+/// of the page.
+fn max_pixels(points: f64) -> u32 {
+    (points * PICTURE_DPI / 72.0)
+        .ceil()
+        .clamp(1.0, f64::from(u32::MAX)) as u32
+}
 /// Height of one grid row, in points.
 const ROW_HEIGHT: f64 = 16.0;
 /// Minimum lines of a split paragraph kept together at a page break.
@@ -370,10 +381,17 @@ fn load_pictures(
         let Some(bytes) = images(uri) else {
             continue;
         };
-        let Some(image) = picture::decode(&bytes) else {
+        // A picture is sized on the page from its own pixels, one point a pixel, as it always was.
+        // Its pixels are kept to what the page can show at PICTURE_DPI, so a large one is resampled.
+        let Some(image) =
+            picture::decode_within(&bytes, max_pixels(column), max_pixels(content_height))
+        else {
             continue;
         };
-        let (pixel_width, pixel_height) = (f64::from(image.width), f64::from(image.height));
+        let (pixel_width, pixel_height) = (
+            f64::from(image.natural_width),
+            f64::from(image.natural_height),
+        );
         let aspect = pixel_height / pixel_width;
         let mut width = pixel_width.min(column);
         let mut height = width * aspect;
