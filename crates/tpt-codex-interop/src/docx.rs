@@ -4,11 +4,13 @@
 //! What comes through: paragraphs in order, headings (`Heading1` to `Heading6`, and `Title` as level
 //! 1), bold and italic when a whole paragraph has them, line and tab breaks, and the title and author
 //! from the document properties. Tables become grids, one cell per table cell, with numbers kept as
-//! numbers; a cell's text is never a formula. Merged cells are not kept. List items become plain
-//! paragraphs. Images are not imported.
+//! numbers; a cell's text is never a formula. Merged cells are not kept. Lists come through as
+//! lists, bulleted or numbered from `word/numbering.xml`, when the paragraph or its style numbers
+//! it; nested levels are kept as items of their parent list. Images are not imported.
 //!
 //! Everything that does not come through is counted in the [`FidelityReport`], one item per kind.
 
+use std::collections::HashMap;
 use std::fmt;
 
 use quick_xml::Reader;
@@ -52,7 +54,8 @@ pub struct DocxImport {
 pub fn import_docx(bytes: &[u8]) -> Result<DocxImport, DocxError> {
     let archive = Archive::open(bytes)?;
     let body = read_part(&archive, "word/document.xml")?;
-    let parsed = parse_body(&body)?;
+    let numbering = load_numbering(&archive)?;
+    let parsed = parse_body(&body, &numbering)?;
 
     let mut report = FidelityReport::new();
     if parsed.merged > 0 {
@@ -65,13 +68,13 @@ pub fn import_docx(bytes: &[u8]) -> Result<DocxImport, DocxError> {
             ),
         );
     }
-    if parsed.list_items > 0 {
+    if parsed.nested_items > 0 {
         report.approximated(
             "document",
             "lists",
             format!(
-                "{} list item(s) kept as plain paragraphs; list markers are not kept",
-                parsed.list_items
+                "{} nested list item(s) kept as items of their top-level list; the nesting is not kept",
+                parsed.nested_items
             ),
         );
     }
@@ -83,15 +86,52 @@ pub fn import_docx(bytes: &[u8]) -> Result<DocxImport, DocxError> {
         );
     }
 
+    // Top-level blocks are the root's children. A list's items are blocks of their own, and are
+    // not children of the root, as in the Markdown reader.
     let mut document = Document::new(
         BlockId(0),
         Block::Container {
             layout_mode: LayoutMode::Flow,
-            children: (1..=parsed.blocks.len() as u64).map(BlockId).collect(),
+            children: Vec::new(),
         },
     );
-    for (i, block) in parsed.blocks.into_iter().enumerate() {
-        document.insert(BlockId(i as u64 + 1), block);
+    let mut children = Vec::new();
+    let mut next = 1u64;
+    for top in parsed.blocks {
+        match top {
+            Top::Block(block) => {
+                children.push(BlockId(next));
+                document.insert(BlockId(next), block);
+                next += 1;
+            }
+            Top::List {
+                ordered,
+                start,
+                items,
+                ..
+            } => {
+                let list = BlockId(next);
+                next += 1;
+                let mut ids = Vec::with_capacity(items.len());
+                for item in items {
+                    ids.push(BlockId(next));
+                    document.insert(BlockId(next), item);
+                    next += 1;
+                }
+                children.push(list);
+                document.insert(
+                    list,
+                    Block::List {
+                        ordered,
+                        start,
+                        items: ids,
+                    },
+                );
+            }
+        }
+    }
+    if let Some(Block::Container { children: root, .. }) = document.blocks.get_mut(&BlockId(0)) {
+        *root = children;
     }
     for (id, sheet) in parsed.sheets {
         document.sheets.insert(id, sheet);
@@ -148,12 +188,26 @@ struct Run {
     italic: bool,
 }
 
+/// A top-level block as it is read: a block, or a list whose items are read in order.
+#[derive(Debug)]
+enum Top {
+    Block(Block),
+    List {
+        /// The Word numbering instance, so that consecutive items of one list join it.
+        num_id: String,
+        ordered: bool,
+        start: u32,
+        items: Vec<Block>,
+    },
+}
+
 #[derive(Debug, Default)]
 struct Parsed {
-    blocks: Vec<Block>,
+    blocks: Vec<Top>,
     tables: usize,
     merged: usize,
-    list_items: usize,
+    /// Items at a level below the top, which are kept in their list without their nesting.
+    nested_items: usize,
     images: usize,
     /// The sheets of the tables, each shown by a grid block in `blocks`.
     sheets: Vec<(SheetId, Sheet)>,
@@ -165,8 +219,137 @@ struct Parsed {
 #[derive(Debug, Default)]
 struct Paragraph {
     style: Option<String>,
-    numbered: bool,
+    /// The numbering instance the paragraph names itself, if any (`w:numPr/w:numId`).
+    num_id: Option<String>,
+    /// The level in that instance (`w:numPr/w:ilvl`), `0` for the top.
+    level: u32,
     runs: Vec<Run>,
+}
+
+/// What `word/numbering.xml` and `word/styles.xml` say about lists.
+#[derive(Debug, Default)]
+struct Numbering {
+    /// Numbering instance (`numId`) to its abstract definition (`abstractNumId`).
+    instances: HashMap<String, String>,
+    /// Abstract definition to its top level: `(ordered, start)`. Bullets and `none` are unordered.
+    levels: HashMap<String, (bool, u32)>,
+    /// Paragraph style id to the numbering instance the style gives its paragraphs.
+    styles: HashMap<String, String>,
+}
+
+impl Numbering {
+    /// `(ordered, start)` of a numbering instance, or `None` when the document does not define it.
+    fn list_of(&self, num_id: &str) -> Option<(bool, u32)> {
+        let abstract_id = self.instances.get(num_id)?;
+        self.levels.get(abstract_id).copied()
+    }
+}
+
+/// The value of an attribute by its local name (the part after any prefix).
+fn attr(e: &BytesStart<'_>, name: &str) -> Result<Option<String>, DocxError> {
+    for a in e.attributes() {
+        let a = a.map_err(xml_err)?;
+        if a.key.local_name().as_ref() == name.as_bytes() {
+            let value = a.unescape_value().map_err(xml_err)?;
+            return Ok(Some(value.into_owned()));
+        }
+    }
+    Ok(None)
+}
+
+/// The list definitions. A part that is missing counts as having none; one that cannot be read is
+/// an error.
+fn load_numbering(archive: &Archive<'_>) -> Result<Numbering, DocxError> {
+    let mut numbering = match read_part(archive, "word/numbering.xml") {
+        Ok(xml) => parse_numbering(&xml)?,
+        Err(_) => Numbering::default(),
+    };
+    if let Ok(xml) = read_part(archive, "word/styles.xml") {
+        numbering.styles = parse_styles(&xml)?;
+    }
+    Ok(numbering)
+}
+
+fn parse_numbering(xml: &str) -> Result<Numbering, DocxError> {
+    let mut reader = Reader::from_str(xml);
+    let mut out = Numbering::default();
+    // The numbering instance and abstract definition being read, and the top level inside it.
+    let mut num: Option<String> = None;
+    let mut abstract_id: Option<String> = None;
+    let mut top = false;
+    let mut fmt: Option<String> = None;
+    let mut start = 1u32;
+    loop {
+        let (e, opened) = match reader.read_event().map_err(xml_err)? {
+            Event::Start(e) => (e, true),
+            Event::Empty(e) => (e, false),
+            Event::End(e) => {
+                match e.local_name().as_ref() {
+                    b"num" => num = None,
+                    b"abstractNum" => abstract_id = None,
+                    b"lvl" if top => {
+                        if let Some(id) = &abstract_id {
+                            let ordered =
+                                fmt.as_deref().is_some_and(|f| f != "bullet" && f != "none");
+                            out.levels.insert(id.clone(), (ordered, start));
+                        }
+                        top = false;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            Event::Eof => break,
+            _ => continue,
+        };
+        match e.local_name().as_ref() {
+            b"num" => {
+                num = if opened { attr(&e, "numId")? } else { None };
+            }
+            b"abstractNumId" => {
+                if let (Some(n), Some(value)) = (&num, attr(&e, "val")?) {
+                    out.instances.insert(n.clone(), value);
+                }
+            }
+            b"abstractNum" if opened => abstract_id = attr(&e, "abstractNumId")?,
+            b"lvl" if opened => {
+                top = attr(&e, "ilvl")?.as_deref() == Some("0");
+                fmt = None;
+                start = 1;
+            }
+            b"numFmt" if top => fmt = attr(&e, "val")?,
+            b"start" if top => {
+                if let Some(v) = attr(&e, "val")?.and_then(|v| v.parse().ok()) {
+                    start = v;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+/// The numbering instance each paragraph style gives its paragraphs.
+fn parse_styles(xml: &str) -> Result<HashMap<String, String>, DocxError> {
+    let mut reader = Reader::from_str(xml);
+    let mut out = HashMap::new();
+    let mut style: Option<String> = None;
+    loop {
+        match reader.read_event().map_err(xml_err)? {
+            Event::Start(e) if e.local_name().as_ref() == b"style" => {
+                style = attr(&e, "styleId")?;
+            }
+            Event::End(e) if e.local_name().as_ref() == b"style" => style = None,
+            Event::Empty(e) if e.local_name().as_ref() == b"numId" => {
+                if let (Some(id), Some(value)) = (&style, attr(&e, "val")?) {
+                    out.insert(id.clone(), value);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(out)
 }
 
 fn on_off(e: &BytesStart<'_>) -> Result<bool, DocxError> {
@@ -211,11 +394,7 @@ fn heading_level(style: &str) -> Option<u8> {
     }
 }
 
-fn is_list_style(style: &str) -> bool {
-    style.to_ascii_lowercase().contains("list")
-}
-
-fn parse_body(xml: &str) -> Result<Parsed, DocxError> {
+fn parse_body(xml: &str, numbering: &Numbering) -> Result<Parsed, DocxError> {
     let mut reader = Reader::from_str(xml);
     let mut out = Parsed::default();
     let mut para: Option<Paragraph> = None;
@@ -258,9 +437,14 @@ fn parse_body(xml: &str) -> Result<Parsed, DocxError> {
                         p.style = style_val(&e)?;
                     }
                 }
-                b"numPr" => {
+                b"numId" => {
                     if let Some(p) = para.as_mut() {
-                        p.numbered = true;
+                        p.num_id = style_val(&e)?;
+                    }
+                }
+                b"ilvl" => {
+                    if let Some(p) = para.as_mut() {
+                        p.level = style_val(&e)?.and_then(|v| v.parse().ok()).unwrap_or(0);
                     }
                 }
                 b"b" | b"i" => apply_run_flag(&e, run.as_mut())?,
@@ -296,7 +480,7 @@ fn parse_body(xml: &str) -> Result<Parsed, DocxError> {
                 }
                 b"p" => {
                     if let Some(p) = para.take() {
-                        finish_paragraph(p, &mut out);
+                        finish_paragraph(p, numbering, &mut out);
                     }
                 }
                 b"tbl" => {
@@ -330,7 +514,7 @@ fn apply_run_flag(e: &BytesStart<'_>, run: Option<&mut Run>) -> Result<(), DocxE
     Ok(())
 }
 
-fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
+fn finish_paragraph(p: Paragraph, numbering: &Numbering, out: &mut Parsed) {
     // Each character with its marks. Whitespace at the ends is trimmed, as before.
     let chars: Vec<(char, bool, bool)> = p
         .runs
@@ -382,6 +566,7 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
                 italic,
                 link: None,
                 math: None,
+                link_title: None,
             });
         }
         i = j;
@@ -389,9 +574,18 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
 
     let style = p.style.as_deref();
     let heading = style.and_then(heading_level);
-    if style.is_some_and(is_list_style) || p.numbered {
-        out.list_items += 1;
-    }
+    // A paragraph is in a list when its numbering names one (directly, or through its style). A
+    // numbering of `0` removes the numbering, and an instance the document does not define is text.
+    let num_id = p
+        .num_id
+        .clone()
+        .or_else(|| style.and_then(|s| numbering.styles.get(s).cloned()))
+        .filter(|id| id != "0");
+    let list = num_id.as_deref().and_then(|id| {
+        numbering
+            .list_of(id)
+            .map(|(ordered, start)| (id, ordered, start))
+    });
     // Inside a table, a paragraph is a line of its cell. The cell's text is set when the table ends.
     if let Some(rows) = out.table.as_mut() {
         if let Some(cell) = rows.last_mut().and_then(|row| row.last_mut()) {
@@ -402,7 +596,7 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
         }
         return;
     }
-    out.blocks.push(Block::Text {
+    let block = Block::Text {
         content: text,
         style: TextStyle {
             bold: all_bold,
@@ -410,7 +604,24 @@ fn finish_paragraph(p: Paragraph, out: &mut Parsed) {
             heading_level: heading,
             runs,
         },
-    });
+    };
+    match list {
+        Some((id, ordered, start)) if heading.is_none() => {
+            if p.level > 0 {
+                out.nested_items += 1;
+            }
+            match out.blocks.last_mut() {
+                Some(Top::List { num_id, items, .. }) if num_id == id => items.push(block),
+                _ => out.blocks.push(Top::List {
+                    num_id: id.to_string(),
+                    ordered,
+                    start,
+                    items: vec![block],
+                }),
+            }
+        }
+        _ => out.blocks.push(Top::Block(block)),
+    }
 }
 
 /// Adds a table as a grid block. Each cell's text is read as a number or a boolean when it is one,
@@ -442,8 +653,8 @@ fn add_table(rows: Vec<Vec<String>>, out: &mut Parsed) {
     }
     let id = SheetId(out.sheets.len() as u64 + 1);
     out.sheets.push((id, sheet));
-    out.blocks.push(Block::Grid {
+    out.blocks.push(Top::Block(Block::Grid {
         sheet_id: id,
         view_bounds: None,
-    });
+    }));
 }

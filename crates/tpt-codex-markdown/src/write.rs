@@ -389,6 +389,7 @@ fn runs_with_flags(content: &str, style: &TextStyle) -> Vec<InlineRun> {
             italic: style.italic,
             link: None,
             math: None,
+            link_title: None,
         });
     }
     runs

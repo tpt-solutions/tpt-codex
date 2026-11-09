@@ -158,15 +158,32 @@ fn docx_headings_and_text_come_in_document_order() {
     assert_eq!(texts[0], (Some(1), "Corpus report".to_string()));
     assert_eq!(texts[1].1, "bold italic bold italic plain tail");
     assert_eq!(texts[2], (Some(3), "Table".to_string()));
+    // The two list paragraphs are items of two lists, so the text blocks left are the last one.
     let rest: Vec<&str> = texts[3..].iter().map(|(_, t)| t.as_str()).collect();
+    assert_eq!(rest, ["unicode: café — ünïcode & <tags>"]);
+    let lists: Vec<(bool, Vec<String>)> = flow(&import.document)
+        .iter()
+        .filter_map(|b| match b {
+            Block::List { ordered, items, .. } => Some((
+                *ordered,
+                items
+                    .iter()
+                    .filter_map(|id| match import.document.get(*id) {
+                        Some(Block::Text { content, .. }) => Some(content.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        rest,
+        lists,
         [
-            "bullet one",
-            "numbered one",
-            "unicode: café — ünïcode & <tags>",
+            (false, vec!["bullet one".to_string()]),
+            (true, vec!["numbered one".to_string()]),
         ],
-        "the table is a grid, so the text blocks are the list items and the last paragraph"
+        "the bulleted and numbered paragraphs are lists, bulleted or numbered from the numbering"
     );
     // The table's cells are in its grid: a number stays a number.
     let sheet = import.document.sheets.values().next().expect("a sheet");
@@ -187,10 +204,6 @@ fn docx_report_has_no_table_item_when_nothing_is_merged() {
     let import = import_docx(&fixture("corpus_report.docx")).unwrap();
     let items = import.report.items();
     assert!(items.iter().all(|i| i.feature != "tables"), "{items:#?}");
-    assert!(
-        items
-            .iter()
-            .any(|i| i.feature == "lists" && i.note.contains("2 list item")),
-        "{items:#?}"
-    );
+    // Lists come through as lists, with no nesting to report.
+    assert!(items.iter().all(|i| i.feature != "lists"), "{items:#?}");
 }

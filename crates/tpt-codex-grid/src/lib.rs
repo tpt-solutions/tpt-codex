@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use tpt_codex_core::{CellInput, Document, Sheet, is_valid_address};
 use tpt_lattice_core::{CellId, CellValue};
 use tpt_lattice_evaluator::Evaluator;
-use tpt_typeset::{Bindings, check_bindings, grid_cell_name, resolve_bindings};
+use tpt_typeset::{Bindings, check_bindings, grid_cell_name, query_bindings, resolve_bindings};
 
 pub use tpt_codex_core as core;
 
@@ -266,14 +266,24 @@ pub fn grid_bindings(doc: &Document) -> Bindings {
     bindings
 }
 
-/// `doc` with each `[[sheet<id>.<address>]]` replaced by that cell's computed value, for output
-/// that is not live (a PDF, a Word file). `None` when the document has no such binding, so
-/// nothing is evaluated or copied in the common case.
+/// Every value a `[[name]]` in `doc` can refer to: the grid cells (see [`grid_bindings`]) and the
+/// query results, bound as `q<id>` to their row counts (see `tpt_typeset::query_bindings`).
+pub fn all_bindings(doc: &Document) -> Bindings {
+    let mut bindings = grid_bindings(doc);
+    for (name, value) in query_bindings(doc).iter() {
+        bindings.set(name, value);
+    }
+    bindings
+}
+
+/// `doc` with each `[[name]]` replaced by its value from [`all_bindings`], for output that is not
+/// live (a PDF, a Word file). `None` when the document has no such binding, so nothing is
+/// evaluated or copied in the common case.
 pub fn resolve_document(doc: &Document) -> Option<Document> {
     if check_bindings(doc, &Bindings::new()).is_empty() {
         return None;
     }
-    resolve_bindings(doc, &grid_bindings(doc))
+    resolve_bindings(doc, &all_bindings(doc))
 }
 
 /// A copy of `doc` in which every formula cell holds its computed value, as text, number or

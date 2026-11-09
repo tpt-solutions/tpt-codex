@@ -35,6 +35,11 @@ impl Bindings {
         self.values.get(name).map(String::as_str)
     }
 
+    /// Every bound name and its value, in name order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.values.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+
     /// Number of bound names.
     pub fn len(&self) -> usize {
         self.values.len()

@@ -571,6 +571,7 @@ fn a_flag_that_cannot_be_written_is_refused_not_dropped() {
             italic: true,
             link: None,
             math: None,
+            link_title: None,
         });
     }
     let err = to_markdown(&doc_of(vec![block])).unwrap_err();
@@ -1098,4 +1099,32 @@ fn a_sheet_with_no_stored_size_is_written_at_the_size_of_its_cells() {
     assert!(text.contains("|  | d |"), "{text}");
     let back = from_markdown(&text).unwrap();
     assert_eq!(back.sheets[&SheetId(1)].extent(), (2, 2));
+}
+
+#[test]
+fn a_link_title_is_read_and_written_back() {
+    let md = "# T\n\nSee [the docs](https://x.test/docs \"Read me first\") and [plain](https://x.test).\n";
+    let doc = from_markdown(md).unwrap();
+    let para = match doc.get(BlockId(2)) {
+        Some(Block::Text { style, .. }) => style.runs.clone(),
+        other => panic!("expected a paragraph, got {other:?}"),
+    };
+    let titled = para
+        .iter()
+        .find(|r| r.link.as_deref() == Some("https://x.test/docs"))
+        .expect("the titled link is a run");
+    assert_eq!(titled.link_title.as_deref(), Some("Read me first"));
+    let plain = para
+        .iter()
+        .find(|r| r.link.as_deref() == Some("https://x.test"))
+        .unwrap();
+    assert_eq!(plain.link_title, None);
+    assert_eq!(to_markdown(&doc).unwrap(), md);
+}
+
+#[test]
+fn a_bad_link_title_is_a_structured_error() {
+    // An unfinished title, and an empty one.
+    assert!(from_markdown("[a](https://x.test \"open\n").is_err());
+    assert!(from_markdown("[a](https://x.test \"\")\n").is_err());
 }

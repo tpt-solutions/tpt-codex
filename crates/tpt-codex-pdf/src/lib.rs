@@ -485,8 +485,12 @@ impl PageContext<'_> {
 
     /// The tag of a line of text in the block `block`: a list item, a heading, or a paragraph.
     fn tag_of(&self, block: BlockId, heading_level: Option<u8>) -> Tag {
+        // A sub-list is an item of its parent list, so the parent is the list's own entry in the map.
         let role = match (self.list_of.get(&block.0), heading_level) {
-            (Some(&list), _) => Role::ListItem { list },
+            (Some(&list), _) => Role::ListItem {
+                list,
+                parent: self.list_of.get(&list).copied(),
+            },
             (None, Some(level)) => Role::Heading(level),
             (None, None) => Role::Paragraph,
         };

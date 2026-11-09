@@ -169,6 +169,7 @@ pub fn sample_document() -> Document {
                         italic: false,
                         link: None,
                         math: None,
+                        link_title: None,
                     },
                     InlineRun {
                         start: 19,
@@ -177,6 +178,7 @@ pub fn sample_document() -> Document {
                         italic: false,
                         link: Some("https://example.test".into()),
                         math: None,
+                        link_title: None,
                     },
                 ],
                 ..TextStyle::default()

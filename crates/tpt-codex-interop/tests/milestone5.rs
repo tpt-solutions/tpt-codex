@@ -114,6 +114,7 @@ fn emphasis_and_links_as_text_survive_a_docx_round_trip() {
                         italic: false,
                         link: None,
                         math: None,
+                        link_title: None,
                     },
                     InlineRun {
                         start: 11,
@@ -122,6 +123,7 @@ fn emphasis_and_links_as_text_survive_a_docx_round_trip() {
                         italic: true,
                         link: None,
                         math: None,
+                        link_title: None,
                     },
                     InlineRun {
                         start: 18,
@@ -130,6 +132,7 @@ fn emphasis_and_links_as_text_survive_a_docx_round_trip() {
                         italic: false,
                         link: Some("https://example.test".into()),
                         math: None,
+                        link_title: None,
                     },
                 ],
                 ..TextStyle::default()

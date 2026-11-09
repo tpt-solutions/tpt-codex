@@ -12,6 +12,7 @@ fn bold(start: usize, end: usize) -> InlineRun {
         italic: false,
         link: None,
         math: None,
+        link_title: None,
     }
 }
 
@@ -23,6 +24,7 @@ fn link(start: usize, end: usize, url: &str) -> InlineRun {
         italic: false,
         link: Some(url.into()),
         math: None,
+        link_title: None,
     }
 }
 

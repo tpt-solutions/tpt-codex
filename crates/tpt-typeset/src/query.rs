@@ -163,3 +163,35 @@ pub fn document_entities(doc: &tpt_codex_core::Document) -> tpt_query::MemorySou
     }
     src
 }
+
+/// The name a query block's result is bound under: `q<id>`, such as `q1` for the block `BlockId(1)`.
+pub fn query_name(block: tpt_codex_core::BlockId) -> alloc::string::String {
+    format!("q{}", block.0)
+}
+
+/// Runs every `Block::Query` in `doc` against the document's own blocks and binds each result to
+/// [`query_name`] as its row count: `"3 rows"`, or `"1 row"`. A query that does not parse or run is
+/// not bound, so a `[[q1]]` that uses it is reported as having no value.
+pub fn query_bindings(doc: &tpt_codex_core::Document) -> crate::Bindings {
+    let mut bindings = crate::Bindings::new();
+    let entities = document_entities(doc);
+    for (&id, block) in &doc.blocks {
+        let tpt_codex_core::Block::Query(query) = block else {
+            continue;
+        };
+        let Ok(json) = run_query(query, &entities) else {
+            continue;
+        };
+        let Ok(serde_json::Value::Array(rows)) = serde_json::from_str::<serde_json::Value>(&json)
+        else {
+            continue;
+        };
+        let value = if rows.len() == 1 {
+            format!("{} row", rows.len())
+        } else {
+            format!("{} rows", rows.len())
+        };
+        bindings.set(&query_name(id), &value);
+    }
+    bindings
+}

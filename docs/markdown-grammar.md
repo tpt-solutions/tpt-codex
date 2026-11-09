@@ -78,7 +78,8 @@ escape       = "\" ASCII-punctuation ;      (* the punctuation character, litera
 emphasis     = "*" text-no-edge-space "*" ;  (* closes with one star *)
 strong       = "**" text-no-edge-space "**" ; (* closes with two stars *)
 both         = "***" text-no-edge-space "***" ; (* bold and italic; closes with three stars *)
-link         = "[" link-text "](" address ")" ;
+link         = "[" link-text "](" address [ " " title ] ")" ;
+title        = '"' { character - '"' - ")" - NL } '"' ;  (* not empty; plain text, no escapes *)
 citation     = "[@" key "]" ;               (* shows the key until its text is replaced *)
 footnote-ref = "[^" label "]" ;            (* likewise, for a footnote label *)
 binding      = "[[" name "]]" ;            (* a value the host supplies, shown by name until then *)
@@ -262,4 +263,4 @@ document already used that numbering.
 Loose lists, setext headings, tables outside a grid, `[#ref]`
 cross-references (use `[text](#anchor)` for headings and `[text](#fig:id)`, `[text](#eq:id)` or `[text](#tab:id)`
 for figures, equations and tables), emphasis nested
-in links, links with titles, bold combined with italic, grid view bounds, and slide sections and frames.
+in links, bold combined with italic, grid view bounds, and slide sections and frames.

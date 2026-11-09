@@ -6,20 +6,22 @@ use tpt_codex_interop::{ArchiveWriter, Fidelity, export_docx, import_docx};
 
 const BASIC: &[u8] = include_bytes!("../../../fixtures/office/basic.docx");
 
-/// The text blocks of the imported document, in order, as `(text, heading level, bold)`.
+/// The text blocks of the imported document, in order, as `(text, heading level, bold)`. A list
+/// contributes its items, in order. A table is a grid, and its cells are checked separately.
 fn paragraphs(doc: &tpt_codex_core::Document) -> Vec<(String, Option<u8>, bool)> {
     let Some(Block::Container { children, .. }) = doc.get(doc.root) else {
         panic!("root is not a container");
     };
+    let text = |id: &tpt_codex_core::BlockId| match doc.get(*id) {
+        Some(Block::Text { content, style }) => (content.clone(), style.heading_level, style.bold),
+        other => panic!("expected text, got {other:?}"),
+    };
     children
         .iter()
-        .filter_map(|id| match doc.get(*id) {
-            Some(Block::Text { content, style }) => {
-                Some((content.clone(), style.heading_level, style.bold))
-            }
-            // The table is a grid; its cells are checked separately.
-            Some(Block::Grid { .. }) => None,
-            other => panic!("expected text, got {other:?}"),
+        .flat_map(|id| match doc.get(*id) {
+            Some(Block::List { items, .. }) => items.iter().map(text).collect(),
+            Some(Block::Grid { .. }) => Vec::new(),
+            _ => vec![text(id)],
         })
         .collect()
 }
@@ -170,8 +172,8 @@ fn the_report_counts_what_was_flattened_or_dropped() {
     };
     // The table is a grid, so only merged cells would be reported for it.
     assert!(items.iter().all(|i| i.feature != "tables"));
-    assert_eq!(find("lists").outcome, Fidelity::Approximated);
-    assert!(find("lists").note.starts_with("2 list item"));
+    // The lists are lists, with no nesting to report.
+    assert!(items.iter().all(|i| i.feature != "lists"));
     // Mixed bold and italic are kept as runs now, so they are not reported as lost.
     assert!(items.iter().all(|i| i.feature != "inline formatting"));
     assert_eq!(find("images").outcome, Fidelity::Dropped);
@@ -203,4 +205,81 @@ fn a_paragraph_with_only_spaces_is_skipped_and_breaks_are_kept() {
     assert_eq!(got[0].0, "a\tb");
     assert_eq!(got[1], ("c".to_string(), Some(3), false));
     assert!(import.document.metadata.title.is_none());
+}
+
+/// A numbering part: instance 1 is bulleted, instance 2 numbered from 3. Instance 3 is not defined.
+const NUMBERING: &str = r#"<?xml version="1.0"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/></w:lvl></w:abstractNum>
+  <w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="3"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+  <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
+</w:numbering>"#;
+
+/// A style that numbers its paragraphs: `ListNumber` is instance 2.
+const STYLES: &str = r#"<?xml version="1.0"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="ListNumber"><w:pPr><w:numPr><w:numId w:val="2"/></w:numPr></w:pPr></w:style>
+</w:styles>"#;
+
+#[test]
+fn lists_follow_the_numbering_and_nested_levels_are_flattened() {
+    let body = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>one</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>nested</w:t></w:r></w:p>
+<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr><w:r><w:t>first numbered</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr><w:r><w:t>second numbered</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr></w:pPr><w:r><w:t>undefined</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr></w:pPr><w:r><w:t>no numbering</w:t></w:r></w:p>
+</w:body></w:document>"#;
+    let mut w = ArchiveWriter::new();
+    w.add("word/document.xml", body.as_bytes().to_vec())
+        .unwrap();
+    w.add("word/numbering.xml", NUMBERING.as_bytes().to_vec())
+        .unwrap();
+    w.add("word/styles.xml", STYLES.as_bytes().to_vec())
+        .unwrap();
+    let import = import_docx(&w.finish().unwrap()).unwrap();
+
+    let Some(Block::Container { children, .. }) = import.document.get(import.document.root) else {
+        panic!("root is not a container");
+    };
+    let shape: Vec<String> = children
+        .iter()
+        .map(|id| match import.document.get(*id) {
+            Some(Block::List {
+                ordered,
+                start,
+                items,
+            }) => {
+                let texts: Vec<String> = items
+                    .iter()
+                    .map(|i| match import.document.get(*i) {
+                        Some(Block::Text { content, .. }) => content.clone(),
+                        other => panic!("{other:?}"),
+                    })
+                    .collect();
+                format!("list ordered={ordered} start={start} {texts:?}")
+            }
+            Some(Block::Text { content, .. }) => format!("text {content}"),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            "list ordered=false start=1 [\"one\", \"nested\"]",
+            "list ordered=true start=3 [\"first numbered\", \"second numbered\"]",
+            "text undefined",
+            "text no numbering",
+        ]
+    );
+    let items = import.report.items();
+    let lists = items
+        .iter()
+        .find(|i| i.feature == "lists")
+        .expect("nested levels are reported");
+    assert!(lists.note.starts_with("1 nested list item"));
+    import.document.validate().unwrap();
 }

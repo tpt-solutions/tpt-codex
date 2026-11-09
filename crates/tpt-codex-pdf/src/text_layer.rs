@@ -53,6 +53,8 @@ pub enum Role {
     ListItem {
         /// The block id of the list.
         list: u64,
+        /// The block id of the list this one is an item of, when it is a sub-list.
+        parent: Option<u64>,
     },
     /// A cell of a grid.
     Cell {

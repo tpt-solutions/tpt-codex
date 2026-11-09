@@ -90,10 +90,11 @@ impl Tree {
 struct Open {
     /// The paragraph or heading: its role, its block, and its element.
     run: Option<(Role, u64, usize)>,
-    /// The list: its id and element.
-    list: Option<(u64, usize)>,
-    /// The list item: its block, and the element its text is in.
-    item: Option<(u64, usize)>,
+    /// The lists open on this page, outermost first: each one's id and element. A sub-list is
+    /// open inside the item above it.
+    lists: Vec<(u64, usize)>,
+    /// The list item: its block, the element its text is in, and its own element.
+    item: Option<(u64, usize, usize)>,
     /// The table: its block, and its element.
     table: Option<(u64, usize)>,
     /// The table row: its number, and its element.
@@ -169,7 +170,7 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
                                 node
                             }
                         };
-                        open.list = None;
+                        open.lists.clear();
                         open.item = None;
                         open.close_table();
                         tree.nodes[node].mcids.push(mcid);
@@ -177,26 +178,46 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
                         marks.push(Mark::Tagged { mcid, tag: kind });
                         mcid += 1;
                     }
-                    Role::ListItem { list: list_id } => {
+                    Role::ListItem {
+                        list: list_id,
+                        parent,
+                    } => {
                         open.run = None;
                         open.close_table();
-                        let list_node = match open.list {
-                            Some((id, node)) if id == *list_id => node,
-                            _ => {
+                        // The item is in its list, which is open already or starts now. Lists
+                        // nested deeper than it are closed. A new list that is an item of an open
+                        // list goes in that list's item, as a sub-list.
+                        let list_node = match open.lists.iter().position(|(id, _)| id == list_id) {
+                            Some(depth) => {
+                                open.lists.truncate(depth + 1);
+                                open.lists[depth].1
+                            }
+                            None => {
                                 let node = tree.new_node("L", page);
-                                tree.top.push(node);
-                                open.list = Some((*list_id, node));
+                                let parent_item = match (parent, open.item) {
+                                    (Some(p), Some((_, _, entry)))
+                                        if open.lists.iter().any(|(id, _)| id == p) =>
+                                    {
+                                        Some(entry)
+                                    }
+                                    _ => None,
+                                };
+                                match parent_item {
+                                    Some(entry) => tree.nodes[entry].children.push(node),
+                                    None => tree.top.push(node),
+                                }
+                                open.lists.push((*list_id, node));
                                 node
                             }
                         };
                         let body = match open.item {
-                            Some((block, body)) if block == text.block => body,
+                            Some((block, body, _)) if block == text.block => body,
                             _ => {
                                 let entry = tree.new_node("LI", page);
                                 tree.nodes[list_node].children.push(entry);
                                 let body = tree.new_node("LBody", page);
                                 tree.nodes[entry].children.push(body);
-                                open.item = Some((text.block, body));
+                                open.item = Some((text.block, body, entry));
                                 body
                             }
                         };
@@ -215,7 +236,7 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
                         header,
                     } => {
                         open.run = None;
-                        open.list = None;
+                        open.lists.clear();
                         open.item = None;
                         let table_node = match open.table {
                             Some((id, node)) if id == *table => node,
@@ -264,4 +285,64 @@ pub fn build(pages: &[Vec<Item>]) -> Tree {
         tree.owners.push(owners);
     }
     tree
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::text_layer::TextRun;
+
+    fn item(list: u64, parent: Option<u64>, block: u64) -> Item {
+        Item::Run(TextRun {
+            face: 0,
+            size: 10.0,
+            glyphs: Vec::new(),
+            role: Role::ListItem { list, parent },
+            block,
+        })
+    }
+
+    fn kinds(tree: &Tree, ids: &[usize]) -> Vec<String> {
+        ids.iter().map(|&i| tree.nodes[i].kind.clone()).collect()
+    }
+
+    #[test]
+    fn a_sub_list_is_inside_the_item_above_it() {
+        // Outer list 10 has items 1 and 2; item 1 has sub-list 20 with item 3.
+        let pages = vec![vec![
+            item(10, None, 1),
+            item(20, Some(10), 3),
+            item(10, None, 2),
+        ]];
+        let tree = build(&pages);
+        assert_eq!(tree.top.len(), 1, "only the outer list is at the top");
+        let outer = tree.top[0];
+        assert_eq!(tree.nodes[outer].kind, "L");
+        let items = tree.nodes[outer].children.clone();
+        assert_eq!(
+            kinds(&tree, &items),
+            ["LI", "LI"],
+            "the outer list has two items"
+        );
+        // The first item holds its body and then the sub-list.
+        let first = items[0];
+        assert_eq!(kinds(&tree, &tree.nodes[first].children), ["LBody", "L"]);
+        let sub = tree.nodes[first].children[1];
+        assert_eq!(kinds(&tree, &tree.nodes[sub].children), ["LI"]);
+    }
+
+    #[test]
+    fn a_sub_list_closes_when_the_outer_item_after_it_starts() {
+        let pages = vec![vec![
+            item(10, None, 1),
+            item(20, Some(10), 3),
+            item(10, None, 2),
+        ]];
+        let tree = build(&pages);
+        // The second outer item is in the same outer list, not in the sub-list.
+        let outer = tree.top[0];
+        assert_eq!(tree.nodes[outer].children.len(), 2);
+        let second = tree.nodes[outer].children[1];
+        assert_eq!(kinds(&tree, &tree.nodes[second].children), ["LBody"]);
+    }
 }

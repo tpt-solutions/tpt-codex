@@ -65,6 +65,7 @@ fn word_edits_in_one_block_combine_and_move_inline_runs() {
                     italic: false,
                     link: None,
                     math: None,
+                    link_title: None,
                 }],
                 ..TextStyle::default()
             },

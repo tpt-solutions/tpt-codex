@@ -111,6 +111,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                             italic: len != 2,
                             link: None,
                             math: None,
+                            link_title: None,
                         });
                         open = None;
                         i += len;
@@ -148,6 +149,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                     italic: false,
                     link: None,
                     math: Some(source),
+                    link_title: None,
                 });
                 i = close + 1;
             }
@@ -173,6 +175,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                         italic: false,
                         link: Some(alloc::format!("{BINDING_PREFIX}{name}")),
                         math: None,
+                        link_title: None,
                     });
                     i = close + 2;
                     continue;
@@ -195,6 +198,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                             italic: false,
                             link: Some(alloc::format!("{prefix}{key}")),
                             math: None,
+                            link_title: None,
                         });
                         i = close + 1;
                         continue;
@@ -207,7 +211,8 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                     .position(|&x| x == ')')
                     .map(|p| address_start + p)
                     .ok_or(LINK_SYNTAX)?;
-                let address: String = chars[address_start..address_end].iter().collect();
+                let inside: String = chars[address_start..address_end].iter().collect();
+                let (address, link_title) = split_link_title(&inside).ok_or(LINK_SYNTAX)?;
                 if !is_address(&address) {
                     return Err(LINK_ADDRESS);
                 }
@@ -221,6 +226,7 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
                     italic: false,
                     link: Some(address),
                     math: None,
+                    link_title,
                 });
                 i = address_end + 1;
             }
@@ -237,6 +243,20 @@ pub(crate) fn parse_inline(src: &str) -> Result<Inline, InlineError> {
         text: out.into_iter().collect(),
         runs,
     })
+}
+
+/// Splits what is inside a link's parentheses into the address and an optional title, as in
+/// `address "title"`. The title is plain text with no quote marks and no line breaks. `None` when a
+/// title is started and not finished, or is empty.
+fn split_link_title(inside: &str) -> Option<(String, Option<String>)> {
+    let Some(at) = inside.find(" \"") else {
+        return Some((String::from(inside), None));
+    };
+    let title = inside[at + 2..].strip_suffix('"')?;
+    if title.is_empty() || title.contains(['"', '\n', '\r']) {
+        return None;
+    }
+    Some((String::from(&inside[..at]), Some(String::from(title))))
 }
 
 /// Finds the `]` that closes a link's text, starting at `from`.
@@ -306,6 +326,7 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
     let mut bold = alloc::vec![false; n];
     let mut italic = alloc::vec![false; n];
     let mut link: Vec<Option<&str>> = alloc::vec![None; n];
+    let mut title: Vec<Option<&str>> = alloc::vec![None; n];
     let mut math: Vec<Option<&str>> = alloc::vec![None; n];
     for run in runs {
         if run.start >= run.end || run.end > n {
@@ -319,16 +340,30 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
                 return Err("inline math source has a dollar sign or a line break");
             }
         }
+        if let Some(t) = run.link_title.as_deref() {
+            if run.link.is_none() {
+                return Err("only a link can have a title");
+            }
+            if t.is_empty() || t.contains(['"', ')', '\n', '\r']) {
+                return Err(
+                    "link title cannot be empty or contain a quote, parenthesis or line break",
+                );
+            }
+        }
         for i in run.start..run.end {
             math[i] = run.math.as_deref().or(math[i]);
             bold[i] |= run.bold;
             italic[i] |= run.italic;
             if let Some(url) = run.link.as_deref() {
+                let t = run.link_title.as_deref();
                 match link[i] {
-                    Some(existing) if existing != url => {
+                    Some(existing) if existing != url || title[i] != t => {
                         return Err("a character cannot link to two addresses");
                     }
-                    _ => link[i] = Some(url),
+                    _ => {
+                        link[i] = Some(url);
+                        title[i] = t;
+                    }
                 }
             }
         }
@@ -337,9 +372,9 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
     let mut out = String::new();
     let mut i = 0;
     while i < n {
-        let key = (bold[i], italic[i], link[i], math[i]);
+        let key = (bold[i], italic[i], link[i], math[i], title[i]);
         let mut j = i + 1;
-        while j < n && (bold[j], italic[j], link[j], math[j]) == key {
+        while j < n && (bold[j], italic[j], link[j], math[j], title[j]) == key {
             j += 1;
         }
         let segment: String = chars[i..j].iter().collect();
@@ -356,6 +391,13 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
             out.push('$');
             i = j;
             continue;
+        }
+        if key.4.is_some()
+            && key
+                .2
+                .is_some_and(|u| u.starts_with(['@', '^']) || u.starts_with(BINDING_PREFIX))
+        {
+            return Err("a citation, footnote or binding cannot have a title");
         }
         match (key.0, key.1, key.2) {
             (false, false, None) => out.push_str(&escape(&segment)),
@@ -419,6 +461,11 @@ pub(crate) fn write_inline(text: &str, runs: &[InlineRun]) -> Result<String, &'s
                 out.push_str(&escape(&segment));
                 out.push_str("](");
                 out.push_str(url);
+                if let Some(t) = key.4 {
+                    out.push_str(" \"");
+                    out.push_str(t);
+                    out.push('"');
+                }
                 out.push(')');
             }
         }
@@ -466,6 +513,7 @@ mod tests {
             italic,
             link: None,
             math: None,
+            link_title: None,
         }
     }
 
@@ -555,6 +603,7 @@ mod tests {
                     italic: false,
                     link: Some("https://x.test/a".into()),
                     math: None,
+                    link_title: None,
                 }],
             ),
         ];
@@ -586,6 +635,7 @@ mod tests {
             italic: false,
             link: Some(url.into()),
             math: None,
+            link_title: None,
         };
         assert!(write_inline("ab", &[link(0, 2, "a b")]).is_err());
         assert!(write_inline("ab", &[link(0, 2, "x"), link(1, 2, "y")]).is_err());
@@ -619,6 +669,7 @@ mod tests {
             italic: false,
             link: Some("var:name".into()),
             math: None,
+            link_title: None,
         }];
         assert!(write_inline("abc", &replaced).is_err());
     }

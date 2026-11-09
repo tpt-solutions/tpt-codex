@@ -1307,11 +1307,20 @@ impl Editor {
                         .class("page-number");
                     for item in &page.items {
                         match &item.kind {
-                            FlowKind::Line { text, marker, .. } => {
+                            FlowKind::Line {
+                                text,
+                                marker,
+                                indent,
+                                ..
+                            } => {
                                 let shown = match marker {
                                     Some(marker) => format!("{marker} {text}"),
                                     None => text.clone(),
                                 };
+                                // Nested list items and quoted blocks are indented by the layout. The
+                                // indent is drawn as no-break spaces, so the line keeps it in any
+                                // renderer.
+                                let shown = format!("{}{shown}", indent_spaces(*indent));
                                 p.container(|s| {
                                     s.text(shown);
                                 })
@@ -2095,6 +2104,11 @@ fn styled_text(c: &mut ContainerBuilder<Msg>, text: impl Into<String>, class: &s
     .class(class);
 }
 
+/// The no-break spaces that stand for a line's indent in the paginated view: one per 9 points.
+fn indent_spaces(indent: f64) -> String {
+    "\u{a0}".repeat((indent / 9.0).round().max(0.0) as usize)
+}
+
 /// The height of one grid row in the flow and the paginated view, in points.
 const GRID_ROW_POINTS: f64 = 20.0;
 
@@ -2229,6 +2243,7 @@ mod inline_view_tests {
             italic,
             link: link.map(String::from),
             math: None,
+            link_title: None,
         }
     }
 

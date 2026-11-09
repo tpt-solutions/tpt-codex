@@ -1089,6 +1089,7 @@ fn inline_math_runs_are_drawn_as_math() {
             italic: false,
             link: None,
             math: Some("Body".into()),
+            link_title: None,
         });
     }
     let html = render(&Editor::new(d).view());
@@ -1358,4 +1359,40 @@ The answer is [[sheet1.A3]].
     // While editing, the paragraph still shows the name, so it can be changed.
     let editing = render(&e.view());
     assert!(editing.contains("sheet1.A3"), "{editing}");
+}
+
+#[test]
+fn the_paginated_view_indents_nested_items_and_quotes() {
+    use tpt_codex_views::{FlowOptions, MonospaceMeasure, PageGeometry};
+    let doc = tpt_codex_markdown::from_markdown("- outer\n    - inner\n\n> quoted\n").unwrap();
+    let measure = MonospaceMeasure {
+        char_width: 6.0,
+        line_height: 10.0,
+    };
+    let flow = FlowOptions {
+        width: 300.0,
+        block_spacing: 0.0,
+        box_height: 10.0,
+        row_height: 10.0,
+    };
+    let geometry = PageGeometry {
+        height: 400.0,
+        margin_top: 0.0,
+        margin_bottom: 0.0,
+        min_lines: 1,
+    };
+    let e = Editor::new(doc);
+    let pages = render(&e.paginated_view(&measure, flow, geometry).unwrap());
+    // A top-level item is indented past its marker (two no-break spaces), a nested item one level
+    // further (four), and a quoted block the same as a top-level item.
+    let nbsp = "\u{a0}";
+    assert!(pages.contains(&format!("{nbsp}{nbsp}• outer")), "{pages}");
+    assert!(
+        pages.contains(&format!("{}• inner", nbsp.repeat(4))),
+        "{pages}"
+    );
+    assert!(
+        pages.contains(&format!("{}quoted", nbsp.repeat(2))),
+        "{pages}"
+    );
 }

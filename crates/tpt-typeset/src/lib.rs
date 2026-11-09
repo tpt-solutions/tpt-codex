@@ -74,7 +74,9 @@ pub use math_layout::{MathBox, MathConstants, MathItem, MathMetrics, layout_math
 pub use math_svg::math_svg;
 pub use outline::{Outline, OutlineEntry, TocLine, number_string, slugify};
 pub mod query_builder;
-pub use query::{QueryRunError, document_entities, entity_type, run_query};
+pub use query::{
+    QueryRunError, document_entities, entity_type, query_bindings, query_name, run_query,
+};
 pub use references::{ReferenceCheck, check_references};
 pub use sections::{SectionGroup, slide_sections};
 pub use semantic::{Section, SemanticTree, semantic_tree};

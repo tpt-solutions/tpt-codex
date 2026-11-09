@@ -73,6 +73,7 @@ pub fn remap_runs(
                 start: s,
                 end: e,
                 math: None,
+                link_title: None,
                 ..run.clone()
             })
         })
@@ -90,6 +91,7 @@ pub fn clip_runs(runs: &[InlineRun], len: usize) -> Vec<InlineRun> {
                 start: s,
                 end: e,
                 math: None,
+                link_title: None,
                 ..run.clone()
             })
         })

@@ -128,14 +128,14 @@ pub fn check_document(doc: &Document, library: Option<&Library>) -> Vec<Finding>
             }
         }
     }
-    let values = tpt_codex_grid::grid_bindings(doc);
+    let values = tpt_codex_grid::all_bindings(doc);
     for b in check_bindings(doc, &values) {
         if b.value.is_none() {
             add(
                 Severity::Error,
                 b.block,
                 format!(
-                    "[[{}]] has no value: no grid cell has that name, or the cell is empty or has an error (cells are named like sheet1.B4)",
+                    "[[{}]] has no value: no grid cell or query has that name, or the cell is empty or has an error or the query fails (cells are named like sheet1.B4, queries like q1)",
                     b.name
                 ),
             );
